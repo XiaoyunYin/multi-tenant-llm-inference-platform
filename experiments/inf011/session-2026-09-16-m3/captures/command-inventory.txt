@@ -1,0 +1,59 @@
+# Retained SSM command inventory (57 commands), sanitized of instance/account identifiers.
+# Times are AWS RequestedDateTime in America/Los_Angeles; statuses are SSM terminal statuses.
+2026-09-16T10:03:01.714-07:00|Success|INF-011 readiness check|a3327baa-8e67-402d-9fbd-cd3225f3e26c
+2026-09-16T10:04:21.548-07:00|Failed|INF-011 bounded readiness check|ed15caf4-22ab-4f90-9449-91d150db8c18
+2026-09-16T10:05:04.419-07:00|Success|INF-011 cloud-init and service log check|8be69830-c534-4b6f-9f17-977cbe0a1095
+2026-09-16T10:05:58.655-07:00|Success|INF-011 startup progress check|74ff4f2c-ca18-4e69-90e2-ec77d094bcd5
+2026-09-16T10:06:24.782-07:00|Success|INF-011 startup progress check|8e552952-67f9-4897-8748-498d22e8a674
+2026-09-16T10:07:11.463-07:00|Success|INF-011 startup process check|67d9814e-2a4a-4b88-86f6-cfcdd21b02b2
+2026-09-16T10:07:42.924-07:00|Success|INF-011 runtime readiness check|b8a8a604-eef6-4f38-b7ea-659f3ab7cca9
+2026-09-16T10:08:37.093-07:00|Success|INF-011 vLLM readiness poll|9e1d7dd2-767f-4594-87f2-a2a5825d8c75
+2026-09-16T10:09:04.009-07:00|Success|INF-011 vLLM readiness poll|d2bc484c-04ef-40be-aa9b-2138906c463f
+2026-09-16T10:10:32.329-07:00|Failed|INF-011 vLLM readiness poll|0453c785-5422-484d-93a4-f87b7cd5b29d
+2026-09-16T10:11:06.771-07:00|Success|INF-011 vLLM log check|e9989b1a-53d7-47ff-8b47-467a15778d6c
+2026-09-16T10:11:35.086-07:00|Success|INF-011 command transport test|6ce85ee0-41cd-42d1-9044-11af42070813
+2026-09-16T10:12:14.780-07:00|Success|INF-011 sanitized vLLM log check|dd8df3c9-b7ad-4599-b677-ba26e7a3c1ff
+2026-09-16T10:12:35.250-07:00|Success|INF-011 vLLM loading poll|53048817-b7c2-490a-8b27-5cd2932f9107
+2026-09-16T10:12:58.768-07:00|Success|INF-011 vLLM readiness poll|4530f1dc-5672-4eab-9475-85279986e1eb
+2026-09-16T10:13:20.452-07:00|Success|INF-011 vLLM initialization poll|9b914328-3e1a-4182-be03-e541d906a982
+2026-09-16T10:13:47.705-07:00|Success|INF-011 vLLM initialization poll|857b513c-9f50-4d06-8b67-1f51c3a187a5
+2026-09-16T10:14:39.181-07:00|Success|INF-011 bounded vLLM readiness poll|e74c244d-2a09-4d6a-b226-6d063bbef9b7
+2026-09-16T10:17:25.906-07:00|Success|INF-011 vLLM load status|312d8f13-bac0-482e-b52c-fcaae6032396
+2026-09-16T10:17:51.145-07:00|Success|INF-011 bounded vLLM readiness poll|695fb625-9e54-4830-b500-3da17a1b2e5a
+2026-09-16T10:21:17.352-07:00|Success|INF-011 vLLM stall diagnostics|9654f9c5-6fb2-4e8d-8705-7590535a2637
+2026-09-16T10:21:45.119-07:00|Success|INF-011 bounded vLLM initialization poll|a49a11b5-f55e-4ced-8af8-a718cd212331
+2026-09-16T10:24:30.691-07:00|Success|INF-011 vLLM shard progress|1e5558c3-0654-4063-ae09-4b8a880b1926
+2026-09-16T10:25:14.015-07:00|Success|INF-011 bounded vLLM load poll|e56ce41c-3c29-4848-b446-e28c76a82b3f
+2026-09-16T10:29:15.655-07:00|Failed|INF-011 vLLM progress diagnosis|56da972b-751f-4702-b1a1-bd6666c804b0
+2026-09-16T10:29:42.949-07:00|Success|INF-011 final bounded startup poll|53eef973-23e5-4370-ad0d-c364ad6fc216
+2026-09-16T10:30:43.819-07:00|Success|INF-011 current health check|2a9b3705-92e4-45cd-9e43-8df9e0b1efae
+2026-09-16T10:32:40.557-07:00|Success|INF-011 current API health check|65ddcbea-c17a-497b-bc3a-be9a24bee683
+2026-09-16T10:33:27.095-07:00|Success|INF-011 run 1 runtime evidence|9c6dfa55-3108-4c45-acb3-2b7ce32d0f8e
+2026-09-16T10:34:04.848-07:00|Success|INF-011 M3 run 1 minimal chat request|540a1219-5110-4b02-8535-8b0f41600b8e
+2026-09-16T10:35:18.364-07:00|Success|INF-011 M3 run 2 cache reset|3887b934-341b-475d-b919-0d63b640ce5e
+2026-09-16T10:35:44.811-07:00|Success|INF-011 cache metrics baseline|1ab55ef7-ba7b-40ad-acb3-3365f720c352
+2026-09-16T10:36:18.728-07:00|Success|INF-011 M3 run 2 cache salt A first request|771cb217-7567-45f4-8b48-b3ed939b81d1
+2026-09-16T10:37:09.407-07:00|Success|INF-011 M3 run 2 cache salt A repeat|89e4bf91-5da1-4c93-881b-e26fd92efb05
+2026-09-16T10:38:00.955-07:00|Success|INF-011 cache metrics after same salt|15ce7192-3cb6-4b64-8111-06f93482dbf2
+2026-09-16T10:38:24.652-07:00|Success|INF-011 M3 run 2 cache salt B separation|127d9c64-28f9-4544-8770-c29136fbcf2d
+2026-09-16T10:39:28.095-07:00|Success|INF-011 cache metrics after different salt|c5c7cd1b-1a3f-40f7-8389-70a1a554861b
+2026-09-16T10:39:57.313-07:00|Success|INF-011 M3 run 1 streaming SSE compatibility|71de179b-10b5-4009-b522-26b8f706fbf7
+2026-09-16T10:40:53.865-07:00|Success|INF-011 M3 run 1 pre-stream failure|ef332700-ebf2-4889-9d5b-5ec945e20973
+2026-09-16T10:41:28.062-07:00|Success|INF-011 M3 run 1 cancellation|94e0411c-db42-4de6-93d6-8ca2296c4821
+2026-09-16T10:58:58.873-07:00|Success|INF-011 M3 run 1 prompt fit checks|b4269a7b-8292-47a3-981d-b17f80cb4156
+2026-09-16T11:00:48.195-07:00|Success|INF-011 M3 run 1 prompt fit checks|91f710d4-5a23-4e67-9132-df5439eecea9
+2026-09-16T11:02:15.826-07:00|Success|INF-011 fit fixture inspection|eec7817b-668f-477f-b83f-c23b21f06bfc
+2026-09-16T11:02:58.614-07:00|Success|INF-011 fit fixture validation|e23d970b-32c8-4d20-bb1d-99b06391ff99
+2026-09-16T11:03:20.610-07:00|Success|INF-011 fit fixture byte check|0bce80d4-106a-45a6-886f-47264d7ef64e
+2026-09-16T11:04:01.933-07:00|Success|INF-011 fit fixture byte analysis|c764a2fa-2c13-45e9-974a-8e855aa68d50
+2026-09-16T11:04:30.653-07:00|Success|INF-011 M3 run 1 prompt fit checks|12d6ee2c-482c-454f-972b-a925922c8865
+2026-09-16T11:06:56.766-07:00|Failed|INF-011 M3 run 3 bounded calibration|f7f5bdcc-800b-4613-ba75-cb5ddc4a3dcf
+2026-09-16T11:07:11.432-07:00|Success|INF-011 calibration metric samples|1e400e3e-c2d8-48c3-930a-b3dc66814be0
+2026-09-16T11:11:47.527-07:00|Failed|INF-011 M3 run 3 bounded calibration|bfe5e00e-0622-4adb-8571-3f513ba5bfa0
+2026-09-16T11:12:00.710-07:00|Success|INF-011 calibration metric samples|6673481b-7c45-411e-a42e-cda1d86d3d9d
+2026-09-16T11:13:07.151-07:00|Success|INF-011 M3 run 3 bounded calibration|f362b2ef-b331-4357-8fb5-ef1f7da0a5aa
+2026-09-16T11:13:21.458-07:00|Success|INF-011 calibration metric samples|47629388-c50d-423d-b796-c237b25ecfdb
+2026-09-16T11:14:38.763-07:00|Success|INF-011 M3 run 3 longer calibration|b9c74c44-6a2a-414e-b44c-ab3cb296f439
+2026-09-16T11:16:33.247-07:00|Success|INF-011 calibration metric sampler|7d87c2ce-3e1b-4976-9dbc-98af32d99de3
+2026-09-16T11:17:53.334-07:00|Success|INF-011 final runtime snapshot|f69cc4aa-c456-41b1-ba01-bc0c7a16e54b
+2026-09-16T11:18:25.665-07:00|Success|INF-011 inspect DCGM service state|648eed51-6bea-430c-b1f3-528154265b6e

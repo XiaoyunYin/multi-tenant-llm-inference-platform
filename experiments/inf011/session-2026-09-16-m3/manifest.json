@@ -1,0 +1,147 @@
+{
+  "schema": "inf011-pilot-manifest.v0",
+  "evidence_status": "measured",
+  "run_id": "inf011-m3-2026-09-16",
+  "run_class": "bounded_single_session_m3_runs_1_3",
+  "budget_authorization_id": "DEC-014",
+  "approved_phase_cap_usd": 100.0,
+  "cumulative_phase_spend_usd": null,
+  "aws_region": "us-west-2",
+  "availability_zone": "us-west-2d",
+  "instance_type": "g6.xlarge",
+  "ami_id": "ami-092d6abbcb0dc5017",
+  "nvidia_driver": "595.91.07",
+  "cuda_version": "13.2",
+  "runtime_version": "0.29.0",
+  "runtime_image_digest": "sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b",
+  "model_id": "Qwen/Qwen2.5-7B-Instruct",
+  "model_revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+  "dtype": "bfloat16",
+  "max_model_len": 8192,
+  "max_num_seqs": 16,
+  "max_num_queued_reqs": 32,
+  "gpu_memory_utilization": 0.9,
+  "started_at_utc": "2026-09-16T16:59:51Z",
+  "ready_at_utc": "2026-09-16T17:34:05Z",
+  "ended_at_utc": "2026-09-16T18:19:37Z",
+  "teardown_verified_at_utc": "2026-09-16T18:26:27.9378727Z",
+  "capacity_rejections_before_success": 8,
+  "launch_succeeded_at_utc": "2026-09-16T17:00:30Z",
+  "first_response_at_utc": "2026-09-16T17:34:05Z",
+  "instance_terminated_at_utc": "2026-09-16T18:19:37Z",
+  "phase_durations": {
+    "launch_to_first_response_seconds": 2015,
+    "instance_runtime_seconds": 4747,
+    "first_response_to_termination_seconds": 2732,
+    "termination_to_teardown_verification_seconds": 407.9378727
+  },
+  "actual_cost_usd": null,
+  "estimated_cost_usd": 1.10,
+  "cost_status": "estimated only; actual billing and cumulative phase spend pending",
+  "fit": {
+    "status": "measured_boundary",
+    "prompt_characters": {
+      "6000": "http_200",
+      "24000": "http_200",
+      "48000": "http_400_context_limit"
+    },
+    "max_context_tokens": 8192,
+    "boundary_note": "The 48000-character fixture requested 8192 input tokens plus one output token, so the pinned runtime correctly rejected 8193 requested tokens."
+  },
+  "stream_compatibility": {
+    "status": "measured",
+    "http_status": 200,
+    "content_type": "text/event-stream; charset=utf-8",
+    "observed_shapes": [
+      "initial assistant-role delta",
+      "content deltas",
+      "finish chunk with finish_reason",
+      "final usage chunk with stream_options.include_usage",
+      "data: [DONE]"
+    ],
+    "pre_stream_error": "unknown model returned HTTP 404 JSON before any SSE data"
+  },
+  "cache_reset": {
+    "status": "measured",
+    "endpoint": "/reset_prefix_cache",
+    "http_status": 200,
+    "response": "{\"success\":true}"
+  },
+  "cache_salt_isolation": {
+    "status": "measured",
+    "same_salt_repeat": "prefix_cache_hits_total increased from the first request to the repeated request",
+    "different_salt": "a different opaque salt label increased prefix_cache_queries_total by 669 tokens without increasing hits",
+    "raw_salts_committed": false
+  },
+  "metric_semantics": {
+    "status": "measured",
+    "vllm_series_cardinality": "one running, waiting, KV, prefix-query, and prefix-hit series for the single model",
+    "vllm_metric_names": [
+      "vllm:num_requests_running",
+      "vllm:num_requests_waiting",
+      "vllm:kv_cache_usage_perc",
+      "vllm:prefix_cache_queries_total",
+      "vllm:prefix_cache_hits_total"
+    ],
+    "dcgm_metric_names": [
+      "DCGM_FI_DEV_GPU_UTIL",
+      "DCGM_FI_DEV_FB_USED"
+    ],
+    "final_idle_values": {
+      "running": 0.0,
+      "waiting": 0.0,
+      "kv_cache_usage_perc": 0.0,
+      "gpu_utilization_percent": 0.0,
+      "gpu_memory_used_mib": 19452
+    },
+    "kv_cache_capacity": {
+      "kv_cache_size_tokens": 62256,
+      "num_gpu_blocks": 3891,
+      "block_size": 16,
+      "kv_cache_max_concurrency": 7.599609375,
+      "source_artifact": "captures/cache-metrics.txt",
+      "interpretation": "runtime-computed capacity ceiling at max_model_len=8192; not a measured safe running-request target R"
+    },
+    "calibration_capture_limit": "the SSM sampler was delivered after the final short burst, so no non-zero in-flight peak is claimed"
+  },
+  "preliminary_r": null,
+  "candidate_w": [],
+  "artifact_sha256": {
+    "captures/sse-vllm-0.29.0.sse": "411623990b2c8969b6504585c9d18eab8866c923087473a329b87e0b5648c439",
+    "captures/request-responses.json": "cb9d501ac15ab86ce66e831eacacf6f38ea6fbb90130bcb45aadd98efab01b97",
+    "captures/cache-metrics.txt": "e9d408782b504ea4102c851fad49b532a40ba5a0cfd95af82449cbfd96aa69d8",
+    "captures/fit-boundary.json": "83363e964f8bd4e077356fef6783388a5425221b0c1ddf0b925600dcb867bc54",
+    "captures/gpu-telemetry.txt": "37b22b102f733b2211d9e71bb2cf5a711d8a8c80d4ee2571325f35f44ccf1099",
+    "captures/startup-vllm.txt": "98e88e52a42ceebc3579f2fe0d962221d1cc1117ce806c2f7e4403ca3f4a3cbf",
+    "captures/startup-timer.txt": "fb525afbd360ce8659365fd66a6954849fec2c11e163dc68a76d0933eadf9995",
+    "captures/calibration.txt": "418e1d723b133840955faa0e35cc91ceb1beef9f79e24e4e6ef733526edbc522",
+    "captures/command-inventory.txt": "d77f2edd1371df875d3201feb95eafe5278c0d8e099db726da3a7b078f95bc40"
+  },
+  "measurement_notes": {
+    "started_at_basis": "EC2 resource create timestamp observed during teardown refresh; Terraform apply start was not separately persisted",
+    "ended_at_basis": "timestamped VerifyTeardown observation after Terraform destroy completed",
+    "price_basis": "reviewed us-west-2 g6.xlarge On-Demand price $0.8048/hour from the immutable 20260910195514 price list; actual billed interval pending",
+    "first_confirmed_ready_at_utc": "2026-09-16T17:34:05Z",
+    "first_confirmed_ready_basis": "first successful non-stream chat completion; an exact cloud-init ready event was not timestamped",
+    "calibration_runs": 3,
+    "calibration_run_3": "the launcher ran eight concurrent max_tokens=512 workers for 30.054 seconds; per-request HTTP outcomes and bodies were discarded, and the sampler arrived after completion so no in-flight values were observed",
+    "launch_timing_basis": "Claude Round 10 CloudTrail/SSM audit; eight capacity rejections preceded the successful launch",
+    "ready_timing_basis": "first successful non-stream response in retained SSM command 540a1219-5110-4b02-8535-8b0f41600b8e",
+    "termination_timing_basis": "Claude Round 10 CloudTrail audit",
+    "estimated_cost_basis": "Claude Round 10 estimate: approximately 79 minutes of g6.xlarge runtime at the reviewed us-west-2 rate plus IPv4/storage prorating; not a billing record",
+    "cold_start_warmup_note": "The 120.663043-second weight-loading line is a warm post-reboot process excerpt. Cold launch-to-first-response was 2015 seconds; retained progress showed approximately 273-324 seconds per checkpoint shard, with 3 of 4 shards still loading at 15m21s. Image pull, volume restore, and aggregate shard time were not separately isolated.",
+    "warm_start_weight_load_seconds": 120.663043,
+    "cold_start_launch_to_first_response_seconds": 2015,
+    "cold_start_shard_progress": "approximately 273-324 seconds per shard; 3 of 4 shards at 15m21s",
+    "failed_debug_attempts": [
+      {"command_id": "f7f5bdcc-800b-4613-ba75-cb5ddc4a3dcf", "description": "calibration worker argument transport", "status": "Failed"},
+      {"command_id": "bfe5e00e-0622-4adb-8571-3f513ba5bfa0", "description": "calibration worker argument transport retry", "status": "Failed"},
+      {"command_id": "ed15caf4-22ab-4f90-9449-91d150db8c18", "description": "bounded readiness check", "status": "Failed"},
+      {"command_id": "0453c785-5422-484d-93a4-f87b7cd5b29d", "description": "vLLM readiness poll during model load", "status": "Failed"},
+      {"command_id": "56da972b-751f-4702-b1a1-bd6666c804b0", "description": "vLLM progress diagnosis", "status": "Failed"}
+    ],
+    "cancellation": "a max_tokens=256 stream was terminated by the client after about two seconds; the service remained healthy",
+    "cost_and_billing": "actual billed cost and cumulative phase spend remain pending AWS billing evidence; no value is invented",
+    "sensitive_data_omitted": true
+  }
+}

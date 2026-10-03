@@ -1,0 +1,86 @@
+{
+  "schema": "inf011-calibration-followup.v0",
+  "run_id": "inf011-m3-followup-20260916",
+  "authorization_id": "DEC-015",
+  "plan_sha256": "ddb343b356f09275533e66420c709d26dde79e7cc56255104fb0d324689b147d",
+  "region": "us-west-2",
+  "availability_zone": "us-west-2a",
+  "instance_type": "g6.xlarge",
+  "maximum_session_hours": 2,
+  "planning_estimate_cost_usd": 3.0,
+  "observed_instance_duration_seconds": 2649,
+  "duration_derived_estimate_cost_usd": 0.59,
+  "observed_session_cost_estimate_usd": 0.62,
+  "billing_status": "pending AWS billing evidence",
+  "runtime": {
+    "vllm_version": "0.29.0",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "model_revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+    "gpu": "NVIDIA L4",
+    "driver": "595.91.07",
+    "cuda": "13.2",
+    "cold_readiness": "observed health readiness at 2026-09-16T23:01:30Z; approximately 2020 seconds after service start"
+  },
+  "protocol": {
+    "levels": [1, 2, 4, 8, 12],
+    "max_tokens": 512,
+    "sample_interval_ms": 100,
+    "gateway_in_path": true,
+    "gateway_admission_mode": "memory-test",
+    "gateway_metrics_interval_ms": 500,
+    "gateway_metrics_max_age_ms": 1000,
+    "topology": {
+      "recorder_location": "local workstation",
+      "gateway_location": "local workstation",
+      "gateway_listener": "127.0.0.1:18080",
+      "backend_forward": "SSM local 127.0.0.1:18000 to paid-host loopback vLLM :8000",
+      "request_path": "recorder -> local gateway -> SSM port-forward -> paid-host loopback vLLM",
+      "timing_note": "recorder TTFT and completion durations include local gateway and SSM tunnel transport; backend metric samples are host-side"
+    }
+  },
+  "results": {
+    "requests_total": 27,
+    "requests_completed": 27,
+    "http_200": 27,
+    "http_failures": 0,
+    "peak_running_by_level": {"1": 1, "2": 2, "4": 4, "8": 8, "12": 12},
+    "peak_waiting_by_level": {"1": 0, "2": 0, "4": 0, "8": 0, "12": 0},
+    "peak_kv_cache_ratio_by_level": {"1": 0.00539845758, "2": 0.0105398458, "4": 0.0164524422, "8": 0.0311053985, "12": 0.046529563},
+    "max_ttft_ms_by_level": {"1": 188, "2": 110, "4": 172, "8": 266, "12": 266},
+    "max_completion_ms_by_level": {"1": 17797, "2": 20516, "4": 28984, "8": 24016, "12": 29281},
+    "preliminary_calibration": {
+      "min_concurrency_without_queueing": 12,
+      "tested_max_concurrency": 12,
+      "saturation_reached": false,
+      "waiting_observed": false,
+      "safe_R": null,
+      "W": null,
+      "B": null,
+      "scope": "single-host sweep endpoint only; no safe operating point or waiting allowance was established",
+      "context_caveat": "the short-prompt sweep used less than 5% KV at level 12, while the runtime reports kv_cache_max_concurrency 7.599609375 at full 8192-token contexts; admission must be context-aware",
+      "establishing_measurement": "step long-context prompt mixes until waiting becomes positive or TTFT degrades, then derive R from the last level meeting the latency target and W from observed queueing"
+    },
+    "gateway_request_correlation": "27 of 27 recorder records joined one-to-one with completed gateway terminal records",
+    "sample_hash_verification": "1,051 of 1,051 sampled bodies matched raw_sha256"
+  },
+  "teardown": {
+    "destroyed_by_wrapper": true,
+    "verify_teardown_passed": true,
+    "resource_state": "zero pilot resources and empty Terraform state after destroy"
+  },
+  "captures": {
+    "calibration-run.json": "d47e048f86a60ed1c9b7b94a29d2bca50aae994df0abd073c0d28825570bee1c",
+    "dcgm-metrics.txt": "8998a7a3101df594c71e480d4af30c7cd0bfa37bbcaa02bfce49ec1ee8282412",
+    "gateway-metrics-final.txt": "b2846e97da6cde4126c3bd00b6e63dd7ae2922d2fcc0afac077400614c5e8554",
+    "gateway-terminal-log.jsonl": "0f59413a30b7760c6f9bd50743f346a724616a19193b5cffd77bac9f4a559f66",
+    "host-evidence.txt": "112319801d0666cd30e95519ca2e359d0454fe5685a6911d3b6b8b51865cde29",
+    "models.json": "2324daf002865a8ba6f7b96e01b248fbab3ce8ba32172129a8e7515be9c86135",
+    "vllm-metrics.txt": "89c8ff22b8041dc6d332b36c627eba74c438244ff722eda9c81227f1194e2d3b"
+  },
+  "limitations": [
+    "No AWS billing API evidence is claimed; the $3 value is the reviewed estimate.",
+    "The local gateway used memory-test admission; Redis multi-gateway behavior remains separately tested.",
+    "The observed W is zero; a positive waiting allowance and cross-replica routing remain M4 work.",
+    "Claude must review this committed evidence before M3/INF-011 can move to DONE."
+  ]
+}

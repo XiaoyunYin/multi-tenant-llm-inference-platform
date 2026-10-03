@@ -1,0 +1,5 @@
+{
+  "owned_processes_exited": true,
+  "owned_redis_absent": true,
+  "unrelated_containers": "preserved"
+}

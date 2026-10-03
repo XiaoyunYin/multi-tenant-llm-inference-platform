@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: alloc_space
+Time: 2026-10-02 13:49:12 PDT
+Showing nodes accounting for 8160.67MB, 73.16% of 11154.22MB total
+Dropped 328 nodes (cum <= 55.77MB)
+Showing top 25 nodes out of 130
+      flat  flat%   sum%        cum   cum%
+ 1000.04MB  8.97%  8.97%  1208.54MB 10.83%  encoding/json.(*scanner).error (inline)
+  640.31MB  5.74% 14.71%   640.31MB  5.74%  encoding/json.(*Decoder).refill
+  625.62MB  5.61% 20.31%  5817.91MB 52.16%  multi-tenant-llm-inference-platform/internal/gateway.validateEvent
+  469.13MB  4.21% 24.52%   469.13MB  4.21%  reflect.mapassign_faststr0
+  463.11MB  4.15% 28.67%   507.11MB  4.55%  encoding/json.(*decodeState).objectInterface
+  416.13MB  3.73% 32.40%   416.13MB  3.73%  encoding/json.NewDecoder (inline)
+  413.51MB  3.71% 36.11%  2306.81MB 20.68%  encoding/json.(*Decoder).Token
+  392.01MB  3.51% 39.62%   392.01MB  3.51%  reflect.unsafe_New
+  381.55MB  3.42% 43.05%  1993.81MB 17.87%  encoding/json.Unmarshal
+  347.07MB  3.11% 46.16%   347.07MB  3.11%  multi-tenant-llm-inference-platform/internal/gateway.clientChunkEnvelope (inline)
+  339.56MB  3.04% 49.20%   600.56MB  5.38%  encoding/json.mapEncoder.encode
+     256MB  2.30% 51.50%   278.50MB  2.50%  encoding/json.(*decodeState).literalStore
+  227.55MB  2.04% 53.54%   810.11MB  7.26%  encoding/json.Marshal
+  224.16MB  2.01% 55.55%  1211.40MB 10.86%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).decodeRequest
+  223.07MB  2.00% 57.55%   232.07MB  2.08%  net/textproto.MIMEHeader.Set
+  221.11MB  1.98% 59.53%   221.11MB  1.98%  bufio.NewReaderSize
+  218.52MB  1.96% 61.49%   218.52MB  1.96%  time.newTimer
+  212.55MB  1.91% 63.39%   217.55MB  1.95%  net/textproto.readMIMEHeader
+  189.52MB  1.70% 65.09%   349.53MB  3.13%  time.NewTimer
+  186.54MB  1.67% 66.76%   195.05MB  1.75%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeSSE
+  180.05MB  1.61% 68.38%   180.05MB  1.61%  net/http.Header.Clone
+  136.02MB  1.22% 69.60%   136.02MB  1.22%  multi-tenant-llm-inference-platform/internal/gateway.readEvent
+  134.01MB  1.20% 70.80%   134.01MB  1.20%  context.(*cancelCtx).Done
+  132.02MB  1.18% 71.98%   175.03MB  1.57%  context.(*cancelCtx).propagateCancel
+  131.51MB  1.18% 73.16%   266.53MB  2.39%  multi-tenant-llm-inference-platform/internal/admission.(*RedisCoordinator).Admit

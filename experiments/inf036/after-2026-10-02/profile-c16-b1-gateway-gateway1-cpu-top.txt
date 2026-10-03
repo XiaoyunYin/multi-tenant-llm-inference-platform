@@ -1,0 +1,34 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: cpu
+Time: 2026-10-02 13:48:33 PDT
+Duration: 15s, Total samples = 19.10s (127.32%)
+Showing nodes accounting for 14.01s, 73.35% of 19.10s total
+Dropped 686 nodes (cum <= 0.10s)
+Showing top 25 nodes out of 211
+      flat  flat%   sum%        cum   cum%
+    12.11s 63.40% 63.40%     12.14s 63.56%  runtime.cgocall
+     0.22s  1.15% 64.55%      0.22s  1.15%  runtime.nextFreeFast (inline)
+     0.18s  0.94% 65.50%      0.30s  1.57%  runtime.netpoll
+     0.13s  0.68% 66.18%      0.13s  0.68%  runtime.memmove
+     0.13s  0.68% 66.86%      0.13s  0.68%  runtime.semawakeup
+     0.10s  0.52% 67.38%      0.12s  0.63%  runtime.(*mspan).writeHeapBitsSmall
+     0.10s  0.52% 67.91%      0.10s  0.52%  runtime.netpollQueueTimer
+     0.09s  0.47% 68.38%      0.94s  4.92%  runtime.mallocgc
+     0.09s  0.47% 68.85%      0.60s  3.14%  runtime.mallocgcSmallScanNoHeader
+     0.08s  0.42% 69.27%      0.10s  0.52%  encoding/json.unquoteBytes
+     0.08s  0.42% 69.69%      0.19s  0.99%  runtime.concatstrings
+     0.08s  0.42% 70.10%      0.14s  0.73%  runtime.lock2
+     0.08s  0.42% 70.52%      0.10s  0.52%  runtime.unlock2
+     0.07s  0.37% 70.89%      0.10s  0.52%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Load
+     0.07s  0.37% 71.26%      0.19s  0.99%  runtime.selectgo
+     0.05s  0.26% 71.52%      0.37s  1.94%  encoding/json.(*decodeState).literalStore
+     0.05s  0.26% 71.78%      0.10s  0.52%  regexp.(*Regexp).doOnePass
+     0.04s  0.21% 71.99%      0.10s  0.52%  encoding/json.checkValid
+     0.04s  0.21% 72.20%     10.64s 55.71%  internal/poll.(*FD).execIO
+     0.04s  0.21% 72.41%     11.65s 60.99%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions
+     0.04s  0.21% 72.62%      1.08s  5.65%  multi-tenant-llm-inference-platform/internal/gateway.validateUniqueJSONMembers.func1
+     0.04s  0.21% 72.83%      0.40s  2.09%  runtime.newobject
+     0.04s  0.21% 73.04%      0.54s  2.83%  runtime.park_m
+     0.03s  0.16% 73.19%      0.12s  0.63%  context.(*cancelCtx).cancel
+     0.03s  0.16% 73.35%      0.47s  2.46%  encoding/json.(*Decoder).readValue

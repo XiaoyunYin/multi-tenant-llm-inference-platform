@@ -1,0 +1,14 @@
+{
+  "tenants": [
+    {
+      "tenant_id": "tenant-local",
+      "credential_sha256": "0cd48eed49739dfdd99efaef37d251aae5a80866e5954763c6597943fff5ce9b",
+      "models": ["test-model"],
+      "max_request_bytes": 1048576,
+      "max_output_tokens": 512,
+      "request_rate_limit": 100,
+      "request_rate_window_ms": 1000,
+      "max_concurrent": 16
+    }
+  ]
+}

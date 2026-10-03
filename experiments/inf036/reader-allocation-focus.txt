@@ -1,0 +1,38 @@
+baseline
+go tool pprof -top -nodecount=0 -alloc_space -unit=bytes -focus=streamEvents .cache/mti-inf036-36360/gateway.exe experiments\inf036\baseline-2026-10-02\profile-c64-b1-gateway-gateway0-heap.pprof
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-36360\gateway.exe2026-10-02 13:15:26.2908969 -0700 PDT
+Type: alloc_space
+Time: 2026-10-02 13:28:58 PDT
+Active filters:
+   focus=streamEvents
+Showing nodes accounting for 12732231836B, 53.40% of 23844141434B total
+Dropped 6 nodes (cum <= 119220707B)
+      flat  flat%   sum%        cum   cum%
+12595896212B 52.83% 52.83% 12595896212B 52.83%  bufio.NewReaderSize (inline)
+136335624B  0.57% 53.40% 136335624B  0.57%  multi-tenant-llm-inference-platform/internal/gateway.readEvent
+         0     0% 53.40% 12732231836B 53.40%  multi-tenant-llm-inference-platform/internal/gateway.streamEvents.func1
+
+
+after
+go tool pprof -top -nodecount=0 -alloc_space -unit=bytes -focus=streamEvents .cache/mti-inf036-4048/gateway.exe experiments\inf036\after-2026-10-02\profile-c64-b1-gateway-gateway0-heap.pprof
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: alloc_space
+Time: 2026-10-02 13:49:12 PDT
+Active filters:
+   focus=streamEvents
+Showing nodes accounting for 293646996B, 2.51% of 11696045278B total
+Dropped 4 nodes (cum <= 58480226B)
+      flat  flat%   sum%        cum   cum%
+142628248B  1.22%  1.22% 142628248B  1.22%  multi-tenant-llm-inference-platform/internal/gateway.readEvent
+117461284B  1.00%  2.22% 117461284B  1.00%  bufio.NewReaderSize (inline)
+ 33557464B  0.29%  2.51%  33557464B  0.29%  multi-tenant-llm-inference-platform/internal/gateway.streamEvents
+         0     0%  2.51%  33557464B  0.29%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions
+         0     0%  2.51% 117461284B  1.00%  multi-tenant-llm-inference-platform/internal/gateway.init.func1
+         0     0%  2.51% 260613948B  2.23%  multi-tenant-llm-inference-platform/internal/gateway.streamEvents.func1
+         0     0%  2.51%  33557464B  0.29%  net/http.(*ServeMux).ServeHTTP
+         0     0%  2.51%  33557464B  0.29%  net/http.(*conn).serve
+         0     0%  2.51%  33557464B  0.29%  net/http.HandlerFunc.ServeHTTP
+         0     0%  2.51%  33557464B  0.29%  net/http.serverHandler.ServeHTTP
+         0     0%  2.51% 117461284B  1.00%  sync.(*Pool).Get

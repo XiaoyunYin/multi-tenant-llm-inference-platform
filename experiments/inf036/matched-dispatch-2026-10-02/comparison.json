@@ -1,0 +1,236 @@
+{
+  "gateway_rate_cells": [
+    {
+      "all_sustainable": false,
+      "rate": 400,
+      "runs": [
+        {
+          "achieved_rps_with_drain": 399.78990374241835,
+          "errors": 0,
+          "generator_qualified": false,
+          "knee": false,
+          "run": "rate-r400-b1-gateway",
+          "sustainable": false
+        },
+        {
+          "achieved_rps_with_drain": 399.7957943031648,
+          "errors": 0,
+          "generator_qualified": false,
+          "knee": false,
+          "run": "rate-r400-b2-gateway",
+          "sustainable": false
+        },
+        {
+          "achieved_rps_with_drain": 399.8003796704306,
+          "errors": 0,
+          "generator_qualified": false,
+          "knee": false,
+          "run": "rate-r400-b3-gateway",
+          "sustainable": false
+        }
+      ]
+    },
+    {
+      "all_sustainable": true,
+      "rate": 800,
+      "runs": [
+        {
+          "achieved_rps_with_drain": 799.4795388202281,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r800-b1-gateway",
+          "sustainable": true
+        },
+        {
+          "achieved_rps_with_drain": 799.4617823415831,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r800-b2-gateway",
+          "sustainable": true
+        },
+        {
+          "achieved_rps_with_drain": 799.5008383141055,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r800-b3-gateway",
+          "sustainable": true
+        }
+      ]
+    },
+    {
+      "all_sustainable": true,
+      "rate": 1600,
+      "runs": [
+        {
+          "achieved_rps_with_drain": 1599.0564900435204,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r1600-b1-gateway",
+          "sustainable": true
+        },
+        {
+          "achieved_rps_with_drain": 1598.947745813045,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r1600-b2-gateway",
+          "sustainable": true
+        },
+        {
+          "achieved_rps_with_drain": 1599.1670471906866,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": false,
+          "run": "rate-r1600-b3-gateway",
+          "sustainable": true
+        }
+      ]
+    },
+    {
+      "all_sustainable": false,
+      "rate": 3200,
+      "runs": [
+        {
+          "achieved_rps_with_drain": 3182.802021036183,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": true,
+          "run": "rate-r3200-b1-gateway",
+          "sustainable": false
+        },
+        {
+          "achieved_rps_with_drain": 3197.6187865832776,
+          "errors": 0,
+          "generator_qualified": true,
+          "knee": true,
+          "run": "rate-r3200-b2-gateway",
+          "sustainable": false
+        },
+        {
+          "achieved_rps_with_drain": 3139.500296052641,
+          "errors": 89,
+          "generator_qualified": true,
+          "knee": true,
+          "run": "rate-r3200-b3-gateway",
+          "sustainable": false
+        }
+      ]
+    }
+  ],
+  "interpretation": "per-run differences, not a pooled percentile or confidence bound",
+  "low_rate_p99_baseline_ms": 25.4454,
+  "paired_quantile_differences": [
+    {
+      "added_p50_ms": 2.7097000000000007,
+      "added_p99_ms": 11.841399999999998,
+      "attribution_qualified": false,
+      "block": 1,
+      "direct_run": "rate-r400-b1-direct",
+      "gateway_run": "rate-r400-b1-gateway",
+      "rate": 400
+    },
+    {
+      "added_p50_ms": 2.4674999999999994,
+      "added_p99_ms": 12.590900000000001,
+      "attribution_qualified": false,
+      "block": 2,
+      "direct_run": "rate-r400-b2-direct",
+      "gateway_run": "rate-r400-b2-gateway",
+      "rate": 400
+    },
+    {
+      "added_p50_ms": 2.5887000000000002,
+      "added_p99_ms": 10.797099999999999,
+      "attribution_qualified": false,
+      "block": 3,
+      "direct_run": "rate-r400-b3-direct",
+      "gateway_run": "rate-r400-b3-gateway",
+      "rate": 400
+    },
+    {
+      "added_p50_ms": 2.5366999999999997,
+      "added_p99_ms": 0.6765000000000008,
+      "attribution_qualified": false,
+      "block": 1,
+      "direct_run": "rate-r800-b1-direct",
+      "gateway_run": "rate-r800-b1-gateway",
+      "rate": 800
+    },
+    {
+      "added_p50_ms": 2.6464999999999996,
+      "added_p99_ms": 6.5837,
+      "attribution_qualified": false,
+      "block": 2,
+      "direct_run": "rate-r800-b2-direct",
+      "gateway_run": "rate-r800-b2-gateway",
+      "rate": 800
+    },
+    {
+      "added_p50_ms": 2.7818000000000005,
+      "added_p99_ms": 6.3643,
+      "attribution_qualified": false,
+      "block": 3,
+      "direct_run": "rate-r800-b3-direct",
+      "gateway_run": "rate-r800-b3-gateway",
+      "rate": 800
+    },
+    {
+      "added_p50_ms": 2.9872000000000005,
+      "added_p99_ms": 4.912,
+      "attribution_qualified": true,
+      "block": 1,
+      "direct_run": "rate-r1600-b1-direct",
+      "gateway_run": "rate-r1600-b1-gateway",
+      "rate": 1600
+    },
+    {
+      "added_p50_ms": 2.4581999999999997,
+      "added_p99_ms": 5.5053,
+      "attribution_qualified": true,
+      "block": 2,
+      "direct_run": "rate-r1600-b2-direct",
+      "gateway_run": "rate-r1600-b2-gateway",
+      "rate": 1600
+    },
+    {
+      "added_p50_ms": 2.800399999999999,
+      "added_p99_ms": 4.8533,
+      "attribution_qualified": true,
+      "block": 3,
+      "direct_run": "rate-r1600-b3-direct",
+      "gateway_run": "rate-r1600-b3-gateway",
+      "rate": 1600
+    },
+    {
+      "added_p50_ms": 19.222299999999997,
+      "added_p99_ms": 123.56420000000001,
+      "attribution_qualified": true,
+      "block": 1,
+      "direct_run": "rate-r3200-b1-direct",
+      "gateway_run": "rate-r3200-b1-gateway",
+      "rate": 3200
+    },
+    {
+      "added_p50_ms": 4.945399999999999,
+      "added_p99_ms": 48.7577,
+      "attribution_qualified": true,
+      "block": 2,
+      "direct_run": "rate-r3200-b2-direct",
+      "gateway_run": "rate-r3200-b2-gateway",
+      "rate": 3200
+    },
+    {
+      "added_p50_ms": 23.1558,
+      "added_p99_ms": 351.9524,
+      "attribution_qualified": false,
+      "block": 3,
+      "direct_run": "rate-r3200-b3-direct",
+      "gateway_run": "rate-r3200-b3-gateway",
+      "rate": 3200
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: cpu
+Time: 2026-10-02 13:48:10 PDT
+Duration: 15s, Total samples = 1.40s ( 9.33%)
+Showing nodes accounting for 1.14s, 81.43% of 1.40s total
+Showing top 25 nodes out of 309
+      flat  flat%   sum%        cum   cum%
+     0.75s 53.57% 53.57%      0.75s 53.57%  runtime.cgocall
+     0.03s  2.14% 55.71%      0.03s  2.14%  runtime.semawakeup
+     0.03s  2.14% 57.86%      0.03s  2.14%  runtime.unlock2
+     0.02s  1.43% 59.29%      0.02s  1.43%  aeshashbody
+     0.02s  1.43% 60.71%      0.02s  1.43%  encoding/json.unquoteBytes
+     0.02s  1.43% 62.14%      0.02s  1.43%  internal/runtime/atomic.(*Uint32).Add
+     0.02s  1.43% 63.57%      0.87s 62.14%  net/http.(*conn).serve
+     0.02s  1.43% 65.00%      0.02s  1.43%  regexp.(*Regexp).doOnePass
+     0.02s  1.43% 66.43%      0.02s  1.43%  runtime.(*guintptr).cas (inline)
+     0.02s  1.43% 67.86%      0.03s  2.14%  runtime.growslice
+     0.02s  1.43% 69.29%      0.04s  2.86%  runtime.mallocgcSmallScanNoHeader
+     0.02s  1.43% 70.71%      0.02s  1.43%  runtime.memmove
+     0.02s  1.43% 72.14%      0.02s  1.43%  runtime.runqgrab.osyield.func1
+     0.02s  1.43% 73.57%      0.02s  1.43%  runtime.semasleep
+     0.01s  0.71% 74.29%      0.54s 38.57%  bufio.(*Writer).Flush
+     0.01s  0.71% 75.00%      0.05s  3.57%  encoding/json.(*Decoder).Token
+     0.01s  0.71% 75.71%      0.02s  1.43%  encoding/json.(*Decoder).readValue
+     0.01s  0.71% 76.43%      0.01s  0.71%  encoding/json.(*decodeState).literalInterface
+     0.01s  0.71% 77.14%      0.07s  5.00%  encoding/json.(*decodeState).object
+     0.01s  0.71% 77.86%      0.06s  4.29%  encoding/json.(*encodeState).reflectValue
+     0.01s  0.71% 78.57%      0.01s  0.71%  encoding/json.arrayEncoder.encode
+     0.01s  0.71% 79.29%      0.01s  0.71%  encoding/json.mapEncoder.encode.func1
+     0.01s  0.71% 80.00%      0.01s  0.71%  encoding/json.mayAppendQuote (inline)
+     0.01s  0.71% 80.71%      0.01s  0.71%  encoding/json.stringEncoder
+     0.01s  0.71% 81.43%      0.01s  0.71%  internal/godebug.(*Setting).Value

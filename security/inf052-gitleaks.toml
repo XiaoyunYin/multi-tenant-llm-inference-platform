@@ -1,0 +1,55 @@
+title = "INF-052 full-history credential and infrastructure identifier scan"
+minVersion = "v8.30.0"
+
+# Vendored upstream rules, pinned to v8.30.0. Its global path exclusions are
+# removed so dependency/config/evidence files remain in scope. No local ignores.
+[extend]
+path = "/config/gitleaks-v8.30.0.toml"
+
+[[rules]]
+id = "aws-account-id"
+description = "Any standalone twelve-digit value: manually distinguish account IDs from measurements"
+regex = '''\b([0-9]{12})\b'''
+secretGroup = 1
+
+[[rules]]
+id = "naked-cache-salt"
+description = "Canonical 32-byte cache-salt master, even without assignment context"
+regex = '''(?:^|[\s"'])([A-Za-z0-9_-]{42}[AEIMQUYcgkosw048])(?:$|[\s"'])'''
+secretGroup = 1
+entropy = 4
+
+[[rules]]
+id = "internal-hostname"
+description = "Internal DNS suffixes, including local service names"
+regex = '''(?i)\b([a-z0-9][a-z0-9.-]*\.(?:internal|local|lan|corp|private|svc(?:\.cluster\.local)?))\b'''
+secretGroup = 1
+
+[[rules]]
+id = "private-ipv4"
+description = "RFC1918, link-local, and carrier-grade private address candidates"
+regex = '''\b((?:10|127)\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}|169\.254\.[0-9]{1,3}\.[0-9]{1,3}|100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3})\b'''
+secretGroup = 1
+
+[[rules]]
+id = "private-ipv6"
+description = "IPv6 unique-local and link-local address candidates"
+regex = '''(?i)\b((?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):[0-9a-f:]+)'''
+secretGroup = 1
+
+[[rules]]
+id = "private-service-url"
+description = "Single-label service URL or AWS VPC endpoint"
+regex = '''(?i)(?:https?|grpc|redis|postgres(?:ql)?)://([a-z][a-z0-9_-]*)(?::[0-9]+|[/\s"'])|\b(vpce-[a-z0-9.-]+\.amazonaws\.com)\b'''
+
+[[rules]]
+id = "literal-bearer-token"
+description = "Bearer literals, including low-entropy development tokens"
+regex = '''(?i)\bbearer[ \t]+([a-z0-9_.~+/=-]{6,})'''
+secretGroup = 1
+
+[[rules]]
+id = "literal-credential-assignment"
+description = "Quoted credential assignments, including low-entropy fixtures"
+regex = '''(?i)\b(?:password|passwd|api[_-]?key|api[_-]?token|access[_-]?token|secret[_-]?(?:key|token)|credential|bearer[_-]?token)["']?[ \t]*[:=][ \t]*["']([^"'\r\n]{6,})["']'''
+secretGroup = 1

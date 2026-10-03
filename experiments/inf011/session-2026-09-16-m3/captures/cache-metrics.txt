@@ -1,0 +1,22 @@
+# Sanitized Prometheus excerpts from retained SSM output.
+# Model label retained; host/account identifiers and raw salts are omitted.
+
+2026-09-16T17:35:45Z baseline after reset
+vllm:prefix_cache_queries_total 36.0
+vllm:prefix_cache_hits_total 0.0
+vllm:cache_config_info{enable_prefix_caching="True",gpu_memory_utilization="0.9",kv_cache_max_concurrency="7.599609375",kv_cache_size_tokens="62256",num_gpu_blocks="3891",block_size="16"} 1.0
+vllm:num_requests_running 0.0
+vllm:num_requests_waiting 0.0
+vllm:kv_cache_usage_perc 0.0
+
+2026-09-16T17:38:01Z after same opaque salt repeat
+vllm:prefix_cache_queries_total 1374.0
+vllm:prefix_cache_hits_total 656.0
+vllm:kv_cache_usage_perc 0.0
+
+2026-09-16T17:39:28Z after different opaque salt
+vllm:prefix_cache_queries_total 2043.0
+vllm:prefix_cache_hits_total 656.0
+vllm:kv_cache_usage_perc 0.0
+
+Interpretation: the different salt added 669 queried tokens without an additional cached-token hit.

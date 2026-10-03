@@ -1,0 +1,20 @@
+{
+  "raw_counts": {
+    "warmup": {
+      "completed": 1746,
+      "failed": 4434,
+      "not_dispatched": 6620
+    },
+    "measurement": {
+      "completed": 4118,
+      "failed": 28461,
+      "partial": 10,
+      "not_dispatched": 44211
+    }
+  },
+  "server_completed_warmup_plus_measurement": 5916,
+  "client_completed_warmup_plus_measurement": 5864,
+  "difference": 52,
+  "accepted": false,
+  "basis": "Original strict server/client completion equality asserted before run JSON was exported. Raw outcomes remain authoritative; no raw summary reconstructed as an accepted run. Server-write completion is not a client receipt acknowledgement."
+}

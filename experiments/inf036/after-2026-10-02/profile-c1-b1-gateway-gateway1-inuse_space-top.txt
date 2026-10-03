@@ -1,0 +1,32 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: inuse_space
+Time: 2026-10-02 13:48:25 PDT
+Showing nodes accounting for 5162.50kB, 100% of 5162.50kB total
+Showing top 25 nodes out of 33
+      flat  flat%   sum%        cum   cum%
+ 3587.64kB 69.49% 69.49%  3587.64kB 69.49%  runtime.mallocgc
+  548.84kB 10.63% 80.13%   548.84kB 10.63%  bufio.NewReaderSize (inline)
+     514kB  9.96% 90.08%      514kB  9.96%  bufio.NewWriterSize (inline)
+  512.02kB  9.92%   100%   512.02kB  9.92%  crypto/internal/fips140/rsa.map.init.0
+         0     0%   100%   512.02kB  9.92%  crypto/internal/fips140/rsa.init
+         0     0%   100%   548.84kB 10.63%  multi-tenant-llm-inference-platform/internal/gateway.init.func1
+         0     0%   100%   548.84kB 10.63%  multi-tenant-llm-inference-platform/internal/gateway.streamEvents.func1
+         0     0%   100%      514kB  9.96%  net/http.(*conn).serve
+         0     0%   100%      514kB  9.96%  net/http.newBufioWriterSize
+         0     0%   100%   512.05kB  9.92%  runtime.(*scavengerState).init
+         0     0%   100%  2051.13kB 39.73%  runtime.allocm
+         0     0%   100%   512.05kB  9.92%  runtime.bgscavenge
+         0     0%   100%   512.02kB  9.92%  runtime.doInit (inline)
+         0     0%   100%   512.02kB  9.92%  runtime.doInit1
+         0     0%   100%  2051.13kB 39.73%  runtime.handoffp
+         0     0%   100%  1025.12kB 19.86%  runtime.mProfStackInit (inline)
+         0     0%   100%   512.02kB  9.92%  runtime.main
+         0     0%   100%  1025.12kB 19.86%  runtime.makeProfStackFP (inline)
+         0     0%   100%  1025.12kB 19.86%  runtime.makeslice
+         0     0%   100%  1024.47kB 19.84%  runtime.malg
+         0     0%   100%  1025.12kB 19.86%  runtime.mcommoninit
+         0     0%   100%  2051.13kB 39.73%  runtime.mstart
+         0     0%   100%  2051.13kB 39.73%  runtime.mstart0
+         0     0%   100%  2051.13kB 39.73%  runtime.mstart1
+         0     0%   100%  2051.13kB 39.73%  runtime.newm

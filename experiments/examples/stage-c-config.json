@@ -1,0 +1,96 @@
+{
+  "url": "http://127.0.0.1:8080",
+  "token": "local-dev-token",
+  "tenant_id": "tenant-stage-c",
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "run_id": "stage-c",
+  "reset_url": "http://127.0.0.1:8000",
+  "tokenize_url": "http://127.0.0.1:8000",
+  "metrics_endpoints": [
+    [
+      "gateway",
+      "http://127.0.0.1:8080"
+    ],
+    [
+      "vllm0",
+      "http://127.0.0.1:8000"
+    ]
+  ],
+  "run_time_budgets_seconds": [
+    2400,
+    2400,
+    900,
+    4800
+  ],
+  "session_window_seconds": 14400,
+  "cold_readiness_planning_seconds": 2015,
+  "instance_boot_unix_s": null,
+  "instance_termination_unix_s": null,
+  "observed_readiness_unix_s": null,
+  "evidence_export_margin_seconds": 600,
+  "minimum_useful_run_seconds": [
+    1200,
+    1200,
+    300,
+    2400
+  ],
+  "protocol_version": "r0-v2",
+  "local_rehearsal": false,
+  "saturation_levels": [
+    1,
+    2,
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48,
+    64
+  ],
+  "reference_prefix_counts": [
+    32,
+    48,
+    56,
+    60,
+    68,
+    76,
+    92
+  ],
+  "reference_concurrency": 4,
+  "saturation_prompt_tokens": 6144,
+  "reference_prompt_tokens": 1024,
+  "reference_max_tokens": 1,
+  "reference_target_capacity_ratios": [
+    0.5,
+    0.8,
+    0.9,
+    1,
+    1.1,
+    1.25,
+    1.5
+  ],
+  "measured_capacity_blocks": 3891,
+  "sustained_level_seconds": 90,
+  "drain_seconds": 120,
+  "minimum_cycle_seconds": 2,
+  "expected_first_item_timeout_seconds": 120,
+  "gateway_config_log": "/opt/inf011/gateway.jsonl",
+  "expected_admission_configuration": {
+    "mode": "memory-test",
+    "allow_unsafe_test_admission": true,
+    "global_capacity": 128,
+    "gateway_max_concurrent": 128,
+    "tenants": {
+      "tenant-stage-c": {
+        "max_concurrent": 128,
+        "request_rate_limit": 4096,
+        "request_rate_window_ms": 1000
+      }
+    }
+  },
+  "decision_prompt_export_path": "/opt/inf011/stage-c/session-r0-v2/restricted-prompts.jsonl",
+  "decision_export_output_path": "/opt/inf011/stage-c/session-r0-v2/restricted-decisions.jsonl",
+  "kv_capture_output_path": "/opt/inf011/stage-c/session-r0-v2/kv-event-capture.json",
+  "kv_capture_stop_file": "/opt/inf011/stage-c/session-r0-v2/capture.stop"
+}

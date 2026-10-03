@@ -1,0 +1,272 @@
+{
+  "backend_counts": {
+    "fake-0": 17,
+    "fake-1": 7
+  },
+  "counts": {
+    "completed": 24,
+    "failed": 0,
+    "partial": 0
+  },
+  "duration_ms": {
+    "empirical_median": 12026.92725,
+    "max": 12038.0725,
+    "mean": 12025.335745833334,
+    "min": 12012.8225,
+    "n": 24,
+    "p95": null,
+    "p95_sample_rule_met": false
+  },
+  "event": "backend-rollout",
+  "failure_statuses": {},
+  "false_completions": 0,
+  "first_event_ms": {
+    "empirical_median": 19.567149999999998,
+    "max": 29.5885,
+    "mean": 16.471345833333334,
+    "min": 5.3559,
+    "n": 24,
+    "p95": null,
+    "p95_sample_rule_met": false
+  },
+  "gateway_counts": {
+    "gateway-7dfbfff845-9kqht": 16,
+    "gateway-7dfbfff845-n26hr": 8
+  },
+  "live_at_trigger": [
+    {
+      "backend_generation": "72b980a4784bf0b7649d",
+      "backend_id": "fake-0",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-9kqht",
+      "pod_generation": "948ddab805e6211dad8f",
+      "request_id": "req_9d539c9e0ea0ffdf8fe63d9f6f78ae15",
+      "router_decision_unix_ns": 1790962557447743157,
+      "time_unix_ns": 1790962557447768354
+    },
+    {
+      "backend_generation": "72b980a4784bf0b7649d",
+      "backend_id": "fake-0",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-n26hr",
+      "pod_generation": "16e1045461395148d0e2",
+      "request_id": "req_868407dded7d93e01d4d7bc6c97c40be",
+      "router_decision_unix_ns": 1790962557447782877,
+      "time_unix_ns": 1790962557447794501
+    },
+    {
+      "backend_generation": "445de1532721184b9121",
+      "backend_id": "fake-1",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-n26hr",
+      "pod_generation": "16e1045461395148d0e2",
+      "request_id": "req_6c6c8ef694e216fe905a14376ad18160",
+      "router_decision_unix_ns": 1790962557448091405,
+      "time_unix_ns": 1790962557448096789
+    },
+    {
+      "backend_generation": "445de1532721184b9121",
+      "backend_id": "fake-1",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-9kqht",
+      "pod_generation": "948ddab805e6211dad8f",
+      "request_id": "req_a08f4d2e3772a525e58569ea605a4704",
+      "router_decision_unix_ns": 1790962557448494793,
+      "time_unix_ns": 1790962557448503383
+    },
+    {
+      "backend_generation": "72b980a4784bf0b7649d",
+      "backend_id": "fake-0",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-9kqht",
+      "pod_generation": "948ddab805e6211dad8f",
+      "request_id": "req_d41e38ed535c7458505d196585a758a1",
+      "router_decision_unix_ns": 1790962557449738856,
+      "time_unix_ns": 1790962557449745700
+    },
+    {
+      "backend_generation": "72b980a4784bf0b7649d",
+      "backend_id": "fake-0",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-n26hr",
+      "pod_generation": "16e1045461395148d0e2",
+      "request_id": "req_cc001a6a18214d7487e48591015e2300",
+      "router_decision_unix_ns": 1790962557454959984,
+      "time_unix_ns": 1790962557454969415
+    },
+    {
+      "backend_generation": "445de1532721184b9121",
+      "backend_id": "fake-1",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-9kqht",
+      "pod_generation": "948ddab805e6211dad8f",
+      "request_id": "req_97261205cb9802212708e8faff344457",
+      "router_decision_unix_ns": 1790962557456766469,
+      "time_unix_ns": 1790962557456776912
+    },
+    {
+      "backend_generation": "72b980a4784bf0b7649d",
+      "backend_id": "fake-0",
+      "msg": "request routed",
+      "pod": "gateway-7dfbfff845-9kqht",
+      "pod_generation": "948ddab805e6211dad8f",
+      "request_id": "req_6c95faea5634e8533b2c7a719f31ace1",
+      "router_decision_unix_ns": 1790962557470186761,
+      "time_unix_ns": 1790962557470200610
+    }
+  ],
+  "outliers": [
+    {
+      "backend": "fake-0",
+      "backend_generation": "72b980a4784bf0b7649d",
+      "content_bytes": 206,
+      "done": true,
+      "duration_ms": 12038.0725,
+      "ended_unix_ns": 1790962569478776300,
+      "error_events": 0,
+      "event": "backend-rollout",
+      "false_complete": false,
+      "finish": true,
+      "first_event_ms": 22.1192,
+      "gateway": "gateway-7dfbfff845-n26hr",
+      "gateway_cause": "completed",
+      "outcome": "completed",
+      "request_id": "req_868407dded7d93e01d4d7bc6c97c40be",
+      "sequence": 0,
+      "started_unix_ns": 1790962557440652000,
+      "status": 200,
+      "transport_error": null,
+      "usage": true,
+      "worker": 2
+    },
+    {
+      "backend": "fake-0",
+      "backend_generation": "72b980a4784bf0b7649d",
+      "content_bytes": 206,
+      "done": true,
+      "duration_ms": 12037.7226,
+      "ended_unix_ns": 1790962569477626800,
+      "error_events": 0,
+      "event": "backend-rollout",
+      "false_complete": false,
+      "finish": true,
+      "first_event_ms": 27.352,
+      "gateway": "gateway-7dfbfff845-n26hr",
+      "gateway_cause": "completed",
+      "outcome": "completed",
+      "request_id": "req_cc001a6a18214d7487e48591015e2300",
+      "sequence": 0,
+      "started_unix_ns": 1790962557439526600,
+      "status": 200,
+      "transport_error": null,
+      "usage": true,
+      "worker": 1
+    },
+    {
+      "backend": "fake-1",
+      "backend_generation": "445de1532721184b9121",
+      "content_bytes": 206,
+      "done": true,
+      "duration_ms": 12037.0253,
+      "ended_unix_ns": 1790962569481792800,
+      "error_events": 0,
+      "event": "backend-rollout",
+      "false_complete": false,
+      "finish": true,
+      "first_event_ms": 21.8581,
+      "gateway": "gateway-7dfbfff845-9kqht",
+      "gateway_cause": "completed",
+      "outcome": "completed",
+      "request_id": "req_97261205cb9802212708e8faff344457",
+      "sequence": 0,
+      "started_unix_ns": 1790962557444614500,
+      "status": 200,
+      "transport_error": null,
+      "usage": true,
+      "worker": 5
+    },
+    {
+      "backend": "fake-0",
+      "backend_generation": "72b980a4784bf0b7649d",
+      "content_bytes": 206,
+      "done": true,
+      "duration_ms": 12036.8549,
+      "ended_unix_ns": 1790962569476015900,
+      "error_events": 0,
+      "event": "backend-rollout",
+      "false_complete": false,
+      "finish": true,
+      "first_event_ms": 23.2734,
+      "gateway": "gateway-7dfbfff845-9kqht",
+      "gateway_cause": "completed",
+      "outcome": "completed",
+      "request_id": "req_9d539c9e0ea0ffdf8fe63d9f6f78ae15",
+      "sequence": 0,
+      "started_unix_ns": 1790962557438848600,
+      "status": 200,
+      "transport_error": null,
+      "usage": true,
+      "worker": 0
+    },
+    {
+      "backend": "fake-0",
+      "backend_generation": "72b980a4784bf0b7649d",
+      "content_bytes": 206,
+      "done": true,
+      "duration_ms": 12036.4036,
+      "ended_unix_ns": 1790962569482356300,
+      "error_events": 0,
+      "event": "backend-rollout",
+      "false_complete": false,
+      "finish": true,
+      "first_event_ms": 29.5885,
+      "gateway": "gateway-7dfbfff845-9kqht",
+      "gateway_cause": "completed",
+      "outcome": "completed",
+      "request_id": "req_6c95faea5634e8533b2c7a719f31ace1",
+      "sequence": 0,
+      "started_unix_ns": 1790962557445781200,
+      "status": 200,
+      "transport_error": null,
+      "usage": true,
+      "worker": 7
+    }
+  ],
+  "reservations_after": {
+    "active_reservation_keys": 0,
+    "global_zcard": 0,
+    "tenant_zcard": 0
+  },
+  "reservations_before": {
+    "active_reservation_keys": 8,
+    "global_zcard": 8,
+    "tenant_zcard": 8
+  },
+  "stages": [
+    {
+      "drain_after_sigterm_ms": 6493.158397,
+      "endpoint_removed_observation_bracket_ns": [
+        1790962559805832900,
+        1790962560366635000
+      ],
+      "endpoint_removed_observed_unix_ns": 1790962560366635000,
+      "gateway_discovery_removed_unix_ns": {
+        "gateway-7dfbfff845-9kqht": 1790962560084839585,
+        "gateway-7dfbfff845-n26hr": 1790962560069997525
+      },
+      "generation": "445de1532721184b9121",
+      "last_stream_drained_unix_ns": 1790962569490309264,
+      "pod": "fake-1",
+      "replacements": {
+        "126e8f11c2ed6d563645": {
+          "first_routed_unix_ns": 1790962581714613714,
+          "pod": "fake-1",
+          "ready_observed_unix_ns": 1790962574770584500
+        }
+      },
+      "sigterm_unix_ns": 1790962562997150867
+    }
+  ],
+  "trigger_unix_ns": 1790962559805832900,
+  "untargeted_backend_generation": "72b980a4784bf0b7649d"
+}

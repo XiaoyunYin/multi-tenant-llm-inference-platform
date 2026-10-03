@@ -1,0 +1,27 @@
+# Sanitized SSM capture from 2026-09-16T17:39:57Z.
+# Request/response timestamps and chat completion ID were normalized; no prompt secret or credential is present.
+# The upstream-only fields are intentionally retained here so the gateway allowlist regression is meaningful.
+HTTP/1.1 200 OK
+content-type: text/event-stream; charset=utf-8
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"prompt_token_ids":null,"prompt_text":null}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":"Hi"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":" there"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":"!"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":" Nice"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":" to"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":" meet"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":" you"},"logprobs":null,"finish_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[{"index":0,"delta":{"content":"."},"logprobs":null,"finish_reason":"length","stop_reason":null,"token_ids":null}]}
+
+data: {"id":"chatcmpl-<redacted>","object":"chat.completion.chunk","created":0,"model":"Qwen/Qwen2.5-7B-Instruct","choices":[],"usage":{"prompt_tokens":31,"total_tokens":39,"completion_tokens":8},"system_fingerprint":"vllm-0.29.0-8ffee3d1"}
+
+data: [DONE]

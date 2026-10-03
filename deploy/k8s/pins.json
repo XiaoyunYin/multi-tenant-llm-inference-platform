@@ -1,0 +1,10 @@
+{
+  "kind_version": "v0.30.0",
+  "node_image": "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a",
+  "kubectl_version": "v1.34.0",
+  "kind_windows_amd64_sha256": "a75fed2b6964d877461cc145b37e997ac0f59a63bd02a750134ac25378f78ce7",
+  "kind_linux_amd64_sha256": "517ab7fc89ddeed5fa65abf71530d90648d9638ef0c4cde22c2c11f8097b8889",
+  "kubectl_windows_amd64_sha256": "856b6a92556452e249db940e7fdb8d8f8f622805d25f67de09a4d4d2da6f6132",
+  "kubectl_linux_amd64_sha256": "cfda68cba5848bc3b6c6135ae2f20ba2c78de20059f68789c090166d6abc3e2c",
+  "redis_image": "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d"
+}

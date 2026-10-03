@@ -1,0 +1,60 @@
+{
+  "schema": "inf011-paid-plan-metadata.v0",
+  "status": "completed_and_destroyed_pending_evidence_review",
+  "plan_sha256": "ddb343b356f09275533e66420c709d26dde79e7cc56255104fb0d324689b147d",
+  "configuration_commit": "ebf31c6",
+  "budget_authorization_id": "DEC-015",
+  "approved_incremental_cap_usd": 5.0,
+  "estimated_max_session_cost_usd": 3.0,
+  "maximum_session_hours": 2,
+  "aws_region": "us-west-2",
+  "availability_zone": "us-west-2a",
+  "instance_type": "g6.xlarge",
+  "ami_id": "ami-092d6abbcb0dc5017",
+  "plan_actions": {
+    "create": 10,
+    "change": 0,
+    "destroy": 0
+  },
+  "runtime": {
+    "vllm_version": "0.29.0",
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "model_revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "max_num_seqs": 16,
+    "max_num_queued_reqs": 32,
+    "gpu_memory_utilization": 0.9
+  },
+  "calibration_protocol": {
+    "levels": [1, 2, 4, 8, 12],
+    "max_tokens": 512,
+    "sample_interval_ms": 100,
+    "sampler_starts_before_each_burst": true,
+    "per_request_outcomes_and_timing": true,
+    "gateway_in_path": true,
+    "recorder": "python -m inference_platform.calibration",
+    "token_source": "mode-restricted token file passed via --token-file; never command-line credential",
+    "durable_export": "retrieve and hash each SSM invocation before teardown"
+  },
+  "warmup": {
+    "prior_cold_launch_to_first_response_seconds": 2015,
+    "prior_warm_weight_load_seconds": 120.663043,
+    "current_plan_mitigation": "none; baseline 100 GiB gp3",
+    "guard": "record cold readiness first and stop before timed bursts if the two-hour envelope is threatened"
+  },
+  "no_apply_until": "a fresh committed Claude review marker matches this exact plan_sha256",
+  "evidence_manifest": "manifest.json",
+  "measured_run_count": 1,
+  "preliminary_calibration": {
+    "min_concurrency_without_queueing": 12,
+    "tested_max_concurrency": 12,
+    "saturation_reached": false,
+    "waiting_observed": false,
+    "safe_R": null,
+    "W": null,
+    "B": null,
+    "scope": "single-host sweep endpoint only; no safe operating point or waiting allowance was established",
+    "context_caveat": "short-prompt sweep used less than 5% KV at level 12 while full-context kv_cache_max_concurrency is 7.599609375; admission must be context-aware"
+  }
+}

@@ -1,0 +1,32 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-36360\gateway.exe2026-10-02 13:15:26.2908969 -0700 PDT
+Type: inuse_space
+Time: 2026-10-02 13:28:11 PDT
+Showing nodes accounting for 5158.39kB, 100% of 5158.39kB total
+Showing top 25 nodes out of 28
+      flat  flat%   sum%        cum   cum%
+ 3077.13kB 59.65% 59.65%  3077.13kB 59.65%  runtime.mallocgc
+  528.17kB 10.24% 69.89%   528.17kB 10.24%  bufio.NewReaderSize (inline)
+  528.17kB 10.24% 80.13%   528.17kB 10.24%  bufio.NewWriterSize (inline)
+  512.88kB  9.94% 90.07%   512.88kB  9.94%  github.com/redis/go-redis/v9.map.init.2
+  512.05kB  9.93%   100%   512.05kB  9.93%  net/http.(*persistConn).readLoop
+         0     0%   100%   512.88kB  9.94%  github.com/redis/go-redis/v9.init
+         0     0%   100%  1056.33kB 20.48%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).dialConn
+         0     0%   100%  1056.33kB 20.48%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).newConn
+         0     0%   100%  1056.33kB 20.48%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).queuedNewConn.func2
+         0     0%   100%  1056.33kB 20.48%  github.com/redis/go-redis/v9/internal/pool.NewConnWithBufferSize
+         0     0%   100%   528.17kB 10.24%  github.com/redis/go-redis/v9/internal/proto.NewReaderSize (inline)
+         0     0%   100%  3077.13kB 59.65%  runtime.allocm
+         0     0%   100%   512.88kB  9.94%  runtime.doInit (inline)
+         0     0%   100%   512.88kB  9.94%  runtime.doInit1
+         0     0%   100%  3077.13kB 59.65%  runtime.handoffp
+         0     0%   100%  1025.12kB 19.87%  runtime.mProfStackInit (inline)
+         0     0%   100%   512.88kB  9.94%  runtime.main
+         0     0%   100%  1025.12kB 19.87%  runtime.makeProfStackFP (inline)
+         0     0%   100%  1025.12kB 19.87%  runtime.makeslice
+         0     0%   100%  1025.12kB 19.87%  runtime.mcommoninit
+         0     0%   100%  3077.13kB 59.65%  runtime.mstart
+         0     0%   100%  3077.13kB 59.65%  runtime.mstart0
+         0     0%   100%  3077.13kB 59.65%  runtime.mstart1
+         0     0%   100%  3077.13kB 59.65%  runtime.newm
+         0     0%   100%     2052kB 39.78%  runtime.newobject

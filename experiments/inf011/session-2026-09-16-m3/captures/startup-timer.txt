@@ -1,0 +1,8 @@
+# Sanitized final SSM snapshot from 2026-09-16T18:17:53Z.
+inf011-shutdown.timer: active
+Result=success
+NextElapseUSecRealtime=Wed 2026-09-16 21:01:52 UTC
+vllm service: active
+/health: HTTP 200
+model_max_len: 8192
+The timer deadline was set once at boot and remained stable across the reboot replay.

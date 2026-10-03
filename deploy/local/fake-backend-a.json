@@ -1,0 +1,17 @@
+{
+  "backend_id": "fake-backend-a",
+  "chunk_delay_ms": 20,
+  "chunks": [
+    "hello",
+    " from fake backend a"
+  ],
+  "completion_tokens": 6,
+  "emit_usage": true,
+  "failure_after_chunks": 0,
+  "failure_mode": "none",
+  "first_item_delay_ms": 30,
+  "healthy": true,
+  "http_error_status": 503,
+  "prompt_tokens": 4,
+  "stall_timeout_ms": 5000
+}

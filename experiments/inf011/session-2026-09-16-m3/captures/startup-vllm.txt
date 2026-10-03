@@ -1,0 +1,32 @@
+# Sanitized excerpt from retained SSM vLLM logs (2026-09-16).
+# Hostname, process/container IDs, temporary paths, and account data are omitted.
+vLLM version: 0.29.0
+model: Qwen/Qwen2.5-7B-Instruct
+revision: a09a35458c702b33eeacc393d103063234e8bc28
+dtype: bfloat16
+max_seq_len: 8192
+gpu_memory_utilization: 0.9
+enable_prefix_caching: True
+max_num_seqs: 16
+max_num_queued_reqs: 32
+architecture: Qwen2ForCausalLM
+# The following line is from the warm post-reboot vLLM start. It is not a
+# cold-boot budget: the model and image had already been pulled on this host.
+warm post-reboot weight loading: 120.663043 seconds
+
+# Cold-start timing is derived from the retained launch/SSM evidence rather
+# than this warm process excerpt. The successful launch was 17:00:30Z and the
+# first response was 17:34:05Z (2015 seconds). Progress showed roughly
+# 273-324 seconds per checkpoint shard, with 3 of 4 shards still loading at
+# 15 minutes 21 seconds. The retained output does not isolate image-pull,
+# volume-restore, and aggregate shard time, so no tighter cold-start total is
+# claimed.
+cold-start launch-to-first-response: 2015 seconds
+cold-start shard progress: approximately 273-324 seconds per shard; 3 of 4 shards at 15m21s
+cold-start first response UTC: 2026-09-16T17:34:05Z
+cold-start launch success UTC: 2026-09-16T17:00:30Z
+
+# Original warm-process log line retained verbatim for provenance.
+weight loading: 120.663043 seconds
+checkpoint size: 14.19 GiB
+attention backend: FLASH_ATTN (FlashAttention version 2)

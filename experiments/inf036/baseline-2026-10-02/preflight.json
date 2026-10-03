@@ -1,0 +1,22 @@
+{
+  "endpoint0": {
+    "events": 6,
+    "exact_content_and_usage": true,
+    "status": "PASS"
+  },
+  "endpoint1": {
+    "events": 6,
+    "exact_content_and_usage": true,
+    "status": "PASS"
+  },
+  "endpoint2": {
+    "events": 6,
+    "exact_content_and_usage": true,
+    "status": "PASS"
+  },
+  "endpoint3": {
+    "events": 6,
+    "exact_content_and_usage": true,
+    "status": "PASS"
+  }
+}

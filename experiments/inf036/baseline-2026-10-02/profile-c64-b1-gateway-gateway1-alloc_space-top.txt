@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-36360\gateway.exe2026-10-02 13:15:26.2908969 -0700 PDT
+Type: alloc_space
+Time: 2026-10-02 13:28:58 PDT
+Showing nodes accounting for 19.19GB, 87.03% of 22.05GB total
+Dropped 317 nodes (cum <= 0.11GB)
+Showing top 25 nodes out of 97
+      flat  flat%   sum%        cum   cum%
+   11.72GB 53.15% 53.15%    11.72GB 53.15%  bufio.NewReaderSize
+    0.91GB  4.12% 57.27%     1.14GB  5.15%  encoding/json.(*scanner).error (inline)
+    0.62GB  2.82% 60.09%     0.62GB  2.82%  encoding/json.(*Decoder).refill
+    0.56GB  2.55% 62.64%     5.36GB 24.30%  multi-tenant-llm-inference-platform/internal/gateway.validateEvent
+    0.46GB  2.06% 64.70%     0.50GB  2.27%  encoding/json.(*decodeState).objectInterface
+    0.44GB  2.01% 66.71%     0.44GB  2.01%  reflect.mapassign_faststr0
+    0.39GB  1.76% 68.47%     2.16GB  9.80%  encoding/json.(*Decoder).Token
+    0.38GB  1.73% 70.20%     0.38GB  1.73%  encoding/json.NewDecoder (inline)
+    0.36GB  1.65% 71.85%     0.36GB  1.65%  reflect.unsafe_New
+    0.34GB  1.55% 73.41%     0.34GB  1.55%  multi-tenant-llm-inference-platform/internal/gateway.clientChunkEnvelope (inline)
+    0.33GB  1.52% 74.92%     1.91GB  8.66%  encoding/json.Unmarshal
+    0.30GB  1.36% 76.28%     0.54GB  2.44%  encoding/json.mapEncoder.encode
+    0.24GB  1.11% 77.39%     0.27GB  1.22%  encoding/json.(*decodeState).literalStore
+    0.22GB     1% 78.39%     0.23GB  1.06%  net/textproto.MIMEHeader.Set
+    0.20GB  0.92% 79.31%     0.20GB  0.92%  bufio.NewWriterSize
+    0.20GB   0.9% 80.20%     1.24GB  5.63%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).decodeRequest
+    0.19GB  0.88% 81.08%     0.19GB  0.88%  time.newTimer
+    0.19GB  0.84% 81.92%     0.19GB  0.87%  net/textproto.readMIMEHeader
+    0.19GB  0.84% 82.77%     0.20GB  0.89%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeSSE
+    0.18GB  0.83% 83.59%     0.70GB  3.18%  encoding/json.Marshal
+    0.17GB  0.77% 84.37%     0.17GB  0.77%  net/http.Header.Clone
+    0.15GB   0.7% 85.06%     0.29GB  1.33%  time.NewTimer
+    0.15GB  0.69% 85.75%     1.53GB  6.92%  encoding/json.(*decodeState).object
+    0.14GB  0.64% 86.39%     0.23GB  1.03%  encoding/json.quoteChar
+    0.14GB  0.63% 87.03%     0.22GB  0.99%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions.func1

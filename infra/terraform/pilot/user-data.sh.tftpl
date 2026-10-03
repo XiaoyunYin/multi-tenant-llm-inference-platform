@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+install -d -m 0755 /opt/inf011 /opt/inf011/hf-cache
+
+# Persist one absolute deadline so a reboot cannot restart the session clock.
+install -d -m 0755 /etc/inf011
+deadline_file=/etc/inf011/deadline_epoch
+if [ ! -s "$deadline_file" ]; then
+  session_seconds="$(awk -v hours="${max_session_hours}" 'BEGIN {
+    if (hours <= 0) exit 1
+    printf "%.0f", hours * 3600
+  }')"
+  printf '%s\n' "$(( $(date +%s) + session_seconds ))" > "$deadline_file"
+fi
+deadline_epoch="$(cat "$deadline_file")"
+
+cat >/opt/inf011/start-vllm.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/bin/docker run --rm \
+  --name inf011-vllm \
+  --gpus all \
+  --ipc=host \
+  --publish 127.0.0.1:8000:8000 \
+  --volume /opt/inf011/hf-cache:/root/.cache/huggingface \
+  --env VLLM_SERVER_DEV_MODE=1 \
+  docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --revision a09a35458c702b33eeacc393d103063234e8bc28 \
+  --dtype bfloat16 \
+  --max-model-len 8192 \
+  --max-num-seqs 16 \
+  --max-num-queued-reqs 32 \
+  --gpu-memory-utilization 0.90 \
+  --enable-prefix-caching \
+  --kv-events-config '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:5557","topic":"kv-events"}' \
+  --generation-config vllm \
+  --host 0.0.0.0 \
+  --port 8000
+SCRIPT
+chmod 0755 /opt/inf011/start-vllm.sh
+
+cat >/opt/inf011/start-dcgm-exporter.sh <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec /usr/bin/docker run --rm \
+  --name inf011-dcgm-exporter \
+  --gpus all \
+  --cap-add SYS_ADMIN \
+  --publish 127.0.0.1:9400:9400 \
+  nvcr.io/nvidia/k8s/dcgm-exporter@sha256:60d3b00ac80b4ae77f94dae2f943685605585ad9e92fdccda3154d009ae317cc
+SCRIPT
+chmod 0755 /opt/inf011/start-dcgm-exporter.sh
+
+cat >/etc/systemd/system/inf011-vllm.service <<'UNIT'
+[Unit]
+Description=INF-011 pinned vLLM pilot
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/inf011/start-vllm.sh
+ExecStop=/usr/bin/docker stop --time 30 inf011-vllm
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat >/etc/systemd/system/inf011-dcgm-exporter.service <<'UNIT'
+[Unit]
+Description=INF-011 pinned DCGM Exporter
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/inf011/start-dcgm-exporter.sh
+ExecStop=/usr/bin/docker stop --time 30 inf011-dcgm-exporter
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat >/etc/systemd/system/inf011-terminate.service <<'UNIT'
+[Unit]
+Description=Terminate the bounded INF-011 pilot
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/shutdown -h now
+UNIT
+
+cat >/etc/systemd/system/inf011-terminate.timer <<UNIT
+[Unit]
+Description=Absolute runtime deadline for the INF-011 pilot
+
+[Timer]
+OnCalendar=@$${deadline_epoch}
+Persistent=true
+AccuracySec=1min
+Unit=inf011-terminate.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+
+systemctl daemon-reload
+if ! systemd-analyze verify /etc/systemd/system/inf011-terminate.timer; then
+  /sbin/shutdown -h now || true
+  exit 1
+fi
+systemctl enable --now inf011-terminate.timer
+if ! systemctl is-active --quiet inf011-terminate.timer; then
+  /sbin/shutdown -h now || true
+  exit 1
+fi
+next_deadline="$(systemctl show inf011-terminate.timer -p NextElapseUSecRealtime --value)"
+if [ -z "$next_deadline" ] || [ "$next_deadline" = "0" ] || [ "$next_deadline" = "n/a" ]; then
+  /sbin/shutdown -h now || true
+  exit 1
+fi
+systemctl enable --now docker.service
+/usr/bin/docker pull docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b
+/usr/bin/docker pull nvcr.io/nvidia/k8s/dcgm-exporter@sha256:60d3b00ac80b4ae77f94dae2f943685605585ad9e92fdccda3154d009ae317cc
+systemctl enable --now inf011-dcgm-exporter.service
+systemctl enable --now inf011-vllm.service

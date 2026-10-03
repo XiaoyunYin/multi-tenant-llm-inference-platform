@@ -1,0 +1,1157 @@
+[
+  {
+    "backend_id": "fake-0",
+    "msg": "fake started",
+    "pod": "fake-0",
+    "pod_generation": "72b980a4784bf0b7649d",
+    "time_unix_ns": 1790962524480476835
+  },
+  {
+    "msg": "gateway started",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "time_unix_ns": 1790962525578512955
+  },
+  {
+    "msg": "gateway started",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "time_unix_ns": 1790962525602984482
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "time_unix_ns": 1790962526332685774
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "time_unix_ns": 1790962526440462974
+  },
+  {
+    "backend_id": "fake-1",
+    "msg": "fake started",
+    "pod": "fake-1",
+    "pod_generation": "445de1532721184b9121",
+    "time_unix_ns": 1790962527670148044
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@445de1532721184b9121"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "time_unix_ns": 1790962529332477921
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@445de1532721184b9121"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "time_unix_ns": 1790962529356616886
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_5894f27639a3c63897ddf0714424d64a",
+    "router_decision_unix_ns": 1790962531500495932,
+    "time_unix_ns": 1790962531500506913
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_cb89b93189671c9bb6dc6b6042b9548e",
+    "router_decision_unix_ns": 1790962531502793487,
+    "time_unix_ns": 1790962531502804283
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_28d2cd3d322b7367e47e8f0192e299d1",
+    "router_decision_unix_ns": 1790962531502877318,
+    "time_unix_ns": 1790962531502883311
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_daf749b51b9dcd20587a018180d3d82b",
+    "router_decision_unix_ns": 1790962531504860107,
+    "time_unix_ns": 1790962531504870967
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_105186f8d025a3f3d2dddaf201c8cd8b",
+    "router_decision_unix_ns": 1790962531505167630,
+    "time_unix_ns": 1790962531505174038
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_59156561a7e0c21b382d0fb29a858478",
+    "router_decision_unix_ns": 1790962531505341162,
+    "time_unix_ns": 1790962531505441498
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_a25448be6c89f55a3e6fea2284c30356",
+    "router_decision_unix_ns": 1790962531505472971,
+    "time_unix_ns": 1790962531505479568
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_434945685bad69cdaa8d6e890519b403",
+    "router_decision_unix_ns": 1790962531506092726,
+    "time_unix_ns": 1790962531506101483
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@445de1532721184b9121"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "time_unix_ns": 1790962534818386281
+  },
+  {
+    "msg": "gateway started",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "time_unix_ns": 1790962534821273835
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@445de1532721184b9121"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "time_unix_ns": 1790962538830555643
+  },
+  {
+    "msg": "gateway started",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "time_unix_ns": 1790962538833286168
+  },
+  {
+    "msg": "gateway draining",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "signal": "terminated",
+    "time_unix_ns": 1790962541073287109
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12025,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_daf749b51b9dcd20587a018180d3d82b",
+    "router_decision_unix_ns": 1790962531504860107,
+    "time_unix_ns": 1790962543516796402
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12024,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_28d2cd3d322b7367e47e8f0192e299d1",
+    "router_decision_unix_ns": 1790962531502877318,
+    "time_unix_ns": 1790962543516925346
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12026,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_a25448be6c89f55a3e6fea2284c30356",
+    "router_decision_unix_ns": 1790962531505472971,
+    "time_unix_ns": 1790962543517009113
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12030,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_cb89b93189671c9bb6dc6b6042b9548e",
+    "router_decision_unix_ns": 1790962531502793487,
+    "time_unix_ns": 1790962543522741508
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12032,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_5894f27639a3c63897ddf0714424d64a",
+    "router_decision_unix_ns": 1790962531500495932,
+    "time_unix_ns": 1790962543522761010
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12033,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "request_id": "req_59156561a7e0c21b382d0fb29a858478",
+    "router_decision_unix_ns": 1790962531505341162,
+    "time_unix_ns": 1790962543523350554
+  },
+  {
+    "grace_expired": false,
+    "msg": "last stream drained",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "time_unix_ns": 1790962543523463884
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12032,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_434945685bad69cdaa8d6e890519b403",
+    "router_decision_unix_ns": 1790962531506092726,
+    "time_unix_ns": 1790962543524173936
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12035,
+    "msg": "request terminal",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "request_id": "req_105186f8d025a3f3d2dddaf201c8cd8b",
+    "router_decision_unix_ns": 1790962531505167630,
+    "time_unix_ns": 1790962543524853408
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_8ea94c1a9cfcb9690af82166e3fbcdb5",
+    "router_decision_unix_ns": 1790962543628226354,
+    "time_unix_ns": 1790962543628232269
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_17c04e04d34f40f19898a777d54719c1",
+    "router_decision_unix_ns": 1790962543629699908,
+    "time_unix_ns": 1790962543629714400
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_516fbefa2f83319c85f0b19f74ed0e90",
+    "router_decision_unix_ns": 1790962543629914360,
+    "time_unix_ns": 1790962543629918997
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_ed6ea4b500d1280c6234c6c00385aeb0",
+    "router_decision_unix_ns": 1790962543641359837,
+    "time_unix_ns": 1790962543641365212
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_2c9c555aca18b64dde4a034eae321f98",
+    "router_decision_unix_ns": 1790962543641377343,
+    "time_unix_ns": 1790962543641382256
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_aaf1fa451fb078e8ee5d6ace748681fa",
+    "router_decision_unix_ns": 1790962543642987741,
+    "time_unix_ns": 1790962543642992355
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_f18207ab46a3a52d803d903281068300",
+    "router_decision_unix_ns": 1790962543644485977,
+    "time_unix_ns": 1790962543644490866
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_5e6aa1c033464d4c960b5a91af78a4c5",
+    "router_decision_unix_ns": 1790962543656574170,
+    "time_unix_ns": 1790962543656581543
+  },
+  {
+    "msg": "gateway stopped",
+    "pod": "gateway-5c7d46db96-fx275",
+    "pod_generation": "090608102dc7fc5b9453",
+    "time_unix_ns": 1790962543715663941
+  },
+  {
+    "msg": "gateway draining",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "signal": "terminated",
+    "time_unix_ns": 1790962545040562410
+  },
+  {
+    "grace_expired": false,
+    "msg": "last stream drained",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "time_unix_ns": 1790962545040610208
+  },
+  {
+    "msg": "gateway stopped",
+    "pod": "gateway-5c7d46db96-q8wrg",
+    "pod_generation": "a7631f8427bfde46e484",
+    "time_unix_ns": 1790962545040662000
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12013,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_516fbefa2f83319c85f0b19f74ed0e90",
+    "router_decision_unix_ns": 1790962543629914360,
+    "time_unix_ns": 1790962555641672632
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12014,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_8ea94c1a9cfcb9690af82166e3fbcdb5",
+    "router_decision_unix_ns": 1790962543628226354,
+    "time_unix_ns": 1790962555641824862
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12014,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_17c04e04d34f40f19898a777d54719c1",
+    "router_decision_unix_ns": 1790962543629699908,
+    "time_unix_ns": 1790962555642113147
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12008,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_aaf1fa451fb078e8ee5d6ace748681fa",
+    "router_decision_unix_ns": 1790962543642987741,
+    "time_unix_ns": 1790962555651166954
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_ed6ea4b500d1280c6234c6c00385aeb0",
+    "router_decision_unix_ns": 1790962543641359837,
+    "time_unix_ns": 1790962555651483815
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_2c9c555aca18b64dde4a034eae321f98",
+    "router_decision_unix_ns": 1790962543641377343,
+    "time_unix_ns": 1790962555651503027
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12009,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_f18207ab46a3a52d803d903281068300",
+    "router_decision_unix_ns": 1790962543644485977,
+    "time_unix_ns": 1790962555652512098
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_5e6aa1c033464d4c960b5a91af78a4c5",
+    "router_decision_unix_ns": 1790962543656574170,
+    "time_unix_ns": 1790962555666533132
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_9d539c9e0ea0ffdf8fe63d9f6f78ae15",
+    "router_decision_unix_ns": 1790962557447743157,
+    "time_unix_ns": 1790962557447768354
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_868407dded7d93e01d4d7bc6c97c40be",
+    "router_decision_unix_ns": 1790962557447782877,
+    "time_unix_ns": 1790962557447794501
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_6c6c8ef694e216fe905a14376ad18160",
+    "router_decision_unix_ns": 1790962557448091405,
+    "time_unix_ns": 1790962557448096789
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_a08f4d2e3772a525e58569ea605a4704",
+    "router_decision_unix_ns": 1790962557448494793,
+    "time_unix_ns": 1790962557448503383
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_d41e38ed535c7458505d196585a758a1",
+    "router_decision_unix_ns": 1790962557449738856,
+    "time_unix_ns": 1790962557449745700
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_cc001a6a18214d7487e48591015e2300",
+    "router_decision_unix_ns": 1790962557454959984,
+    "time_unix_ns": 1790962557454969415
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_97261205cb9802212708e8faff344457",
+    "router_decision_unix_ns": 1790962557456766469,
+    "time_unix_ns": 1790962557456776912
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_6c95faea5634e8533b2c7a719f31ace1",
+    "router_decision_unix_ns": 1790962557470186761,
+    "time_unix_ns": 1790962557470200610
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "time_unix_ns": 1790962560069997525
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "time_unix_ns": 1790962560084839585
+  },
+  {
+    "msg": "SIGTERM received",
+    "pod": "fake-1",
+    "pod_generation": "445de1532721184b9121",
+    "signal": 15,
+    "time_unix_ns": 1790962562997150867
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12031,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_9d539c9e0ea0ffdf8fe63d9f6f78ae15",
+    "router_decision_unix_ns": 1790962557447743157,
+    "time_unix_ns": 1790962569472523917
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12030,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_a08f4d2e3772a525e58569ea605a4704",
+    "router_decision_unix_ns": 1790962557448494793,
+    "time_unix_ns": 1790962569473703861
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12022,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_cc001a6a18214d7487e48591015e2300",
+    "router_decision_unix_ns": 1790962557454959984,
+    "time_unix_ns": 1790962569473704691
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12027,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_d41e38ed535c7458505d196585a758a1",
+    "router_decision_unix_ns": 1790962557449738856,
+    "time_unix_ns": 1790962569473839483
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12030,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_6c6c8ef694e216fe905a14376ad18160",
+    "router_decision_unix_ns": 1790962557448091405,
+    "time_unix_ns": 1790962569474006711
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12032,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_868407dded7d93e01d4d7bc6c97c40be",
+    "router_decision_unix_ns": 1790962557447782877,
+    "time_unix_ns": 1790962569474022367
+  },
+  {
+    "backend_generation": "445de1532721184b9121",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12033,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_97261205cb9802212708e8faff344457",
+    "router_decision_unix_ns": 1790962557456766469,
+    "time_unix_ns": 1790962569478500387
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12012,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_6c95faea5634e8533b2c7a719f31ace1",
+    "router_decision_unix_ns": 1790962557470186761,
+    "time_unix_ns": 1790962569478762952
+  },
+  {
+    "active": 0,
+    "msg": "last stream drained",
+    "pod": "fake-1",
+    "pod_generation": "445de1532721184b9121",
+    "time_unix_ns": 1790962569490309264
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_7b612ce9b3c70ab86c0df78f1163eda8",
+    "router_decision_unix_ns": 1790962569584627528,
+    "time_unix_ns": 1790962569584657106
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_448da0fe1465008c685e6893afff3b14",
+    "router_decision_unix_ns": 1790962569584637300,
+    "time_unix_ns": 1790962569584715342
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_91d8f81534b2379778d15af5e4249d78",
+    "router_decision_unix_ns": 1790962569584909258,
+    "time_unix_ns": 1790962569584917101
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_dd7e1670be687f3d8826ed0efa1ac594",
+    "router_decision_unix_ns": 1790962569584927668,
+    "time_unix_ns": 1790962569584934633
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_60ebe0b668a8d540541f6e23b3b09afe",
+    "router_decision_unix_ns": 1790962569585186646,
+    "time_unix_ns": 1790962569585191457
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_bb4739b2d36fe5561b9f2c07b36f0dd4",
+    "router_decision_unix_ns": 1790962569585420328,
+    "time_unix_ns": 1790962569585425382
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_5d3ebd885931b90ddda8b7b3bf8fcff1",
+    "router_decision_unix_ns": 1790962569597439915,
+    "time_unix_ns": 1790962569597447036
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_bc4f8f400dad693241dd6a54e7728ec6",
+    "router_decision_unix_ns": 1790962569598562480,
+    "time_unix_ns": 1790962569598571076
+  },
+  {
+    "backend_id": "fake-1",
+    "msg": "fake started",
+    "pod": "fake-1",
+    "pod_generation": "126e8f11c2ed6d563645",
+    "time_unix_ns": 1790962572754289197
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@126e8f11c2ed6d563645"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "time_unix_ns": 1790962574565632277
+  },
+  {
+    "backends": [
+      "fake-0@72b980a4784bf0b7649d",
+      "fake-1@126e8f11c2ed6d563645"
+    ],
+    "msg": "backend discovery changed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "time_unix_ns": 1790962574583263006
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12021,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_dd7e1670be687f3d8826ed0efa1ac594",
+    "router_decision_unix_ns": 1790962569584927668,
+    "time_unix_ns": 1790962581603657133
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12021,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_7b612ce9b3c70ab86c0df78f1163eda8",
+    "router_decision_unix_ns": 1790962569584627528,
+    "time_unix_ns": 1790962581604300716
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12026,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_448da0fe1465008c685e6893afff3b14",
+    "router_decision_unix_ns": 1790962569584637300,
+    "time_unix_ns": 1790962581608486439
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12026,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_91d8f81534b2379778d15af5e4249d78",
+    "router_decision_unix_ns": 1790962569584909258,
+    "time_unix_ns": 1790962581608629245
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12028,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_60ebe0b668a8d540541f6e23b3b09afe",
+    "router_decision_unix_ns": 1790962569585186646,
+    "time_unix_ns": 1790962581611766364
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12028,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_bb4739b2d36fe5561b9f2c07b36f0dd4",
+    "router_decision_unix_ns": 1790962569585420328,
+    "time_unix_ns": 1790962581611884534
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12015,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_5d3ebd885931b90ddda8b7b3bf8fcff1",
+    "router_decision_unix_ns": 1790962569597439915,
+    "time_unix_ns": 1790962581612199383
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12015,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_bc4f8f400dad693241dd6a54e7728ec6",
+    "router_decision_unix_ns": 1790962569598562480,
+    "time_unix_ns": 1790962581613128617
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_27d22d98f88a66f1deb7af904f1c6bc3",
+    "router_decision_unix_ns": 1790962581714414907,
+    "time_unix_ns": 1790962581714420078
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_cf639ea61dc01d58998b621cf2d2c649",
+    "router_decision_unix_ns": 1790962581714613714,
+    "time_unix_ns": 1790962581714618219
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_947bd40b8624654d8d866644584fcedf",
+    "router_decision_unix_ns": 1790962581714713530,
+    "time_unix_ns": 1790962581714716425
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_981b80f822dfbe63473ebb45e5af4b14",
+    "router_decision_unix_ns": 1790962581714771975,
+    "time_unix_ns": 1790962581714773880
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_4e2899d759c868b3785fd415af29e57a",
+    "router_decision_unix_ns": 1790962581729459067,
+    "time_unix_ns": 1790962581729465014
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_54d7267a2cec88939f86746be33e5796",
+    "router_decision_unix_ns": 1790962581729577048,
+    "time_unix_ns": 1790962581729581929
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_555332e118354bce1a2a6cb428424ef5",
+    "router_decision_unix_ns": 1790962581729580053,
+    "time_unix_ns": 1790962581729584309
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "msg": "request routed",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_c3ed2b501ab125cbb508e18bb2b4018c",
+    "router_decision_unix_ns": 1790962581730377893,
+    "time_unix_ns": 1790962581730383573
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_cf639ea61dc01d58998b621cf2d2c649",
+    "router_decision_unix_ns": 1790962581714613714,
+    "time_unix_ns": 1790962593724305118
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_27d22d98f88a66f1deb7af904f1c6bc3",
+    "router_decision_unix_ns": 1790962581714414907,
+    "time_unix_ns": 1790962593724391081
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_947bd40b8624654d8d866644584fcedf",
+    "router_decision_unix_ns": 1790962581714713530,
+    "time_unix_ns": 1790962593724401788
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_981b80f822dfbe63473ebb45e5af4b14",
+    "router_decision_unix_ns": 1790962581714771975,
+    "time_unix_ns": 1790962593724416729
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12011,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_555332e118354bce1a2a6cb428424ef5",
+    "router_decision_unix_ns": 1790962581729580053,
+    "time_unix_ns": 1790962593740352597
+  },
+  {
+    "backend_generation": "126e8f11c2ed6d563645",
+    "backend_id": "fake-1",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12010,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_c3ed2b501ab125cbb508e18bb2b4018c",
+    "router_decision_unix_ns": 1790962581730377893,
+    "time_unix_ns": 1790962593740353765
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12011,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-9kqht",
+    "pod_generation": "948ddab805e6211dad8f",
+    "request_id": "req_54d7267a2cec88939f86746be33e5796",
+    "router_decision_unix_ns": 1790962581729577048,
+    "time_unix_ns": 1790962593740432457
+  },
+  {
+    "backend_generation": "72b980a4784bf0b7649d",
+    "backend_id": "fake-0",
+    "cause": "completed",
+    "code": "completed",
+    "committed": true,
+    "duration_ms": 12011,
+    "msg": "request terminal",
+    "pod": "gateway-7dfbfff845-n26hr",
+    "pod_generation": "16e1045461395148d0e2",
+    "request_id": "req_4e2899d759c868b3785fd415af29e57a",
+    "router_decision_unix_ns": 1790962581729459067,
+    "time_unix_ns": 1790962593740597529
+  }
+]

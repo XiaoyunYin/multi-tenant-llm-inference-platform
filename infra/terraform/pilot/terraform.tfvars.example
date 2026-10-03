@@ -1,0 +1,12 @@
+# This file is documentation only. Keep the safe defaults until a user-approved
+# spend cap is recorded. Never commit credentials or a real local tfvars file.
+aws_region                    = "us-east-1"
+instance_type                 = "g6.xlarge"
+ami_id                        = ""
+enable_paid_gpu               = false
+offline_validation            = true
+budget_authorization_id       = ""
+approved_phase_cap_usd        = 0
+estimated_max_session_cost_usd = 0
+max_session_hours             = 4
+root_volume_gib               = 100

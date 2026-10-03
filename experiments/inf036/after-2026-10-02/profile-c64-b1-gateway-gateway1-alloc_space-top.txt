@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: alloc_space
+Time: 2026-10-02 13:49:12 PDT
+Showing nodes accounting for 8019.95MB, 73.38% of 10929.53MB total
+Dropped 281 nodes (cum <= 54.65MB)
+Showing top 25 nodes out of 132
+      flat  flat%   sum%        cum   cum%
+ 1017.04MB  9.31%  9.31%  1231.04MB 11.26%  encoding/json.(*scanner).error (inline)
+  643.31MB  5.89% 15.19%   643.31MB  5.89%  encoding/json.(*Decoder).refill
+  572.61MB  5.24% 20.43%  5618.38MB 51.41%  multi-tenant-llm-inference-platform/internal/gateway.validateEvent
+  452.63MB  4.14% 24.57%   452.63MB  4.14%  reflect.mapassign_faststr0
+  441.61MB  4.04% 28.61%   480.11MB  4.39%  encoding/json.(*decodeState).objectInterface
+  394.62MB  3.61% 32.22%   394.62MB  3.61%  encoding/json.NewDecoder (inline)
+  387.51MB  3.55% 35.77%  2295.31MB 21.00%  encoding/json.(*Decoder).Token
+  381.51MB  3.49% 39.26%   381.51MB  3.49%  reflect.unsafe_New
+  366.05MB  3.35% 42.61%  1910.80MB 17.48%  encoding/json.Unmarshal
+  355.07MB  3.25% 45.86%   355.07MB  3.25%  multi-tenant-llm-inference-platform/internal/gateway.clientChunkEnvelope (inline)
+  313.55MB  2.87% 48.73%   563.56MB  5.16%  encoding/json.mapEncoder.encode
+  247.50MB  2.26% 50.99%   268.50MB  2.46%  encoding/json.(*decodeState).literalStore
+  239.95MB  2.20% 53.19%   239.95MB  2.20%  bufio.NewReaderSize
+  224.57MB  2.05% 55.24%   239.07MB  2.19%  net/textproto.MIMEHeader.Set
+  216.52MB  1.98% 57.22%   216.52MB  1.98%  time.newTimer
+  214.52MB  1.96% 59.18%   370.54MB  3.39%  time.NewTimer
+  206.55MB  1.89% 61.07%   210.55MB  1.93%  net/textproto.readMIMEHeader
+  203.54MB  1.86% 62.94%   753.10MB  6.89%  encoding/json.Marshal
+  202.65MB  1.85% 64.79%  1181.88MB 10.81%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).decodeRequest
+  183.03MB  1.67% 66.47%   192.04MB  1.76%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeSSE
+  180.55MB  1.65% 68.12%   180.55MB  1.65%  net/http.Header.Clone
+  148.02MB  1.35% 69.47%   148.02MB  1.35%  bufio.NewWriterSize
+  144.52MB  1.32% 70.79%   144.52MB  1.32%  multi-tenant-llm-inference-platform/internal/gateway.readEvent
+  142.02MB  1.30% 72.09%   142.02MB  1.30%  context.(*cancelCtx).Done
+  140.50MB  1.29% 73.38%  1498.25MB 13.71%  encoding/json.(*decodeState).object

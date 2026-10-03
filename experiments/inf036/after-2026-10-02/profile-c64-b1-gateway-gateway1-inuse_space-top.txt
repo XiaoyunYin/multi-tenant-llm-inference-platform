@@ -1,0 +1,32 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: inuse_space
+Time: 2026-10-02 13:49:12 PDT
+Showing nodes accounting for 8863.07kB, 100% of 8863.07kB total
+Showing top 25 nodes out of 44
+      flat  flat%   sum%        cum   cum%
+ 3737.38kB 42.17% 42.17%  3737.38kB 42.17%  bufio.NewReaderSize (inline)
+ 3587.64kB 40.48% 82.65%  3587.64kB 40.48%  runtime.mallocgc
+     514kB  5.80% 88.45%      514kB  5.80%  bufio.NewWriterSize (inline)
+  512.03kB  5.78% 94.22%   512.03kB  5.78%  net/http.MaxBytesReader (inline)
+  512.02kB  5.78%   100%   512.02kB  5.78%  crypto/internal/fips140/rsa.map.init.0
+         0     0%   100%     1028kB 11.60%  bufio.NewReader (inline)
+         0     0%   100%   512.02kB  5.78%  crypto/internal/fips140/rsa.init
+         0     0%   100%   512.03kB  5.78%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions
+         0     0%   100%   512.03kB  5.78%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).decodeRequest
+         0     0%   100%  2195.37kB 24.77%  multi-tenant-llm-inference-platform/internal/gateway.init.func1
+         0     0%   100%  2195.37kB 24.77%  multi-tenant-llm-inference-platform/internal/gateway.streamEvents.func1
+         0     0%   100%   512.03kB  5.78%  net/http.(*ServeMux).ServeHTTP
+         0     0%   100%      514kB  5.80%  net/http.(*Transport).dialConn
+         0     0%   100%      514kB  5.80%  net/http.(*Transport).dialConnFor
+         0     0%   100%      514kB  5.80%  net/http.(*Transport).startDialConnForLocked.func1
+         0     0%   100%  2054.04kB 23.18%  net/http.(*conn).serve
+         0     0%   100%   512.03kB  5.78%  net/http.HandlerFunc.ServeHTTP
+         0     0%   100%     1028kB 11.60%  net/http.newBufioReader
+         0     0%   100%      514kB  5.80%  net/http.newBufioWriterSize
+         0     0%   100%   512.03kB  5.78%  net/http.serverHandler.ServeHTTP
+         0     0%   100%   512.05kB  5.78%  runtime.(*scavengerState).init
+         0     0%   100%  2051.13kB 23.14%  runtime.allocm
+         0     0%   100%   512.05kB  5.78%  runtime.bgscavenge
+         0     0%   100%   512.02kB  5.78%  runtime.doInit
+         0     0%   100%   512.02kB  5.78%  runtime.doInit1

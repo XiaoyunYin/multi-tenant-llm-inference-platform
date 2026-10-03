@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-36360\gateway.exe2026-10-02 13:15:26.2908969 -0700 PDT
+Type: cpu
+Time: 2026-10-02 13:27:56 PDT
+Duration: 15s, Total samples = 1.31s ( 8.73%)
+Showing nodes accounting for 1.09s, 83.21% of 1.31s total
+Showing top 25 nodes out of 303
+      flat  flat%   sum%        cum   cum%
+     0.67s 51.15% 51.15%      0.67s 51.15%  runtime.cgocall
+     0.12s  9.16% 60.31%      0.12s  9.16%  runtime.semawakeup
+     0.04s  3.05% 63.36%      0.04s  3.05%  runtime.nextFreeFast
+     0.02s  1.53% 64.89%      0.02s  1.53%  internal/strconv.ParseFloat
+     0.02s  1.53% 66.41%      0.02s  1.53%  net/http.readTransfer
+     0.02s  1.53% 67.94%      0.02s  1.53%  runtime.sysUnusedOS
+     0.02s  1.53% 69.47%      0.02s  1.53%  runtime.unlock2
+     0.01s  0.76% 70.23%      0.01s  0.76%  bufio.(*Reader).ReadLine
+     0.01s  0.76% 70.99%      0.01s  0.76%  context.(*cancelCtx).Done
+     0.01s  0.76% 71.76%      0.01s  0.76%  crypto/internal/fips140/sha256.(*Digest).Reset
+     0.01s  0.76% 72.52%      0.01s  0.76%  encoding/json.checkValid
+     0.01s  0.76% 73.28%      0.02s  1.53%  encoding/json.indirect
+     0.01s  0.76% 74.05%      0.03s  2.29%  github.com/redis/go-redis/v9.(*baseClient)._process.func1.3
+     0.01s  0.76% 74.81%      0.01s  0.76%  go.opentelemetry.io/otel/trace.SpanFromContext
+     0.01s  0.76% 75.57%      0.01s  0.76%  indexbytebody
+     0.01s  0.76% 76.34%      0.59s 45.04%  internal/poll.(*FD).execIO
+     0.01s  0.76% 77.10%      0.01s  0.76%  internal/runtime/atomic.(*Int32).Load
+     0.01s  0.76% 77.86%      0.01s  0.76%  internal/runtime/maps.(*Iter).Init
+     0.01s  0.76% 78.63%      0.01s  0.76%  internal/runtime/maps.(*Map).getWithoutKeySmallFastStr
+     0.01s  0.76% 79.39%      0.01s  0.76%  internal/runtime/maps.h1
+     0.01s  0.76% 80.15%      0.01s  0.76%  io.ReadAtLeast
+     0.01s  0.76% 80.92%      0.01s  0.76%  log/slog/internal/buffer.(*Buffer).WriteByte
+     0.01s  0.76% 81.68%      0.01s  0.76%  net/http.(*Transport).queueForIdleConn
+     0.01s  0.76% 82.44%      0.01s  0.76%  net/http.(*chunkWriter).Write
+     0.01s  0.76% 83.21%      0.01s  0.76%  reflect.(*MapIter).Value

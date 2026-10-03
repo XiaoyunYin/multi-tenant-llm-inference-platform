@@ -1,0 +1,91 @@
+{
+  "binary_sha256": {
+    "cpu-bench.exe": "b09fb8bc9fb49a90a13a1e7c59fdbf9823d17724e0712af2b7fc979db2adf59f",
+    "gateway.exe": "6404f67ea087a4e88098a47cb1a12321fe62ba56e5762e306e50125b42f1f19b"
+  },
+  "clock_basis": "Go monotonic nanoseconds for request intervals; wall-clock labels only align native process samples",
+  "go": "go version go1.26.6 windows/amd64",
+  "gomaxprocs": {
+    "fake": 4,
+    "gateway_each": 2,
+    "generator": 4
+  },
+  "logical_cpus": 32,
+  "os": "Windows-11-10.0.26200-SP0",
+  "preexisting_container_count": 30,
+  "protocol": {
+    "admission": {
+      "gateway_each": 512,
+      "global": 1024,
+      "tenant": 1024,
+      "tenant_requests_per_second": 100000
+    },
+    "blocks": 3,
+    "connections": "HTTP/1.1 keep-alive; alternating two front ends",
+    "delay_ms": 5,
+    "logging": "default info JSON to local disk; not disabled",
+    "minimum_samples": 2400,
+    "minimum_seconds": 12,
+    "profile_concurrency": [
+      1,
+      16,
+      64
+    ],
+    "rates": [
+      100,
+      200,
+      400,
+      800,
+      1600,
+      3200,
+      6400
+    ],
+    "warmup_seconds": 2
+  },
+  "python": "3.12.7",
+  "redis_cpus": 2,
+  "redis_image": "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d",
+  "scope": "local CPU/mock engineering probe",
+  "source_commit": "65638972108119b12f96219f1a896bcc2db62900",
+  "source_hashes": {
+    ".tool-versions": "8cf8d7bb1f3c51942f490b0b9f08ea0d13b60dcb4be2d2b3805b71dc3aa13de9",
+    "cmd/cpu-bench/main.go": "7e871a9670dff25469055b8ba925589e5d7517d127e99aafb26d88fc7083eb44",
+    "cmd/cpu-bench/main_test.go": "ec81113b8d317d2836740c58a5a4ad3eb090130fbdf8708141a658833e7e9b1a",
+    "cmd/gateway/main.go": "a9443a3f16bf3c5440edbe9f0932af342f3ec712160bd8ddedbdf465405ad9b7",
+    "cmd/gateway/main_test.go": "51ffc397947cfed935a656d34f98a12b5d7bc6e546dfdc5e6f82dc7b87177d3e",
+    "go.mod": "de9ad76d5dafe1d62c248f4dfbe6c50a56004be5922fc0d9613e6d42733d3192",
+    "go.sum": "9b8c462c822ccb81064a7e7ba6f719ec8e5559ce6776068022f3933a6950f6f0",
+    "internal/admission/coordinator.go": "e4142c56667ad06ac3422ad956f0457616d5fd20a928f736f300f7583e78fd25",
+    "internal/admission/coordinator_test.go": "d424d35bb829f23ea7202370b5c3c6939d6f4fbfb8371d33a870c8a40b0b93a0",
+    "internal/admission/memory.go": "8ae7080592b3d652ec9894af5ab5bfcbef875762c8b515cd94b5a40dd0deee97",
+    "internal/admission/redis_integration_test.go": "b3ed7e6ca8077f88fbda95776e1148cabccbdb809c800eaea2a1cb77d34288d4",
+    "internal/admission/scripts/admit.lua": "bd9ba2f458ce74c68f4c04f87cde274080b19c3fe9d5eb67524e5e90b4f6541d",
+    "internal/admission/scripts/release.lua": "e86579d75824c2235f67cf5c2de6d1024ef715795872d2d45effcf6597a14786",
+    "internal/diagnostics/profiler.go": "3d36f26cf1fe4fe3984e56cae50ac9cd522ccb4bb816fc9cc404eb87a0e8084d",
+    "internal/diagnostics/profiler_test.go": "222ec14015740fba41e3110f2187a6410b01c151c1540195a62542633f09d636",
+    "internal/gateway/admission_test.go": "e13f740df06199e40dea7c67650e9ff69d1cd9b06107634f7acf7c3c0f963881",
+    "internal/gateway/backend.go": "91f47aab1feb07cb72288fff022ffa13cb454763a52a61d1b2f3a47530353591",
+    "internal/gateway/backend_metrics.go": "d617c293db535a50c5085500aa5494cc28479fa0d0f12c270111e509abd0cb98",
+    "internal/gateway/backend_metrics_test.go": "83639943b86ede377e848fe211224779703ed69aef324e21fea1ecee014b6679",
+    "internal/gateway/discovery.go": "688d6ff36b9c0bec78ecf031d0e4e370bd9f1b9847fa24bc73d793e4f83ade70",
+    "internal/gateway/discovery_test.go": "ad1e9c9eba3710643b55f57380454dd4c82f0683fc7df29084c090ff63afe2e3",
+    "internal/gateway/gateway_test.go": "88d378bfeed79e731574d01b6d9f31dabf623030504b4d1d78bb18b57e6356f2",
+    "internal/gateway/handler.go": "f94d5c799d476aff9f869d13a4f74b8c5fca577b9e23670b8fe70a17ae191f8e",
+    "internal/gateway/metrics.go": "91e86ccabcd60bbd9d581ea7ee73820cc880beb06dc6891860a9b8ec6de2ea02",
+    "internal/gateway/router.go": "652bd18e387ce6e015a64d7c7999408c7f7b8f10e04b71f1bcd0de5cbd7d255f",
+    "internal/gateway/router_test.go": "70e2a5c0038f4c47f852e6b14e84c1a5bf85f007bfc97072bb49c5f93feab37f",
+    "internal/gateway/routing_key.go": "cb8094be025dbe839903c70365bbb05ccddd79d643f9f4194fc7eccd8421c09b",
+    "internal/gateway/routing_key_test.go": "009c080181994d3c1e20d5fc42e4f769dc18d1716e76be3becd49a822ec8cf30",
+    "internal/gateway/tenant.go": "1ef99fbe92f8c9d96449ba6b9aa88d02ef98ef88b79536b08315c0049a8aa969",
+    "internal/gateway/tenant_test.go": "b87bdc931df5452f46b7404a21e3030ca2bbcf29c01925f7fc202db83410ee3e",
+    "internal/gateway/testdata/vllm-0.29.0-stream.sse": "f639bdc0665b004a10ca43f2a1ab2c3d883148f7b84dc278deaf202638c16a41",
+    "internal/gateway/vllm_tokenizer.go": "702d8987a3d056df9259dbda4357ef5088f497a507f25fc27ed818d46f03fc2d",
+    "internal/gateway/vllm_tokenizer_test.go": "cf6a7daf94017f35ff0d2c9b8fe5428cd8451a7b5377e106e4e7fb0c55c0f4fd",
+    "internal/platform/info.go": "1d426d439f3c79398a9beb37037df17f5ee24fb16ff13570d09c0edccd8da7f1",
+    "internal/telemetry/tracing.go": "34bff0a50b9cacb24f7b6c38574ba09369c5fa819a53f2ae688e915456ea70cf",
+    "internal/telemetry/tracing_test.go": "4aed2f2e3cdd420b09616e8559f520ef1b9a1637203054cb88c448dda436ee0b",
+    "python/src/inference_platform/cpu_benchmark.py": "0b1b0c743b77630cc62e01c21d540032fd74787b3325a14415bbe4e5480ac486",
+    "scripts/inf036.ps1": "f2428927fc32d117d7638c5533909b4941a36524ceb2a634468b8451752f0f08"
+  },
+  "uv": "uv 0.9.5 (d5f39331a 2025-10-21)"
+}

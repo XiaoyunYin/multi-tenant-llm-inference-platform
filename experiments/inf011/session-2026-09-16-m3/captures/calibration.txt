@@ -1,0 +1,19 @@
+# Sanitized retained SSM outputs for M3 calibration attempts.
+# The launcher did not persist per-request HTTP statuses or bodies; no performance claim is made.
+
+2026-09-16T18:13:07Z f362b2ef-b331-4357-8fb5-ef1f7da0a5aa Success
+RESULTS
+worker script and result-file paths existed; response details were not recorded.
+
+2026-09-16T18:14:38Z b9c74c44-6a2a-414e-b44c-ab3cb296f439 Success
+workload start: 2026-09-16T18:14:38Z
+workload end: 2026-09-16T18:15:09Z
+launcher result: DONE
+concurrency: 8
+max_tokens: 512
+wall duration: 30.054 seconds (from the committed runtime record)
+
+2026-09-16T18:16:33Z 7d87c2ce-3e1b-4976-9dbc-98af32d99de3 Success
+sampler delivery was after workload completion; running=0, waiting=0, kv_cache_usage_perc=0 throughout the retained sample.
+
+Claim limit: calibration request outcomes, in-flight peaks, throughput, latency, safe R, positive W, and B were not measured.

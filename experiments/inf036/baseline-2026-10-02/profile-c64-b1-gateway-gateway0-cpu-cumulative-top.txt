@@ -1,0 +1,54 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-36360\gateway.exe2026-10-02 13:15:26.2908969 -0700 PDT
+Type: cpu
+Time: 2026-10-02 13:28:43 PDT
+Duration: 15s, Total samples = 29.13s (194.18%)
+Showing nodes accounting for 19.05s, 65.40% of 29.13s total
+Dropped 760 nodes (cum <= 0.15s)
+Showing top 45 nodes out of 213
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     23.11s 79.33%  net/http.(*conn).serve
+     0.01s 0.034% 0.034%     20.99s 72.06%  net/http.(*ServeMux).ServeHTTP
+         0     0% 0.034%     20.99s 72.06%  net/http.serverHandler.ServeHTTP
+     0.02s 0.069%   0.1%     20.95s 71.92%  net/http.HandlerFunc.ServeHTTP
+     0.02s 0.069%  0.17%     20.93s 71.85%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions
+     0.06s  0.21%  0.38%     18.64s 63.99%  internal/poll.(*FD).execIO
+     0.02s 0.069%  0.45%     18.63s 63.95%  syscall.syscalln
+    18.54s 63.65% 64.09%     18.61s 63.89%  runtime.cgocall
+     0.02s 0.069% 64.16%     18.41s 63.20%  syscall.SyscallN
+     0.02s 0.069% 64.23%     17.43s 59.84%  internal/poll.(*FD).Write
+         0     0% 64.23%     17.04s 58.50%  bufio.(*Writer).Flush
+         0     0% 64.23%     16.77s 57.57%  net.(*conn).Write
+     0.01s 0.034% 64.26%     16.77s 57.57%  net.(*netFD).Write
+         0     0% 64.26%     16.40s 56.30%  internal/poll.(*FD).Write.func2
+     0.01s 0.034% 64.30%     16.40s 56.30%  syscall.WSASend
+     0.03s   0.1% 64.40%     11.10s 38.11%  net/http.checkConnErrorWriter.Write
+         0     0% 64.40%      9.77s 33.54%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeRaw
+         0     0% 64.40%      9.73s 33.40%  net/http.(*ResponseController).Flush
+         0     0% 64.40%      9.73s 33.40%  net/http.(*response).FlushError
+         0     0% 64.40%      9.51s 32.65%  net/http.(*chunkWriter).flush
+         0     0% 64.40%      8.28s 28.42%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeSSE (inline)
+         0     0% 64.40%      8.28s 28.42%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeValidated
+     0.01s 0.034% 64.44%      4.73s 16.24%  github.com/redis/go-redis/v9.(*Script).Run
+         0     0% 64.44%      4.72s 16.20%  github.com/redis/go-redis/v9.(*Script).EvalSha
+         0     0% 64.44%      4.72s 16.20%  github.com/redis/go-redis/v9.cmdable.EvalSha
+         0     0% 64.44%      4.72s 16.20%  github.com/redis/go-redis/v9.cmdable.eval
+     0.01s 0.034% 64.47%      4.68s 16.07%  github.com/redis/go-redis/v9.(*Client).Process
+     0.01s 0.034% 64.50%      4.67s 16.03%  github.com/redis/go-redis/v9.(*baseClient).process
+         0     0% 64.50%      4.67s 16.03%  github.com/redis/go-redis/v9.(*hooksMixin).processHook (inline)
+         0     0% 64.50%      4.66s 16.00%  github.com/redis/go-redis/v9.(*baseClient)._process
+         0     0% 64.50%      4.66s 16.00%  github.com/redis/go-redis/v9.(*baseClient).processCommand
+         0     0% 64.50%      4.66s 16.00%  github.com/redis/go-redis/v9.(*baseClient).processWithRetry
+         0     0% 64.50%      4.66s 16.00%  github.com/redis/go-redis/v9.(*baseClient).withConn
+     0.03s   0.1% 64.61%      4.50s 15.45%  github.com/redis/go-redis/v9.(*baseClient)._process.func1
+     0.04s  0.14% 64.74%      3.93s 13.49%  github.com/redis/go-redis/v9/internal/pool.(*Conn).WithWriter
+         0     0% 64.74%      3.36s 11.53%  multi-tenant-llm-inference-platform/internal/gateway.validateEvent
+         0     0% 64.74%      2.63s  9.03%  multi-tenant-llm-inference-platform/internal/admission.(*RedisCoordinator).Admit
+     0.02s 0.069% 64.81%      2.40s  8.24%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions.func2
+     0.02s 0.069% 64.88%      2.30s  7.90%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).bestEffortRelease
+         0     0% 64.88%      2.27s  7.79%  multi-tenant-llm-inference-platform/internal/admission.(*RedisCoordinator).Release
+     0.01s 0.034% 64.92%      2.08s  7.14%  net/http.(*persistConn).writeLoop
+     0.09s  0.31% 65.22%      1.94s  6.66%  runtime.mallocgc
+         0     0% 65.22%      1.89s  6.49%  net/http.persistConnWriter.Write
+         0     0% 65.22%      1.79s  6.14%  encoding/json.(*decodeState).unmarshal
+     0.05s  0.17% 65.40%      1.70s  5.84%  encoding/json.(*decodeState).value

@@ -1,0 +1,13 @@
+# Sanitized final SSM snapshot from 2026-09-16T18:17:53Z and DCGM check.
+# Hostname, container IDs, UUIDs, and bus identifiers are intentionally removed.
+
+GPU: NVIDIA L4
+Driver: 595.91.07
+CUDA: 13.2
+Framebuffer: 19452 MiB / 23034 MiB
+GPU utilization: 0 percent (idle snapshot)
+DCGM_FI_DEV_GPU_UTIL: 0
+DCGM_FI_DEV_FB_USED: 19452 MiB
+DCGM exporter: running on loopback; unit is inf011-dcgm-exporter.service
+vLLM container: running; loopback port 8000
+DCGM container: running; loopback port 9400

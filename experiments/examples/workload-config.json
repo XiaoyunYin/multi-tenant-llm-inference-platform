@@ -1,0 +1,17 @@
+{
+  "arrival_rate_rps": 4.0,
+  "max_tokens": 32,
+  "model": "test-model",
+  "prefixes": [
+    "Shared synthetic prefix alpha.",
+    "Shared synthetic prefix beta."
+  ],
+  "request_count": 7,
+  "run_id": "example-run",
+  "schema_version": "workload-config.v0",
+  "seed": 1729,
+  "tenant_ids": [
+    "tenant-a",
+    "tenant-b"
+  ]
+}

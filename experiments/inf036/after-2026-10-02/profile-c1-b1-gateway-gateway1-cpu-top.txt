@@ -1,0 +1,33 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: cpu
+Time: 2026-10-02 13:48:10 PDT
+Duration: 15s, Total samples = 1.20s ( 8.00%)
+Showing nodes accounting for 1s, 83.33% of 1.20s total
+Showing top 25 nodes out of 299
+      flat  flat%   sum%        cum   cum%
+     0.70s 58.33% 58.33%      0.70s 58.33%  runtime.cgocall
+     0.03s  2.50% 60.83%      0.03s  2.50%  runtime.sysUnusedOS
+     0.02s  1.67% 62.50%      0.02s  1.67%  encoding/json.stateInString
+     0.02s  1.67% 64.17%      0.02s  1.67%  runtime.runqgrab.osyield.func1
+     0.02s  1.67% 65.83%      0.02s  1.67%  runtime.semawakeup
+     0.02s  1.67% 67.50%      0.02s  1.67%  unicode/utf8.DecodeRune
+     0.01s  0.83% 68.33%      0.01s  0.83%  bufio.(*Reader).Read
+     0.01s  0.83% 69.17%      0.01s  0.83%  context.(*cancelCtx).Value
+     0.01s  0.83% 70.00%      0.15s 12.50%  github.com/redis/go-redis/v9.(*Script).EvalSha
+     0.01s  0.83% 70.83%      0.01s  0.83%  github.com/redis/go-redis/v9.(*baseClient).processPushNotifications
+     0.01s  0.83% 71.67%      0.01s  0.83%  github.com/redis/go-redis/v9/internal/pool.getMetricConnectionWaitTimeCallback
+     0.01s  0.83% 72.50%      0.01s  0.83%  internal/poll.setDeadlineImpl
+     0.01s  0.83% 73.33%      0.01s  0.83%  internal/runtime/maps.(*Map).putSlotSmallFastStr
+     0.01s  0.83% 74.17%      0.01s  0.83%  internal/runtime/maps.(*groupReference).key
+     0.01s  0.83% 75.00%      0.01s  0.83%  log/slog.appendEscapedJSONString
+     0.01s  0.83% 75.83%      0.04s  3.33%  net.(*conn).Read
+     0.01s  0.83% 76.67%      0.23s 19.17%  net/http.(*ResponseController).Flush
+     0.01s  0.83% 77.50%      0.01s  0.83%  net/textproto.mustHaveFieldNameColon
+     0.01s  0.83% 78.33%      0.01s  0.83%  reflect.TypeAssert[go.shape.interface { UnmarshalJSON error }]
+     0.01s  0.83% 79.17%      0.01s  0.83%  reflect.Value.IsNil
+     0.01s  0.83% 80.00%      0.01s  0.83%  reflect.packEfaceData
+     0.01s  0.83% 80.83%      0.01s  0.83%  regexp.(*Regexp).doOnePass
+     0.01s  0.83% 81.67%      0.01s  0.83%  runtime.(*bucket).mp
+     0.01s  0.83% 82.50%      0.01s  0.83%  runtime.(*listHeadManual).push
+     0.01s  0.83% 83.33%      0.01s  0.83%  runtime.(*mspan).moveInlineMarks

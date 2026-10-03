@@ -1,0 +1,10 @@
+{
+  "redaction": "large prompt bodies omitted; fixture sizes and observed outcomes retained",
+  "model_max_len": 8192,
+  "checks": [
+    {"prompt_characters": 6000, "http_status": 200, "prompt_tokens": 1229, "completion_tokens": 1},
+    {"prompt_characters": 24000, "http_status": 200, "prompt_tokens": 4829, "completion_tokens": 1},
+    {"prompt_characters": 48000, "http_status": 400, "error": "maximum context length is 8192 tokens; request asked for 8193 including one output token"}
+  ],
+  "ssm_source": "c764a2fa-2c13-45e9-974a-8e855aa68d50"
+}

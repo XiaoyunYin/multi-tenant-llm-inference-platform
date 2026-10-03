@@ -1,0 +1,225 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mti-stage1
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  namespace: mti-stage1
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: endpoint-reader
+  namespace: mti-stage1
+rules:
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-endpoints
+  namespace: mti-stage1
+subjects:
+  - kind: ServiceAccount
+    name: gateway
+    namespace: mti-stage1
+roleRef:
+  kind: Role
+  name: endpoint-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mti-stage1
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: redis}
+  template:
+    metadata:
+      labels: {app: redis}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: redis
+          image: mti-redis:stage1
+          imagePullPolicy: Never
+          args: [redis-server, --save, "", --appendonly, "no"]
+          ports: [{containerPort: 6379}]
+          startupProbe:
+            exec: {command: [redis-cli, ping]}
+            periodSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            exec: {command: [redis-cli, ping]}
+            periodSeconds: 1
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {cpu: "1", memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: mti-stage1
+spec:
+  selector: {app: redis}
+  ports: [{port: 6379, targetPort: 6379}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fake
+  namespace: mti-stage1
+spec:
+  clusterIP: None
+  selector: {app: fake}
+  ports: [{name: http, port: 8000, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fake
+  namespace: mti-stage1
+spec:
+  serviceName: fake
+  replicas: 2
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: {partition: 1}
+  selector:
+    matchLabels: {app: fake}
+  template:
+    metadata:
+      labels: {app: fake}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 150
+      securityContext: {runAsNonRoot: true, runAsUser: 65532}
+      containers:
+        - name: fake
+          image: mti-fake:stage1
+          imagePullPolicy: Never
+          ports: [{containerPort: 8000}]
+          env:
+            - name: POD_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            - name: POD_UID
+              valueFrom: {fieldRef: {fieldPath: metadata.uid}}
+          startupProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 1
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /health, port: 8000}
+            periodSeconds: 1
+            failureThreshold: 1
+          lifecycle:
+            preStop:
+              sleep: {seconds: 3}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "2", memory: 512Mi}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fake
+  namespace: mti-stage1
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: fake}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: mti-stage1
+spec:
+  replicas: 2
+  minReadySeconds: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels: {app: gateway}
+  template:
+    metadata:
+      labels: {app: gateway}
+    spec:
+      serviceAccountName: gateway
+      terminationGracePeriodSeconds: 150
+      securityContext: {runAsNonRoot: true, runAsUser: 65532}
+      containers:
+        - name: gateway
+          image: mti-gateway:stage1
+          imagePullPolicy: Never
+          ports: [{containerPort: 8080}]
+          env:
+            - {name: BACKEND_DISCOVERY, value: endpointslices}
+            - name: BACKEND_DISCOVERY_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - {name: BACKEND_DISCOVERY_SERVICE, value: fake}
+            - {name: BACKEND_DISCOVERY_INTERVAL, value: 250ms}
+            - {name: TENANT_CONFIG_PATH, value: /config/tenants.json}
+            - {name: CACHE_SALT_SECRET_FILE, value: /config/cache-salt.secret}
+            - {name: REDIS_ADDR, value: "redis:6379"}
+            - {name: ADMISSION_NAMESPACE, value: "mti:kind:v1"}
+            - {name: GATEWAY_TOTAL_TIMEOUT, value: 120s}
+            - {name: GATEWAY_SHUTDOWN_GRACE, value: 125s}
+            - {name: GATEWAY_SHUTDOWN_HARD_STOP, value: 10s}
+            - {name: ADMISSION_LEASE, value: 180s}
+            - {name: OTEL_SDK_DISABLED, value: "true"}
+          volumeMounts: [{name: config, mountPath: /config, readOnly: true}]
+          startupProbe:
+            httpGet: {path: /readyz, port: 8080}
+            periodSeconds: 1
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8080}
+            periodSeconds: 1
+            failureThreshold: 1
+          lifecycle:
+            preStop:
+              sleep: {seconds: 3}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 64Mi}
+            limits: {cpu: "2", memory: 256Mi}
+      volumes:
+        - name: config
+          configMap: {name: local-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: mti-stage1
+spec:
+  type: NodePort
+  selector: {app: gateway}
+  ports: [{port: 8080, targetPort: 8080, nodePort: 30080}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway
+  namespace: mti-stage1
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: gateway}

@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+
+# Evidence captures are byte-addressed artifacts; do not normalize their line endings.
+experiments/**/captures/** -text
+
+# All INF-011 session evidence (including top-level manifests) is byte-addressed.
+experiments/inf011/** -text
+
+# Local Kubernetes rollout exports are byte-addressed as well.
+experiments/inf037a/** -text
+experiments/inf036/** -text

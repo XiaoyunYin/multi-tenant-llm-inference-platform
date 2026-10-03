@@ -1,0 +1,28 @@
+{
+  "clock_basis": "client durations use perf_counter_ns; pod event times and controller observations use UTC wall time on one local Docker host; observation brackets are explicit",
+  "docker": "29.7.2",
+  "go": "go version go1.26.6 windows/amd64",
+  "image_ids": {
+    "mti-fake:stage1": "sha256:686e01f24be6e9a49c2df5da1332bc2966d2a31b9eaa9c04eaaa2267fa19f0b7",
+    "mti-gateway:stage1": "sha256:ce23b2d70d4a75269923a7f36f7c28b16bb9ca61513491f087c6aa5963feb7f6",
+    "mti-redis:stage1": "sha256:0e5f2a2f520c67a33bba0b68958712c034a2eb2fc8077c042573be7fbf4113e7"
+  },
+  "pins": {
+    "kind_linux_amd64_sha256": "517ab7fc89ddeed5fa65abf71530d90648d9638ef0c4cde22c2c11f8097b8889",
+    "kind_version": "v0.30.0",
+    "kind_windows_amd64_sha256": "a75fed2b6964d877461cc145b37e997ac0f59a63bd02a750134ac25378f78ce7",
+    "kubectl_linux_amd64_sha256": "cfda68cba5848bc3b6c6135ae2f20ba2c78de20059f68789c090166d6abc3e2c",
+    "kubectl_version": "v1.34.0",
+    "kubectl_windows_amd64_sha256": "856b6a92556452e249db940e7fdb8d8f8f622805d25f67de09a4d4d2da6f6132",
+    "node_image": "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a",
+    "redis_image": "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d"
+  },
+  "python": "3.12.7",
+  "scope": "Kubernetes (kind, local, mock vLLM backends)",
+  "streams": {
+    "chunk_delay_ms": 500,
+    "chunks": 24,
+    "expected_duration_seconds": 12,
+    "workers": 8
+  }
+}

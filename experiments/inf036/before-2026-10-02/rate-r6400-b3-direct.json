@@ -1,0 +1,291 @@
+{
+  "block": 3,
+  "concurrency": 0,
+  "gateway_counter_delta": {
+    "gateway0": {
+      "inference_gateway_admission_unavailable_total": 0,
+      "inference_gateway_completed_total": 0,
+      "inference_gateway_failed_total": 0,
+      "inference_gateway_rejected_total": 0,
+      "inference_gateway_release_failures_total": 0
+    },
+    "gateway1": {
+      "inference_gateway_admission_unavailable_total": 0,
+      "inference_gateway_completed_total": 0,
+      "inference_gateway_failed_total": 0,
+      "inference_gateway_rejected_total": 0,
+      "inference_gateway_release_failures_total": 0
+    }
+  },
+  "id": "rate-r6400-b3-direct",
+  "independent_raw_audit": {
+    "counts": {
+      "completed": 76800,
+      "failed": 0,
+      "not_dispatched": 0,
+      "partial": 0
+    },
+    "dispatch_lag_p99_ms": 8.23155,
+    "execution_ms": {
+      "max": 251.3845,
+      "n": 76800,
+      "p50": 7.6385,
+      "p99": 72.4119
+    },
+    "five_longest": [
+      {
+        "connection_reused": true,
+        "dispatch_ns": 8533473300,
+        "end_ns": 8784857800,
+        "execution_ms": 251.3845,
+        "first_content_ns": 8784333500,
+        "local_port": "63583",
+        "ordinal": 54368,
+        "outcome": "completed",
+        "phase": "measurement",
+        "planned_ns": 8495000000,
+        "status": 200,
+        "target": 0
+      },
+      {
+        "connection_reused": true,
+        "dispatch_ns": 8530839100,
+        "end_ns": 8779117900,
+        "execution_ms": 248.2788,
+        "first_content_ns": 8779117900,
+        "local_port": "63607",
+        "ordinal": 54409,
+        "outcome": "completed",
+        "phase": "measurement",
+        "planned_ns": 8501406250,
+        "status": 200,
+        "target": 1
+      },
+      {
+        "connection_reused": true,
+        "dispatch_ns": 8531378300,
+        "end_ns": 8772166600,
+        "execution_ms": 240.7883,
+        "first_content_ns": 8772166600,
+        "local_port": "63616",
+        "ordinal": 54322,
+        "outcome": "completed",
+        "phase": "measurement",
+        "planned_ns": 8487812500,
+        "status": 200,
+        "target": 0
+      },
+      {
+        "connection_reused": true,
+        "dispatch_ns": 8528021700,
+        "end_ns": 8762533600,
+        "execution_ms": 234.5119,
+        "first_content_ns": 8762019600,
+        "local_port": "63613",
+        "ordinal": 54304,
+        "outcome": "completed",
+        "phase": "measurement",
+        "planned_ns": 8485000000,
+        "status": 200,
+        "target": 0
+      },
+      {
+        "connection_reused": true,
+        "dispatch_ns": 8527481400,
+        "end_ns": 8760258100,
+        "execution_ms": 232.7767,
+        "first_content_ns": 8760258100,
+        "local_port": "63611",
+        "ordinal": 54296,
+        "outcome": "completed",
+        "phase": "measurement",
+        "planned_ns": 8483750000,
+        "status": 200,
+        "target": 0
+      }
+    ],
+    "warmup_counts": {
+      "completed": 12800,
+      "failed": 0,
+      "not_dispatched": 0,
+      "partial": 0
+    }
+  },
+  "kind": "rate",
+  "mode": "direct",
+  "rate": 6400,
+  "redis_after": {
+    "connected_clients": "42",
+    "errorstats": "# Errorstats\r\nerrorstat_NOSCRIPT:count=2\r\nerrorstat_invalid:count=285",
+    "total_commands_processed": "8411497",
+    "used_cpu_sys": "17.291338",
+    "used_cpu_user": "30.789289",
+    "used_memory": "1622384",
+    "used_memory_rss": "19791872"
+  },
+  "redis_before": {
+    "connected_clients": "42",
+    "errorstats": "# Errorstats\r\nerrorstat_NOSCRIPT:count=2\r\nerrorstat_invalid:count=285",
+    "total_commands_processed": "8411493",
+    "used_cpu_sys": "17.282416",
+    "used_cpu_user": "30.742087",
+    "used_memory": "1622384",
+    "used_memory_rss": "19791872"
+  },
+  "reservations_after": {
+    "global": 0,
+    "tenant": 0
+  },
+  "resources": {
+    "fake": {
+      "max_private_bytes": 81080320,
+      "max_rss_bytes": 40169472,
+      "mean_cpu_cores": 3.2915419005857562,
+      "min_rss_bytes": 25268224,
+      "peak_interval_cpu_cores": 4.033758285814079,
+      "sampled_seconds": 11.6729108,
+      "samples": 46
+    },
+    "gateway0": {
+      "max_private_bytes": 103571456,
+      "max_rss_bytes": 66572288,
+      "mean_cpu_cores": 0.0,
+      "min_rss_bytes": 66572288,
+      "peak_interval_cpu_cores": 0.0,
+      "sampled_seconds": 11.6729108,
+      "samples": 46
+    },
+    "gateway1": {
+      "max_private_bytes": 100151296,
+      "max_rss_bytes": 64757760,
+      "mean_cpu_cores": 0.0,
+      "min_rss_bytes": 64757760,
+      "peak_interval_cpu_cores": 0.0,
+      "sampled_seconds": 11.6729108,
+      "samples": 46
+    },
+    "load": {
+      "max_private_bytes": 111390720,
+      "max_rss_bytes": 73302016,
+      "mean_cpu_cores": 2.005176806456878,
+      "min_rss_bytes": 41054208,
+      "peak_interval_cpu_cores": 4.100323043653869,
+      "sampled_seconds": 11.6729108,
+      "samples": 46
+    }
+  },
+  "result": {
+    "measurement": {
+      "arrival_ms": {
+        "max": 289.8578,
+        "mean": 13.36852399218721,
+        "min": 5.00635,
+        "n": 76800,
+        "p50": 8.12915,
+        "p99": 78.1564
+      },
+      "counts": {
+        "completed": 76800,
+        "failed": 0,
+        "not_dispatched": 0,
+        "partial": 0
+      },
+      "dispatch_lag_ms": {
+        "max": 48.58135,
+        "mean": 0.6749285833333328,
+        "min": 0,
+        "n": 76800,
+        "p50": 0.31435,
+        "p99": 8.23155
+      },
+      "distinct_target_local_ports": 494,
+      "error_codes": {},
+      "execution_ms": {
+        "max": 251.3845,
+        "mean": 12.69359540885414,
+        "min": 5,
+        "n": 76800,
+        "p50": 7.6385,
+        "p99": 72.4119
+      },
+      "first_content_ms": {
+        "max": 250.8602,
+        "mean": 12.363539471354171,
+        "min": 5,
+        "n": 76800,
+        "p50": 7.2965,
+        "p99": 72.1205
+      },
+      "http_statuses": {
+        "200": 76800
+      },
+      "reused_connections": 76791,
+      "targets": {
+        "0": 38400,
+        "1": 38400
+      }
+    },
+    "timing": {
+      "end_unix_ns": 1790971864021484600,
+      "offered_seconds": 12,
+      "peak_in_flight": 486,
+      "start_unix_ns": 1790971852015536300
+    },
+    "warmup": {
+      "arrival_ms": {
+        "max": 93.55695,
+        "mean": 10.50677939062495,
+        "min": 5.02505,
+        "n": 12800,
+        "p50": 6.7577,
+        "p99": 68.82885
+      },
+      "counts": {
+        "completed": 12800,
+        "failed": 0,
+        "not_dispatched": 0,
+        "partial": 0
+      },
+      "dispatch_lag_ms": {
+        "max": 30.3617,
+        "mean": 0.4638206250000004,
+        "min": 0,
+        "n": 12800,
+        "p50": 0.27885,
+        "p99": 10.00605
+      },
+      "distinct_target_local_ports": 261,
+      "error_codes": {},
+      "execution_ms": {
+        "max": 93.5533,
+        "mean": 10.042958765625007,
+        "min": 5.0004,
+        "n": 12800,
+        "p50": 6.4654,
+        "p99": 61.0943
+      },
+      "first_content_ms": {
+        "max": 93.0269,
+        "mean": 9.716168140625026,
+        "min": 5.0004,
+        "n": 12800,
+        "p50": 6.0711,
+        "p99": 60.6396
+      },
+      "http_statuses": {
+        "200": 12800
+      },
+      "reused_connections": 12640,
+      "targets": {
+        "0": 6400,
+        "1": 6400
+      }
+    },
+    "warmup_timing": {
+      "end_unix_ns": 1790971852013316500,
+      "offered_seconds": 2,
+      "peak_in_flight": 259,
+      "start_unix_ns": 1790971850004140600
+    }
+  }
+}

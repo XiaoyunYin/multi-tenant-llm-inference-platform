@@ -1,0 +1,12 @@
+{
+  "redaction": "response IDs, timestamps, host identifiers, and raw prompt/salt values omitted or normalized",
+  "observations": [
+    {"at_utc": "2026-09-16T17:34:05Z", "kind": "non_stream_chat", "http_status": 200, "prompt_tokens": 36, "completion_tokens": 2, "total_tokens": 38, "text": "Hello", "finish_reason": "stop"},
+    {"at_utc": "2026-09-16T17:35:18Z", "kind": "reset_prefix_cache", "http_status": 200, "body": {"success": true}},
+    {"at_utc": "2026-09-16T17:36:18Z", "kind": "same_salt_first", "http_status": 200, "prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671, "finish_reason": "length"},
+    {"at_utc": "2026-09-16T17:37:09Z", "kind": "same_salt_repeat", "http_status": 200, "prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671, "finish_reason": "length"},
+    {"at_utc": "2026-09-16T17:38:24Z", "kind": "different_salt", "http_status": 200, "prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671, "finish_reason": "length"},
+    {"at_utc": "2026-09-16T17:40:54Z", "kind": "pre_stream_error", "http_status": 404, "error_type": "NotFoundError", "message": "unknown model returned JSON before SSE"},
+    {"at_utc": "2026-09-16T17:41:28Z", "kind": "client_cancellation", "curl_exit": 143, "output_bytes": 8548, "post_cancel_health": 200}
+  ]
+}

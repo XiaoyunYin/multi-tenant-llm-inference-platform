@@ -1,0 +1,204 @@
+{
+  "schema": "inf011-runtime-evidence.v0",
+  "run_id": "inf011-m3-2026-09-16",
+  "evidence_status": "measured",
+  "observations": [
+    {
+      "at_utc": "2026-09-16T17:34:05Z",
+      "kind": "chat_completion",
+      "request": "non-stream, max_tokens=8, pinned Qwen model",
+      "http_status": 200,
+      "usage": {"prompt_tokens": 36, "completion_tokens": 2, "total_tokens": 38},
+      "text": "Hello",
+      "finish_reason": "stop",
+      "system_fingerprint": "vllm-0.29.0-8ffee3d1"
+    },
+    {
+      "at_utc": "2026-09-16T17:35:18Z",
+      "kind": "prefix_cache_reset",
+      "endpoint": "/reset_prefix_cache",
+      "http_status": 200,
+      "body": "{\"success\":true}"
+    },
+    {
+      "at_utc": "2026-09-16T17:36:18Z",
+      "kind": "cache_salt_request",
+      "salt_label": "opaque-A-first",
+      "http_status": 200,
+      "usage": {"prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671}
+    },
+    {
+      "at_utc": "2026-09-16T17:37:09Z",
+      "kind": "cache_salt_request",
+      "salt_label": "opaque-A-repeat",
+      "http_status": 200,
+      "usage": {"prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671}
+    },
+    {
+      "at_utc": "2026-09-16T17:38:01Z",
+      "kind": "metrics_after_same_salt",
+      "vllm_prefix_cache_queries_total": 1374.0,
+      "vllm_prefix_cache_hits_total": 656.0,
+      "vllm_num_requests_running": 0.0,
+      "vllm_num_requests_waiting": 0.0,
+      "vllm_kv_cache_usage_perc": 0.0
+    },
+    {
+      "at_utc": "2026-09-16T17:38:24Z",
+      "kind": "cache_salt_request",
+      "salt_label": "opaque-B",
+      "http_status": 200,
+      "usage": {"prompt_tokens": 669, "completion_tokens": 2, "total_tokens": 671}
+    },
+    {
+      "at_utc": "2026-09-16T17:39:28Z",
+      "kind": "metrics_after_different_salt",
+      "vllm_prefix_cache_queries_total": 2043.0,
+      "vllm_prefix_cache_hits_total": 656.0,
+      "interpretation": "different salt added 669 queried tokens with no additional cached-token hits"
+    },
+    {
+      "at_utc": "2026-09-16T17:39:30Z",
+      "kind": "kv_cache_capacity",
+      "kv_cache_size_tokens": 62256,
+      "num_gpu_blocks": 3891,
+      "block_size": 16,
+      "kv_cache_max_concurrency": 7.599609375,
+      "source_artifact": "captures/cache-metrics.txt",
+      "interpretation": "runtime-computed capacity ceiling at max_model_len=8192; not a measured safe running-request target R"
+    },
+    {
+      "at_utc": "2026-09-16T17:39:57Z",
+      "kind": "streaming_chat_completion",
+      "http_status": 200,
+      "content_type": "text/event-stream; charset=utf-8",
+      "max_tokens": 8,
+      "finish_reason": "length",
+      "usage": {"prompt_tokens": 31, "completion_tokens": 8, "total_tokens": 39},
+      "observed": "role delta, content deltas, finish chunk, usage-only final chunk, and [DONE]"
+    },
+    {
+      "at_utc": "2026-09-16T17:40:54Z",
+      "kind": "pre_stream_error",
+      "http_status": 404,
+      "error_type": "NotFoundError",
+      "observed": "unknown model returned JSON error before SSE framing"
+    },
+    {
+      "at_utc": "2026-09-16T17:41:28Z",
+      "kind": "client_cancellation",
+      "request": "streaming max_tokens=256",
+      "client_result": "curl exit 143 after about two seconds",
+      "output_bytes": 8548,
+      "post_cancel": "vLLM process and health endpoint remained healthy"
+    },
+    {
+      "at_utc": "2026-09-16T18:04:30Z",
+      "kind": "context_fit",
+      "prompt_characters": 6000,
+      "http_status": 200,
+      "prompt_tokens": 1229,
+      "completion_tokens": 1
+    },
+    {
+      "at_utc": "2026-09-16T18:04:31Z",
+      "kind": "context_fit",
+      "prompt_characters": 24000,
+      "http_status": 200,
+      "prompt_tokens": 4829,
+      "completion_tokens": 1
+    },
+    {
+      "at_utc": "2026-09-16T18:04:32Z",
+      "kind": "context_fit_boundary",
+      "prompt_characters": 48000,
+      "http_status": 400,
+      "error": "maximum context length is 8192 tokens; request asked for 8193 including one output token"
+    },
+    {
+      "at_utc": "2026-09-16T18:14:38Z",
+      "kind": "calibration_run_3",
+      "concurrency": 8,
+      "max_tokens": 512,
+      "duration_seconds": 30.054,
+      "launcher_result": "success",
+      "response_bodies_persisted": false,
+      "ssm_command_id": "b9c74c44-6a2a-414e-b44c-ab3cb296f439",
+      "metric_sampler": {
+        "ssm_command_id": "7d87c2ce-3e1b-4976-9dbc-98af32d99de3",
+        "delivery": "after workload completion",
+        "observed_running": 0.0,
+        "observed_waiting": 0.0,
+        "observed_kv_cache_usage_perc": 0.0
+      },
+      "claim_limit": "no throughput, latency, safe-R, or positive-W result is claimed from this burst"
+    }
+  ],
+  "final_snapshot": {
+    "at_utc": "2026-09-16T18:17:53Z",
+    "ssm_command_id": "f69cc4aa-c456-41b1-ba01-bc0c7a16e54b",
+    "timer": {"active": true, "result": "success", "next_elapse_utc": "2026-09-16T21:01:52Z"},
+    "vllm_service": "active",
+    "vllm_health_http_status": 200,
+    "model_id": "Qwen/Qwen2.5-7B-Instruct",
+    "model_max_len": 8192,
+    "gpu": {"name": "NVIDIA L4", "driver": "595.91.07", "cuda": "13.2", "memory_used_mib": 19452, "memory_total_mib": 23034, "utilization_percent": 0},
+    "dcgm_exporter": {"container": "running", "loopback_metrics": "scrape returned DCGM_FI_DEV_FB_USED", "service_unit_note": "the unit is named inf011-dcgm-exporter.service; no inf011-dcgm.service exists"},
+    "prefix_cache_queries_total": 9019.0,
+    "prefix_cache_hits_total": 2512.0
+  },
+  "teardown": {
+    "destroy": "Terraform destroyed 10 resources after explicit confirmation",
+    "verify_command": "scripts/inf011-pilot.ps1 -Action VerifyTeardown",
+    "verified_at_utc": "2026-09-16T18:26:27.9378727Z",
+    "result": "Terraform state and every pilot resource class empty",
+    "ssm_command_id_for_service_check": "648eed51-6bea-430c-b1f3-528154265b6e"
+  },
+  "session_timing": {
+    "launch_succeeded_at_utc": "2026-09-16T17:00:30Z",
+    "capacity_rejections_before_success": 8,
+    "first_response_at_utc": "2026-09-16T17:34:05Z",
+    "terminated_at_utc": "2026-09-16T18:19:37Z",
+    "teardown_verified_at_utc": "2026-09-16T18:26:27.9378727Z",
+    "durations_seconds": {
+      "launch_to_first_response": 2015,
+      "instance_runtime": 4747,
+      "first_response_to_termination": 2732,
+      "termination_to_teardown_verification": 407.9378727
+    },
+    "provenance": "Claude Round 10 CloudTrail/SSM audit, with request timestamps from retained SSM output"
+  },
+  "startup_timing": {
+    "cold_start_launch_to_first_response_seconds": 2015,
+    "cold_start_launch_success_at_utc": "2026-09-16T17:00:30Z",
+    "cold_start_first_response_at_utc": "2026-09-16T17:34:05Z",
+    "cold_start_shard_progress": "approximately 273-324 seconds per checkpoint shard; 3 of 4 shards at 15m21s",
+    "warm_start_weight_load_seconds": 120.663043,
+    "warm_start_source_artifact": "captures/startup-vllm.txt",
+    "interpretation": "the 120.663043-second line is a warm post-reboot process excerpt and must not be used as the cold-start budget; image pull, volume restore, and aggregate shard time were not separately isolated"
+  },
+  "cost": {
+    "estimated_cost_usd": 1.10,
+    "actual_cost_usd": null,
+    "cumulative_phase_spend_usd": null,
+    "status": "estimated only; AWS billing evidence pending",
+    "provenance": "Claude Round 10 estimate using approximately 79 minutes of g6.xlarge runtime plus IPv4/storage prorating"
+  },
+  "debug_attempts": {
+    "failed_ssm_commands": [
+      {"command_id": "ed15caf4-22ab-4f90-9449-91d150db8c18", "description": "bounded readiness check"},
+      {"command_id": "0453c785-5422-484d-93a4-f87b7cd5b29d", "description": "vLLM readiness poll during model load"},
+      {"command_id": "56da972b-751f-4702-b1a1-bd6666c804b0", "description": "vLLM progress diagnosis"},
+      {"command_id": "f7f5bdcc-800b-4613-ba75-cb5ddc4a3dcf", "description": "calibration worker argument transport"},
+      {"command_id": "bfe5e00e-0622-4adb-8571-3f513ba5bfa0", "description": "calibration worker argument transport retry"}
+    ],
+    "inventory": "captures/command-inventory.txt",
+    "note": "These are failed SSM command attempts; local shell parser failures and the first interactive Destroy prompt are described in the session README and BUILD_LOG."
+  },
+  "artifacts": {
+    "capture_directory": "captures/",
+    "checksums": "captures/SHA256SUMS.txt",
+    "redaction": "IDs, host/account identifiers, raw tenant salts, credentials, signed URLs, and large prompt bodies omitted or normalized"
+  },
+  "sensitive_data_omitted": ["AWS account and resource identifiers", "public IP", "raw tenant salts", "credentials", "signed URLs", "large prompt bodies"]
+}

@@ -1,0 +1,75 @@
+# HELP inference_gateway_requests_total Requests that acquired execution ownership.
+# TYPE inference_gateway_requests_total counter
+# HELP inference_gateway_active_requests Requests currently owned by this gateway process.
+# TYPE inference_gateway_active_requests gauge
+# HELP inference_gateway_completed_total Requests that completed with a valid terminal stream.
+# TYPE inference_gateway_completed_total counter
+# HELP inference_gateway_failed_total Requests that failed before or after stream commitment.
+# TYPE inference_gateway_failed_total counter
+# HELP inference_gateway_partial_streams_total Committed streams that did not complete.
+# TYPE inference_gateway_partial_streams_total counter
+# HELP inference_gateway_rejected_total Requests rejected before backend execution.
+# TYPE inference_gateway_rejected_total counter
+# HELP inference_gateway_cancelled_total Requests cancelled by the client.
+# TYPE inference_gateway_cancelled_total counter
+# HELP inference_gateway_timeouts_total Requests terminated by a gateway timeout.
+# TYPE inference_gateway_timeouts_total counter
+# HELP inference_gateway_tenant_rate_limited_total Requests denied by tenant rate policy.
+# TYPE inference_gateway_tenant_rate_limited_total counter
+# HELP inference_gateway_tenant_concurrency_limited_total Requests denied by tenant concurrency policy.
+# TYPE inference_gateway_tenant_concurrency_limited_total counter
+# HELP inference_gateway_system_capacity_limited_total Requests denied by the shared admission bound.
+# TYPE inference_gateway_system_capacity_limited_total counter
+# HELP inference_gateway_admission_unavailable_total Requests denied because admission state was unavailable.
+# TYPE inference_gateway_admission_unavailable_total counter
+# HELP inference_gateway_release_failures_total Reservation releases that exhausted bounded retries.
+# TYPE inference_gateway_release_failures_total counter
+# HELP inference_gateway_terminal_total Request terminals by mutually exclusive cause.
+# TYPE inference_gateway_terminal_total counter
+# HELP inference_gateway_backend_metrics_up Whether the most recent backend metrics scrape succeeded.
+# TYPE inference_gateway_backend_metrics_up gauge
+# HELP inference_gateway_backend_metrics_fresh Whether a successful backend sample is within the configured maximum age.
+# TYPE inference_gateway_backend_metrics_fresh gauge
+# HELP inference_gateway_backend_metrics_scrape_duration_seconds Duration of the most recent backend metrics scrape.
+# TYPE inference_gateway_backend_metrics_scrape_duration_seconds gauge
+# HELP inference_gateway_backend_metrics_scrape_errors_total Failed or invalid backend metrics scrapes.
+# TYPE inference_gateway_backend_metrics_scrape_errors_total counter
+# HELP inference_gateway_backend_metrics_sample_age_seconds Age of the most recent valid backend metrics sample.
+# TYPE inference_gateway_backend_metrics_sample_age_seconds gauge
+# HELP inference_gateway_backend_requests_running vLLM requests in model execution batches.
+# TYPE inference_gateway_backend_requests_running gauge
+# HELP inference_gateway_backend_requests_waiting vLLM requests waiting to be processed.
+# TYPE inference_gateway_backend_requests_waiting gauge
+# HELP inference_gateway_backend_kv_cache_usage_ratio Fraction of vLLM KV-cache blocks in use.
+# TYPE inference_gateway_backend_kv_cache_usage_ratio gauge
+inference_gateway_requests_total 27
+inference_gateway_active_requests 0
+inference_gateway_completed_total 27
+inference_gateway_failed_total 0
+inference_gateway_partial_streams_total 0
+inference_gateway_rejected_total 0
+inference_gateway_cancelled_total 0
+inference_gateway_timeouts_total 0
+inference_gateway_tenant_rate_limited_total 0
+inference_gateway_tenant_concurrency_limited_total 0
+inference_gateway_system_capacity_limited_total 0
+inference_gateway_admission_unavailable_total 0
+inference_gateway_release_failures_total 0
+inference_gateway_terminal_total{cause="completed"} 27
+inference_gateway_terminal_total{cause="rejected"} 0
+inference_gateway_terminal_total{cause="client_cancelled"} 0
+inference_gateway_terminal_total{cause="upstream_failure"} 0
+inference_gateway_terminal_total{cause="upstream_protocol_error"} 0
+inference_gateway_terminal_total{cause="timeout"} 0
+inference_gateway_terminal_total{cause="stream_interrupted"} 0
+inference_gateway_terminal_total{cause="write_failure"} 0
+inference_gateway_terminal_total{cause="shutdown"} 0
+inference_gateway_terminal_total{cause="internal_error"} 0
+inference_gateway_backend_metrics_up{backend_id="gpu"} 1
+inference_gateway_backend_metrics_fresh{backend_id="gpu"} 1
+inference_gateway_backend_metrics_scrape_duration_seconds{backend_id="gpu"} 0.1063117
+inference_gateway_backend_metrics_scrape_errors_total{backend_id="gpu"} 1
+inference_gateway_backend_metrics_sample_age_seconds{backend_id="gpu"} 0.3531208
+inference_gateway_backend_requests_running{backend_id="gpu"} 0
+inference_gateway_backend_requests_waiting{backend_id="gpu"} 0
+inference_gateway_backend_kv_cache_usage_ratio{backend_id="gpu"} 0

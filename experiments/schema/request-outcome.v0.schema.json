@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/multi-tenant-inference/request-outcome.v0.schema.json",
+  "title": "Request outcome v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "backend_id",
+    "completion_offset_ns",
+    "completion_tokens",
+    "configuration_digest",
+    "dispatch_offset_ns",
+    "error_code",
+    "first_content_offset_ns",
+    "http_status",
+    "model",
+    "outcome",
+    "planned_arrival_offset_ns",
+    "policy",
+    "prompt_tokens",
+    "request_id",
+    "run_id",
+    "schema_version",
+    "tenant_id",
+    "token_count_source"
+  ],
+  "properties": {
+    "backend_id": {"$ref": "#/$defs/nullableIdentifier"},
+    "completion_offset_ns": {"$ref": "#/$defs/nullableOffset"},
+    "completion_tokens": {"$ref": "#/$defs/nullableCount"},
+    "configuration_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "dispatch_offset_ns": {"$ref": "#/$defs/nullableOffset"},
+    "error_code": {"type": ["string", "null"], "minLength": 1},
+    "first_content_offset_ns": {"$ref": "#/$defs/nullableOffset"},
+    "http_status": {
+      "anyOf": [
+        {"type": "integer", "minimum": 100, "maximum": 599},
+        {"type": "null"}
+      ]
+    },
+    "model": {"$ref": "#/$defs/model"},
+    "outcome": {
+      "enum": [
+        "cancelled",
+        "completed",
+        "failed_before_content",
+        "not_dispatched",
+        "partial_stream",
+        "rejected"
+      ]
+    },
+    "planned_arrival_offset_ns": {"$ref": "#/$defs/offset"},
+    "policy": {"$ref": "#/$defs/identifier"},
+    "prompt_tokens": {"$ref": "#/$defs/nullableCount"},
+    "request_id": {"$ref": "#/$defs/identifier"},
+    "run_id": {"$ref": "#/$defs/identifier"},
+    "schema_version": {"const": "request-outcome.v0"},
+    "tenant_id": {"$ref": "#/$defs/identifier"},
+    "token_count_source": {
+      "anyOf": [
+        {"enum": ["runtime_usage", "tokenizer_estimate"]},
+        {"type": "null"}
+      ]
+    }
+  },
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$"
+    },
+    "model": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}$"},
+    "nullableCount": {"anyOf": [{"$ref": "#/$defs/count"}, {"type": "null"}]},
+    "nullableIdentifier": {
+      "anyOf": [{"$ref": "#/$defs/identifier"}, {"type": "null"}]
+    },
+    "nullableOffset": {"anyOf": [{"$ref": "#/$defs/offset"}, {"type": "null"}]},
+    "offset": {"type": "integer", "minimum": 0}
+  }
+}

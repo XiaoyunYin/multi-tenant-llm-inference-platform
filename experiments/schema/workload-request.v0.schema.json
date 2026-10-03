@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/multi-tenant-inference/workload-request.v0.schema.json",
+  "title": "Generated workload request v0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configuration_digest",
+    "max_tokens",
+    "messages",
+    "model",
+    "ordinal",
+    "planned_arrival_offset_ns",
+    "prefix_id",
+    "request_id",
+    "run_id",
+    "schema_version",
+    "tenant_id"
+  ],
+  "properties": {
+    "configuration_digest": {"$ref": "#/$defs/digest"},
+    "max_tokens": {"type": "integer", "minimum": 1},
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["content", "role"],
+        "properties": {
+          "content": {"type": "string", "minLength": 1},
+          "role": {"enum": ["assistant", "system", "user"]}
+        }
+      }
+    },
+    "model": {"$ref": "#/$defs/model"},
+    "ordinal": {"type": "integer", "minimum": 0},
+    "planned_arrival_offset_ns": {"type": "integer", "minimum": 0},
+    "prefix_id": {"$ref": "#/$defs/identifier"},
+    "request_id": {"$ref": "#/$defs/identifier"},
+    "run_id": {"$ref": "#/$defs/identifier"},
+    "schema_version": {"const": "workload-request.v0"},
+    "tenant_id": {"$ref": "#/$defs/identifier"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$"
+    },
+    "model": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,254}$"
+    }
+  }
+}

@@ -1,0 +1,32 @@
+File: gateway.exe
+Build ID: D:\portfolio-projects\multi-tenant-llm-inference-platform\.cache\mti-inf036-4048\gateway.exe2026-10-02 13:35:35.4775316 -0700 PDT
+Type: inuse_space
+Time: 2026-10-02 13:48:48 PDT
+Showing nodes accounting for 6194.38kB, 100% of 6194.38kB total
+Showing top 25 nodes out of 67
+      flat  flat%   sum%        cum   cum%
+ 3587.75kB 57.92% 57.92%  3587.75kB 57.92%  runtime.mallocgc
+ 1042.17kB 16.82% 74.74%  1042.17kB 16.82%  bufio.NewWriterSize (inline)
+  528.17kB  8.53% 83.27%   528.17kB  8.53%  net/http.init.func16
+  524.09kB  8.46% 91.73%   524.09kB  8.46%  internal/poll.runtime_pollSetDeadline
+  512.20kB  8.27%   100%   512.20kB  8.27%  encoding/json.typeFields
+         0     0%   100%   512.20kB  8.27%  encoding/json.(*encodeState).marshal
+         0     0%   100%   512.20kB  8.27%  encoding/json.(*encodeState).reflectValue
+         0     0%   100%   512.20kB  8.27%  encoding/json.Marshal
+         0     0%   100%   512.20kB  8.27%  encoding/json.cachedTypeFields
+         0     0%   100%   512.20kB  8.27%  encoding/json.newStructEncoder (inline)
+         0     0%   100%   512.20kB  8.27%  encoding/json.newTypeEncoder
+         0     0%   100%   512.20kB  8.27%  encoding/json.typeEncoder
+         0     0%   100%   512.20kB  8.27%  encoding/json.typeEncoder.OnceValue[go.shape.func].func3 (inline)
+         0     0%   100%   512.20kB  8.27%  encoding/json.typeEncoder.func1
+         0     0%   100%   512.20kB  8.27%  encoding/json.typeEncoder.typeEncoder.OnceValue[go.shape.func].func3.func4
+         0     0%   100%   512.20kB  8.27%  encoding/json.valueEncoder
+         0     0%   100%   528.17kB  8.53%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).dialConn
+         0     0%   100%   528.17kB  8.53%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).newConn
+         0     0%   100%   528.17kB  8.53%  github.com/redis/go-redis/v9/internal/pool.(*ConnPool).queuedNewConn.func2
+         0     0%   100%   528.17kB  8.53%  github.com/redis/go-redis/v9/internal/pool.NewConnWithBufferSize
+         0     0%   100%   524.09kB  8.46%  internal/poll.(*FD).SetWriteDeadline (inline)
+         0     0%   100%   524.09kB  8.46%  internal/poll.setDeadlineImpl
+         0     0%   100%  1036.30kB 16.73%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).chatCompletions
+         0     0%   100%   524.09kB  8.46%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeRaw
+         0     0%   100%   524.09kB  8.46%  multi-tenant-llm-inference-platform/internal/gateway.(*Gateway).writeSSE (inline)

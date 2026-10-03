@@ -1,0 +1,46 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+
+# Go
+/bin/
+/coverage/
+*.test
+*.out
+
+.uv-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+python/.venv/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfplan
+inf011-paid.plan-metadata.json
+inf011-paid.plan-metadata.json.tmp
+.tools/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Experiment outputs are registered deliberately, not accidentally
+experiments/**/raw/
+experiments/**/artifacts/
