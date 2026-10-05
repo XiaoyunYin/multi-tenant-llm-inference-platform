@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sync"
@@ -51,15 +52,19 @@ func (b *Backend) Healthy() bool { return b.healthy.Load() }
 func (b *Backend) Ready() bool   { return b.ready.Load() }
 
 type Registry struct {
-	backends   []*Backend
-	backendMu  sync.RWMutex
-	roundRobin *RoundRobinRouter
-	client     *http.Client
-	interval   time.Duration
-	mu         sync.Mutex
-	cancel     context.CancelFunc
-	done       chan struct{}
+	backends     []*Backend
+	backendMu    sync.RWMutex
+	roundRobin   *RoundRobinRouter
+	client       *http.Client
+	interval     time.Duration
+	mu           sync.Mutex
+	cancel       context.CancelFunc
+	done         chan struct{}
+	healthLogger atomic.Pointer[slog.Logger]
 }
+
+// SetHealthLogger enables bounded poll timings and transitions, without addresses.
+func (r *Registry) SetHealthLogger(logger *slog.Logger) { r.healthLogger.Store(logger) }
 
 func NewRegistry(backends []*Backend, client *http.Client, interval time.Duration) (*Registry, error) {
 	if len(backends) == 0 {
@@ -170,23 +175,35 @@ func (r *Registry) Poll(ctx context.Context) {
 }
 
 func (r *Registry) check(ctx context.Context, backend *Backend) {
+	started := time.Now()
+	beforeHealthy, beforeReady := backend.Healthy(), backend.Ready()
+	statusCode, errorClass := 0, "none"
+	defer func() {
+		if logger := r.healthLogger.Load(); logger != nil {
+			logger.Info("backend health poll", "backend_id", backend.ID, "latency_ms", time.Since(started).Seconds()*1000, "http_status", statusCode, "error_class", errorClass, "healthy_before", beforeHealthy, "healthy_after", backend.Healthy(), "ready_before", beforeReady, "ready_after", backend.Ready())
+		}
+	}()
 	markUnavailable := func() {
 		backend.healthy.Store(false)
 		backend.ready.Store(false)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, backend.URL.JoinPath("health").String(), nil)
 	if err != nil {
+		errorClass = "invalid_request"
 		markUnavailable()
 		return
 	}
 	response, err := r.client.Do(request)
 	if err != nil {
+		errorClass = "transport"
 		markUnavailable()
 		return
 	}
 	defer response.Body.Close()
+	statusCode = response.StatusCode
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<10))
 	if err != nil || response.StatusCode != http.StatusOK {
+		errorClass = "body_or_http_status"
 		markUnavailable()
 		return
 	}
@@ -197,6 +214,7 @@ func (r *Registry) check(ctx context.Context, backend *Backend) {
 	}
 	_ = json.Unmarshal(body, &state)
 	if state.BackendID != "" && state.BackendID != backend.ID {
+		errorClass = "identity_mismatch"
 		markUnavailable()
 		return
 	}

@@ -9,4 +9,4 @@ budget_authorization_id       = ""
 approved_phase_cap_usd        = 0
 estimated_max_session_cost_usd = 0
 max_session_hours             = 4
-root_volume_gib               = 100
+root_volume_gib               = 200

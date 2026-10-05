@@ -235,7 +235,7 @@ class BlockCorrelationTest(unittest.TestCase):
             if cached is not None:
                 value["cached_prompt_tokens"] = cached
             path.write_text(json.dumps(value) + "\n", encoding="utf-8")
-            return load_routing_decisions(path)
+            return list(load_routing_decisions(path))
 
     def test_rejected_decision_cannot_match_later_repeat_of_same_identity(self):
         second = 1_000_000_000
@@ -377,7 +377,7 @@ class BlockCorrelationTest(unittest.TestCase):
         before = len(store.kv_events_after(0))
         at = 10
         store.observe_prompt("long", "model-salt", tokens, 2048, 1)
-        batches = store.kv_events_after(before)
+        batches = list(store.kv_events_after(before))
         self.assertEqual(len(batches), 1023)
         raw_tokens = [t for batch in batches for t in batch["events"][0]["token_ids"]]
         self.assertEqual(raw_tokens, tokens[16 : 16 * 1024])

@@ -15,6 +15,16 @@ from inference_platform.stage_c_session import prepare, sha, write_json
 
 
 class FitnessTest(unittest.TestCase):
+    def setUp(self):
+        # Other provider checks use fixtures; the new fail-closed receipt gate is
+        # tested independently in test_remote_source_fitness and by real Docker.
+        gate = patch(
+            "inference_platform.remote_source_fitness.remote_source_fitness",
+            return_value=(True, "unit-only clean remote provider fixture"),
+        )
+        gate.start()
+        self.addCleanup(gate.stop)
+
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[2]
@@ -35,6 +45,43 @@ class FitnessTest(unittest.TestCase):
             "entrypoint_sha256": cls.manifest["entrypoint"]["sha256"],
             "source_commit": cls.manifest["source_commit"],
         }
+
+        from inference_platform.host_headroom import source_fingerprint
+
+        proof = cls.path / "unit-headroom-proof.txt"
+        proof.write_text("unit fixture only", encoding="utf-8")
+        bound = cls.path / "unit-headroom.json"
+        write_json(
+            bound,
+            {
+                "schema": "inf011-constrained-rehearsal.v1",
+                "status": "passed",
+                "source_files_sha256": source_fingerprint(cls.root),
+                "memory_budget_bytes": 6 * 1024**3,
+                "cpu_limit": 2,
+                "measured_request_count": 7000,
+                "completed_run_count": 4,
+                "peak_memory_bytes": 100000000,
+                "oom_kill_delta": 0,
+                "host_series_sample_count": 1,
+                "process_peaks": {
+                    role: {"peak_rss_bytes": 1000000, "peak_cpu_percent": 1}
+                    for role in ("host_controller", "capture", "gateway", "sampler")
+                },
+                "evidence_sha256": {proof.relative_to(cls.root).as_posix(): sha(proof)},
+                "final_export_bytes": 1000,
+                "measurement_digests": [
+                    {
+                        "run_number": n,
+                        "path": proof.relative_to(cls.root).as_posix(),
+                        "bytes": proof.stat().st_size,
+                        "sha256": sha(proof),
+                    }
+                    for n in range(1, 5)
+                ],
+            },
+        )
+        cls.inputs["host_headroom_receipt_path"] = str(bound)
 
     @classmethod
     def tearDownClass(cls):
@@ -109,7 +156,10 @@ class FitnessTest(unittest.TestCase):
                 with patch("sys.argv", args), patch("builtins.print"):
                     self.assertEqual(main(), status)
                 rows = json.loads(output.read_text(encoding="utf-8"))["prerequisites"]
-                self.assertEqual(len(rows), 22)
+                self.assertEqual(len(rows), 26)
+                self.assertEqual(
+                    sum(row["prerequisite"] == "host_headroom_bound" for row in rows), 1
+                )
                 self.assertTrue(all(row["provider"] and row["runtime_check"] for row in rows))
 
     def test_missing_launcher_prerequisite_and_topic_mismatch_fail(self):
@@ -163,4 +213,9 @@ class FitnessTest(unittest.TestCase):
             with self.subTest(prerequisite=name):
                 row = next(row for row in records if row["prerequisite"] == name)
                 self.assertFalse(row["provided"])
-        self.assertIn("staged source differs", records[-2]["provider"])
+        self.assertIn(
+            "staged source differs",
+            next(row for row in records if row["prerequisite"] == "staged_payload_git_provenance")[
+                "provider"
+            ],
+        )

@@ -70,6 +70,11 @@ run "fully_authorized_mock_apply_is_one_bounded_host" {
   }
 
   assert {
+    condition     = aws_instance.pilot[0].root_block_device[0].volume_size == jsondecode(file("../../../docs/INF011_STAGE_C_SESSION_INPUTS.json")).disk_budget.root_volume_gib
+    error_message = "The planned root must match the recorded disk budget."
+  }
+
+  assert {
     condition     = aws_instance.pilot[0].timeouts.create == "10m"
     error_message = "Capacity-rejected instance creation must be bounded to ten minutes."
   }
@@ -128,4 +133,22 @@ run "fractional_session_duration_rejected" {
   }
 
   expect_failures = [var.max_session_hours]
+}
+
+run "attempt6_root_size_rejected" {
+  command = plan
+  variables { root_volume_gib = 100 }
+  expect_failures = [var.root_volume_gib]
+}
+
+run "unreviewed_root_size_rejected" {
+  command = plan
+  variables { root_volume_gib = 251 }
+  expect_failures = [var.root_volume_gib]
+}
+
+run "fractional_root_size_rejected" {
+  command = plan
+  variables { root_volume_gib = 200.5 }
+  expect_failures = [var.root_volume_gib]
 }

@@ -71,6 +71,7 @@ class StageCConfig:
     instance_termination_unix_s: float | None = None
     observed_readiness_unix_s: float | None = None
     evidence_export_margin_seconds: float = 600
+    cleanup_margin_seconds: float = 600
     minimum_useful_run_seconds: tuple[float, ...] = (300, 300, 180, 600)
     protocol_version: str = "legacy-rehearsal"
     saturation_prompt_tokens: int = 6144
@@ -116,6 +117,8 @@ class StageCConfig:
             raise ValueError("session window must be within the four-hour maximum")
         if not 0 < self.evidence_export_margin_seconds < self.session_window_seconds:
             raise ValueError("evidence export margin must be positive and smaller than the window")
+        if self.cleanup_margin_seconds < 600 or not math.isfinite(self.cleanup_margin_seconds):
+            raise ValueError("cleanup requires at least 600 finite seconds")
         if not 0 <= self.instance_boot_unix_s <= self.observed_readiness_unix_s:
             raise ValueError("observed readiness must be at or after the instance boot anchor")
         if not math.isclose(
@@ -151,6 +154,7 @@ class StageCConfig:
             self.session_window_seconds
             - self.cold_readiness_planning_seconds
             - self.evidence_export_margin_seconds
+            - self.cleanup_margin_seconds
         ):
             raise ValueError(
                 "run time budgets must leave time after cold readiness within the session"
@@ -411,6 +415,17 @@ def _runtime_readiness(config: StageCConfig, deadline: float) -> dict[str, Any]:
     try:
         if sys.version_info[:2] != (3, 12):
             raise RuntimeError("Stage C requires Python 3.12")
+        if config.protocol_version == "r0-v2":
+            from .host_disk import require_disk_headroom
+
+            if config.local_rehearsal:
+                from .stage_c_session import record_disk_readiness
+
+                checks["root_disk"] = record_disk_readiness(
+                    Path(config.decision_prompt_export_path).parent, rehearse=True
+                )
+            else:
+                checks["root_disk"] = require_disk_headroom()
         checks["health_and_metrics"] = _health_preflight(config, deadline)
         checks["gateway_admission"] = _admission_preflight(config)
         checks["tokenize"] = _tokenize_preflight(config, deadline)
@@ -655,6 +670,7 @@ def run_stage_c(
     *,
     monotonic_clock: Callable[[], float] = time.perf_counter,
     wall_clock: Callable[[], float] = time.time,
+    on_run_complete: Callable | None = None,
 ) -> dict[str, Any]:
     """Execute the four-run protocol against explicitly supplied endpoints."""
 
@@ -672,9 +688,13 @@ def run_stage_c(
     if config.observed_readiness_unix_s > measured_unix_s:
         raise ValueError("observed readiness cannot be in the recorder's future")
     session_deadline_unix_s = (
-        config.instance_termination_unix_s - config.evidence_export_margin_seconds
+        config.instance_termination_unix_s
+        - config.evidence_export_margin_seconds
+        - config.cleanup_margin_seconds
     )
     session_deadline = measured_monotonic_s + session_deadline_unix_s - measured_unix_s
+    export_deadline = session_deadline + config.evidence_export_margin_seconds
+    archive_windows = []
     readiness = {
         "instance_boot_unix_s": config.instance_boot_unix_s,
         "instance_termination_unix_s": config.instance_termination_unix_s,
@@ -682,6 +702,7 @@ def run_stage_c(
         "observed_readiness_seconds": config.observed_readiness_unix_s
         - config.instance_boot_unix_s,
         "evidence_export_margin_seconds": config.evidence_export_margin_seconds,
+        "cleanup_margin_seconds": config.cleanup_margin_seconds,
         "session_deadline_unix_s": session_deadline_unix_s,
         "session_deadline_monotonic_s": session_deadline,
         "clock_pair": {"unix_s": measured_unix_s, "monotonic_s": measured_monotonic_s},
@@ -714,14 +735,16 @@ def run_stage_c(
         "session_window_seconds": config.session_window_seconds,
         "cold_readiness_planning_seconds": config.cold_readiness_planning_seconds,
         "evidence_export_margin_seconds": config.evidence_export_margin_seconds,
+        "cleanup_margin_seconds": config.cleanup_margin_seconds,
         "minimum_useful_run_seconds": list(config.minimum_useful_run_seconds),
         "cold_readiness_basis": "first us-west-2 session: launch to first response, 2015 seconds",
-        "regional_readiness_warning": "us-west-1 may be slower; reserve is not a readiness guarantee",
+        "regional_readiness_warning": "us-east-1 cold readiness is unestablished; reserve is not a readiness guarantee",
         "remaining_time_reserve_seconds": (
             config.session_window_seconds
             - config.cold_readiness_planning_seconds
             - sum(config.run_time_budgets_seconds)
             - config.evidence_export_margin_seconds
+            - config.cleanup_margin_seconds
         ),
     }
     for name in (
@@ -833,6 +856,24 @@ def run_stage_c(
             run.update(status="readiness_failure", stop_reason=str(error))
         run["elapsed_seconds"] = monotonic_clock() - started
         run["partial"] = run["status"] != "completed"
+        if on_run_complete is not None:
+            try:
+                receipt = on_run_complete(index + 1, run)
+                window = (receipt or {}).get("archive_export_window")
+                if window:
+                    archive_windows.append(window)
+                    # Only shorten measurement; never extend the termination or cleanup bound.
+                    session_deadline = min(
+                        session_deadline, export_deadline - window["forecast_seconds"]
+                    )
+            except Exception as error:
+                # Optional evidence must not abort core scheduling; control signals still propagate.
+                run["checkpoint"] = {
+                    "status": "failed",
+                    "failure_type": type(error).__name__,
+                    "event_lag_status": "unavailable",
+                    "reason": "checkpoint callback failed; later measurements continue",
+                }
     result: dict[str, Any] = {
         "schema": "inf011-stage-c-run.v3"
         if config.protocol_version == "r0-v2"
@@ -848,6 +889,7 @@ def run_stage_c(
         "tokenization_preflight": preflight,
         "readiness": readiness,
         "timed_runs": runs,
+        "archive_export_windows": archive_windows,
         "finalization": {
             "start": "immediately_after_last_run",
             "export_cutoff_is_ceiling_only": True,
@@ -869,7 +911,6 @@ def run_stage_c(
         },
     }
     events = None
-    export_deadline = session_deadline + config.evidence_export_margin_seconds - 300
     if event_ready and config.fake_event_url:
         try:
             events = read_http_sse_event_stream(
@@ -944,8 +985,11 @@ def run_stage_c(
                             config,
                             [
                                 "exec",
+                                "--env",
+                                "PYTHONDONTWRITEBYTECODE=1",
                                 "inf011-vllm",
                                 "python3",
+                                "-B",
                                 "-c",
                                 "import os,sys; p=sys.argv[1]; os.unlink(p) if os.path.exists(p) else None",
                                 config.decision_export_output_path,
@@ -997,9 +1041,9 @@ def main() -> int:
             "paid r0-v2 must use the reviewed inference_platform.stage_c_session entrypoint"
         )
     result = run_stage_c(config)
-    args.output.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
-    )
+    from .disk_records import write_json
+
+    write_json(args.output, result)
     if args.finalize_argv:
         # No shell string: argv survives spaces/quotes in staged paths.
         try:
@@ -1011,9 +1055,7 @@ def main() -> int:
             result["finalization"]["controller_exit_code"] = completed.returncode
         except (OSError, subprocess.TimeoutExpired) as error:
             result["finalization"].update(controller_exit_code=1, error=str(error))
-        args.output.write_text(
-            json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
-        )
+        write_json(args.output, result)
         if result["finalization"]["controller_exit_code"]:
             return 1
     return int(result["status"] == "readiness_failed")

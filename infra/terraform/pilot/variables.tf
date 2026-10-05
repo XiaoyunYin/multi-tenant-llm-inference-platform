@@ -96,10 +96,10 @@ variable "max_session_hours" {
 variable "root_volume_gib" {
   description = "Encrypted gp3 root volume for the container and public model cache."
   type        = number
-  default     = 100
+  default     = 200
 
   validation {
-    condition     = var.root_volume_gib >= 80 && var.root_volume_gib <= 120
-    error_message = "The reviewed pilot root volume must stay between 80 and 120 GiB."
+    condition     = var.root_volume_gib >= 200 && var.root_volume_gib <= 250 && floor(var.root_volume_gib) == var.root_volume_gib
+    error_message = "The reviewed pilot root volume must stay a whole number between 200 and 250 GiB."
   }
 }

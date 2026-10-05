@@ -411,6 +411,8 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	selection := BackendDecision{Policy: RoutingPolicyNone, FallbackReason: FallbackReasonNone}
 	var routerDecisionUnixNS int64
 	terminal := requestTerminal{cause: terminalInternalError, code: "internal_error"}
+	var upstreamHTTPStatus, upstreamErrorCode int
+	var upstreamErrorType, upstreamErrorShape string
 	defer func() {
 		span.SetAttributes(
 			attribute.String("inference.tenant.id", tenantID),
@@ -440,6 +442,10 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			"committed", terminal.committed,
 			"cause", terminal.cause.String(),
 			"code", terminal.code,
+			"upstream_http_status", upstreamHTTPStatus,
+			"upstream_error_code", upstreamErrorCode,
+			"upstream_error_type", upstreamErrorType,
+			"upstream_error_shape", upstreamErrorShape,
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 		g.metrics.recordTerminal(terminal.cause)
@@ -680,7 +686,18 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		return
 	}
 	defer upstreamResponse.Body.Close()
+	upstreamHTTPStatus = upstreamResponse.StatusCode
 	if upstreamResponse.StatusCode != http.StatusOK {
+		// The first-item deadline also bounds a trickling upstream error body.
+		errorTimer := time.AfterFunc(time.Until(firstDeadline), func() { cancelCause(context.DeadlineExceeded) })
+		data, readError := io.ReadAll(io.LimitReader(upstreamResponse.Body, 8193))
+		errorTimer.Stop()
+		if readError == nil {
+			upstreamErrorCode, upstreamErrorType = nativeErrorMetadata(data)
+			if upstreamErrorType != "" {
+				upstreamErrorShape = "http_error"
+			}
+		}
 		terminal = requestTerminal{cause: terminalUpstreamFailure, code: "upstream_failure", backendID: backend.ID}
 		g.metrics.failed.Add(1)
 		g.writeError(response, http.StatusBadGateway, "upstream_failure", requestID, true)
@@ -722,6 +739,10 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		return
 	}
 	firstValidated, err := validateEvent(first.data, requestID, decoded.Model)
+	upstreamErrorCode, upstreamErrorType = nativeErrorMetadata(first.data)
+	if upstreamErrorType != "" {
+		upstreamErrorShape = "sse_error"
+	}
 	if err != nil || firstValidated.kind == eventUsage {
 		terminal = requestTerminal{cause: terminalProtocolError, code: "upstream_protocol_error", backendID: backend.ID}
 		g.metrics.failed.Add(1)
@@ -764,6 +785,9 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			return
 		}
 		validated, validationErr := validateEvent(event.data, requestID, decoded.Model)
+		if code, kind := nativeErrorMetadata(event.data); kind != "" {
+			upstreamErrorCode, upstreamErrorType, upstreamErrorShape = code, kind, "sse_error"
+		}
 		if validationErr != nil || (finished && validated.kind != eventUsage) || (validated.kind == eventUsage && (!finished || usageSeen)) {
 			terminal = requestTerminal{cause: terminalProtocolError, code: "stream_interrupted", backendID: backend.ID, committed: true}
 			g.metrics.failed.Add(1)

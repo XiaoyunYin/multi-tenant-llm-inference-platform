@@ -170,6 +170,9 @@ try {
     Invoke-Checked "Committed experiment evidence checksums and strict JSON" {
         uv run --project python --locked python scripts/check_experiment_evidence.py
     }
+    Invoke-Checked "New binary evidence <=5 MB (5000000 bytes) or exact allowlist" {
+        uv run --project python --locked python scripts/evidence_binary_guard.py
+    }
     switch ($Suite) {
         "plan" { }
         "format" { Invoke-FormatChecks }
@@ -188,6 +191,9 @@ try {
             Write-Output "==> Paid cloud apply: NOT AUTHORIZED (only the zero-resource offline plan ran)"
         }
         "all" {
+            Invoke-Checked "Large binary evidence guard regressions" {
+                uv run --project python --locked python -m unittest discover -s scripts/tests -p test_evidence_binary_guard.py -v
+            }
             Invoke-Checked "PLAN structural guard regression" {
                 & $PowerShellExecutable -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "tests\plan-structure.ps1")
             }

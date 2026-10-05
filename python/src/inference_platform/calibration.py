@@ -24,10 +24,11 @@ from typing import Any
 
 from .clocks import measurement_clocks
 from .decision_export import append_prompt
+from .disk_records import DiskList
 from .process_metrics import process_snapshot
 from .records import Outcome, OutcomeRecord, TokenCountSource, content_digest
 from .stage_c_prompts import ChatPrompt, prompt_messages
-from .time_budget import BudgetExhausted, deadline_urlopen, remaining_seconds
+from .time_budget import BudgetExhausted, deadline_urlopen, read_error_body, remaining_seconds
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +181,9 @@ def _stream_request(
     status: int | None = None
     backend_id: str | None = None
     error_code: str | None = None
+    error_body_code = None
+    error_body_type = None
+    error_shape = None
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     saw_done = False
@@ -204,6 +208,13 @@ def _stream_request(
                 except json.JSONDecodeError:
                     error_code = "invalid_stream_json"
                     continue
+                if isinstance(event.get("error"), dict):
+                    candidate = event["error"].get("code") or event["error"].get("type")
+                    error_body_code = event["error"].get("code")
+                    error_body_type = event["error"].get("type")
+                    error_shape = "sse_error"
+                    error_code = str(candidate) if candidate is not None else "stream_error"
+                    continue
                 for choice in event.get("choices", []):
                     content = choice.get("delta", {}).get("content")
                     if isinstance(content, str) and content and first_content_ns is None:
@@ -219,18 +230,18 @@ def _stream_request(
         gateway_request_id = error.headers.get("X-Request-ID")
         backend_id = error.headers.get("X-Inference-Backend")
         try:
-            # The deadline also bounds an error body's read. Keep its original
-            # protocol code when operating without a Stage C budget.
-            error_body = (
-                json.loads(error.read().decode("utf-8", errors="replace"))
-                if deadline is None
-                else {}
-            )
+            error_body = json.loads(read_error_body(error, deadline=deadline).decode("utf-8"))
+            error_body_code = error_body.get("code")
             candidate = error_body.get("code") or error_body.get("error")
             if isinstance(candidate, dict):
+                error_body_code = candidate.get("code")
+                error_body_type = candidate.get("type")
                 candidate = candidate.get("code") or candidate.get("type")
+            error_shape = "http_error"
+            if type(candidate) is int:
+                candidate = str(candidate)
             error_code = candidate if isinstance(candidate, str) and candidate else f"http_{status}"
-        except (OSError, json.JSONDecodeError):
+        except (OSError, ValueError):
             error_code = f"http_{status}"
         error.close()
         completion_ns = time.perf_counter_ns() - level_start_ns
@@ -246,6 +257,7 @@ def _stream_request(
     elif (
         status == 200
         and saw_done
+        and error_code is None
         and backend_id
         and isinstance(prompt_tokens, int)
         and isinstance(completion_tokens, int)
@@ -287,6 +299,9 @@ def _stream_request(
         configuration_digest=configuration_digest,
     )
     value = record.to_dict()
+    value.update(
+        error_body_code=error_body_code, error_body_type=error_body_type, error_shape=error_shape
+    )
     if budget_exhausted and not saw_done:
         value["stop_reason"] = "run_time_budget_exhausted"
     value["dispatch_monotonic_ns"] = dispatch_monotonic_ns
@@ -355,7 +370,8 @@ def run_calibration(
         )
         stop_sampler = threading.Event()
         first_sample = threading.Event()
-        samples: list[dict[str, Any]] = []
+        samples = DiskList()
+        records = DiskList()
 
         def sample(
             stop_event: threading.Event = stop_sampler,
@@ -395,6 +411,7 @@ def run_calibration(
                 worker_index: int = 0,
                 work_deadline: float | None = level_deadline,
                 load_until: float = load_end,
+                output: DiskList = records,
             ) -> list[dict[str, Any]]:
                 start_barrier.wait()
                 prompt_text = (
@@ -404,13 +421,13 @@ def run_calibration(
                 )
                 if config.unique_prompt_per_request and prompt_factory is None:
                     prompt_text = f"{prompt_text}\nrequest={worker_index}"
-                records = []
+                cycle = 0
                 while True:
                     cycle_started = time.perf_counter()
                     if cycle_prompt_factory is not None:
                         try:
                             prompt_text = cycle_prompt_factory(
-                                len(result["levels"]), worker_index, len(records)
+                                len(result["levels"]), worker_index, cycle
                             )
                         except BudgetExhausted:
                             break
@@ -419,7 +436,8 @@ def run_calibration(
                     record = _stream_request(
                         config, configuration_digest, start_ns, prompt_text, work_deadline
                     )
-                    records.append(record)
+                    output.append(record)
+                    cycle += 1
                     if not level_duration_seconds:
                         break
                     now = time.perf_counter()
@@ -433,14 +451,15 @@ def run_calibration(
                     )
                     if time.perf_counter() >= min(load_until, deadline or float("inf")):
                         break
-                return records
+                return cycle
 
             with ThreadPoolExecutor(max_workers=concurrency) as executor:
                 futures = [
                     executor.submit(worker, worker_index=index) for index in range(concurrency)
                 ]
                 barrier.wait()
-                records = [record for future in futures for record in future.result()]
+                for future in futures:
+                    future.result()
         finally:
             stop_sampler.set()
             sampler.join(timeout=3)

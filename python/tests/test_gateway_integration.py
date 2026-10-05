@@ -234,6 +234,11 @@ class GatewayIntegrationTest(unittest.TestCase):
                 )
                 result = run_stage_c(config)
             self.assertEqual(result["status"], "completed", result["readiness"])
+            disk = json.loads((root / "disk-readiness.json").read_text(encoding="utf-8"))
+            self.assertEqual(disk["source"], "rehearsal")
+            self.assertEqual(
+                result["readiness"]["gate"]["checks"]["root_disk"]["source"], "rehearsal"
+            )
             self.assertEqual(len(result["timed_runs"]), 4)
             self.assertEqual(
                 result["readiness"]["gate"]["checks"]["gateway_admission"][

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .clocks import measurement_clocks
+from .disk_records import DiskList, ordered_rows, write_json
 from .time_budget import deadline_urlopen
 
 
@@ -115,10 +116,7 @@ def event_observations(
 def derive_event_inventory(observations: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Derive a redacted cached-block live set and removal rate from event observations."""
 
-    ordered = sorted(
-        observations,
-        key=lambda event: (event.get("observed_monotonic_ns", 0), event.get("sequence", 0)),
-    )
+    ordered = DiskList(ordered_rows(observations, ("observed_monotonic_ns", "sequence")))
     live: set[tuple[Any, Any, Any, str]] = set()
     stored_hash_count = 0
     removed_hash_count = 0
@@ -187,7 +185,7 @@ def read_jsonl_event_stream(
 ) -> list[dict[str, Any]]:
     """Consume normalized fake EventBatch JSONL and timestamp each observation."""
 
-    observations: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = DiskList()
     for line_number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
@@ -228,7 +226,7 @@ def read_http_sse_event_stream(
     if duration_seconds <= 0 or duration_seconds > 60:
         raise ValueError("fake event stream duration must be in (0, 60] seconds")
     url = f"{endpoint.rstrip('/')}?after=0&duration={duration_seconds}"
-    batches: list[str] = []
+    batches = DiskList()
     with deadline_urlopen(
         url, timeout=duration_seconds + timeout_seconds, deadline=deadline
     ) as response:
@@ -258,7 +256,7 @@ def load_routing_decisions(
 ) -> list[dict[str, Any]]:
     """Load the bounded decision-export schema consumed by the capture tool."""
 
-    decisions: list[dict[str, Any]] = []
+    decisions: list[dict[str, Any]] = DiskList()
     with path.open(encoding="utf-8") as stream:
         for line_number, line in enumerate(stream, start=1):
             if not line.strip():
@@ -338,148 +336,41 @@ def correlate_routing_events(
     This is token-block overlap, not proof of unique request ownership. A shared
     prefix or identical concurrent prompts can be ambiguous; report the basis.
     """
-    stored_events = sorted(
-        (
-            event
-            for event in observations
-            if str(event.get("event_type", "")).lower() in {"blockstored", "block_stored"}
-        ),
-        key=lambda event: (event["observed_monotonic_ns"], event["sequence"]),
-    )
-    # Sustained levels produce many decisions. Index each block's ordered events
-    # rather than rescanning the full capture for every request at export time.
-    from bisect import bisect_right
+    from .disk_correlation import correlate
 
-    by_block: dict[str, list[tuple[int, int]]] = {}
-    owners: dict[str, set] = {}
-    by_identity: dict[Any, list[int]] = {}
-
-    def prompt_identity(decision):
-        return decision.get(
-            "prompt_identity_sha256", tuple(decision["expected_token_block_digests"])
-        )
-
-    for decision in decisions:
-        identity = prompt_identity(decision)
-        by_identity.setdefault(identity, []).append(decision["routing_decision_monotonic_ns"])
-        for digest in set(decision["expected_token_block_digests"]):
-            owners.setdefault(digest, set()).add(identity)
-    for times in by_identity.values():
-        times.sort()
-    shared = {digest for digest, identities in owners.items() if len(identities) > 1}
-    for index, event in enumerate(stored_events):
-        for digest in set(event.get("token_block_digests", [])):
-            by_block.setdefault(digest, []).append((event["observed_monotonic_ns"], index))
-    results: list[dict[str, Any]] = []
-    for decision in decisions:
-        decision_ns = decision["routing_decision_monotonic_ns"]
-        terminal_ns = decision.get("gateway_terminal_monotonic_ns")
-        if type(terminal_ns) is not int or terminal_ns < decision_ns:
-            raise ValueError("invalid or missing gateway terminal timestamp for correlation")
-        window_end_ns = terminal_ns + PUBLISHER_FLUSH_ALLOWANCE_NS
-        identity_times = by_identity[prompt_identity(decision)]
-        next_position = bisect_right(identity_times, decision_ns)
-        next_decision_ns = (
-            identity_times[next_position] if next_position < len(identity_times) else None
-        )
-        failed = decision.get("no_store_expected_request_failed", False)
-        original = set(decision["expected_token_block_digests"])
-        expected = original - shared
-        no_new_block = decision.get("no_new_block", not original)
-        candidates = []
-        if not no_new_block and not failed:
-            for digest in expected:
-                occurrences = by_block.get(digest, [])
-                position = bisect_right(occurrences, (decision_ns, len(stored_events)))
-                if position < len(occurrences):
-                    candidates.append(occurrences[position][1])
-        first = stored_events[min(candidates)] if candidates else None
-        late = first is not None and first["observed_monotonic_ns"] > window_end_ns
-        if (
-            late
-            and next_decision_ns is not None
-            and first["observed_monotonic_ns"] >= next_decision_ns
-        ):
-            first = None  # A repeated dispatch makes late ownership ambiguous.
-            late = False
-        observed_ns = first["observed_monotonic_ns"] if first else None
-        results.append(
-            {
-                "request_id": decision["request_id"],
-                "status": "no_store_expected_request_failed"
-                if failed
-                else "no_new_block"
-                if no_new_block
-                else "observed_after_request_window"
-                if late
-                else "observed"
-                if first
-                else "no_post_decision_store_event"
-                if decision.get("cached_prompt_tokens") is not None
-                else "no_identity_specific_store_cache_state_unknown",
-                "match_basis": "identity_specific_16_token_block_digest"
-                if first
-                else (
-                    "request_failed_or_cancelled_before_content"
-                    if failed
-                    else "cached_prompt_tokens_or_no_full_block"
-                    if no_new_block
-                    else "cache_state_unknown_no_identity_specific_store_before_next_identity_decision"
-                    if decision.get("cached_prompt_tokens") is None
-                    else "no_identity_specific_store_before_next_identity_decision"
-                ),
-                "routing_decision_monotonic_ns": decision_ns,
-                "gateway_terminal_monotonic_ns": terminal_ns,
-                "request_lifetime_ns": terminal_ns - decision_ns,
-                "publisher_flush_allowance_ns": PUBLISHER_FLUSH_ALLOWANCE_NS,
-                "store_observation_window_end_monotonic_ns": window_end_ns,
-                "next_same_identity_decision_monotonic_ns": next_decision_ns,
-                "event_observed_monotonic_ns": observed_ns,
-                "routing_to_event_observation_ns": (
-                    observed_ns - decision_ns if observed_ns is not None else None
-                ),
-                "event_sequence": first["sequence"] if first else None,
-                "excluded_shared_digest_count": len(original & shared),
-                "matched_token_block_digests": sorted(
-                    expected.intersection(first["token_block_digests"])
-                )
-                if first
-                else [],
-            }
-        )
-    return results
+    return correlate(decisions, observations, PUBLISHER_FLUSH_ALLOWANCE_NS)
 
 
 def summarize_routing_correlations(correlations: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     from collections import Counter
 
-    counts = dict(Counter(row["status"] for row in correlations))
-    observed = [row for row in correlations if row["status"] == "observed"]
-    late = [row for row in correlations if row["status"] == "observed_after_request_window"]
-    violations = sum(
-        not (
-            0
-            < row["routing_to_event_observation_ns"]
-            <= row["request_lifetime_ns"] + row["publisher_flush_allowance_ns"]
-        )
-        for row in observed
-    )
+    counts = Counter()
+    observed_count = late_count = violations = 0
+    max_observed = max_late = None
+    for row in correlations:
+        counts[row["status"]] += 1
+        lag = row["routing_to_event_observation_ns"]
+        if row["status"] == "observed":
+            observed_count += 1
+            max_observed = lag if max_observed is None else max(max_observed, lag)
+            violations += not (
+                0 < lag <= row["request_lifetime_ns"] + row["publisher_flush_allowance_ns"]
+            )
+        elif row["status"] == "observed_after_request_window":
+            late_count += 1
+            max_late = lag if max_late is None else max(max_late, lag)
     return {
         "basis": CORRELATION_BASIS,
         "publisher_flush_allowance_ns": PUBLISHER_FLUSH_ALLOWANCE_NS,
-        "observed_correlation_count": len(observed),
-        "max_observed_lag_ns": max(
-            (row["routing_to_event_observation_ns"] for row in observed), default=None
-        ),
-        "observed_after_request_window_count": len(late),
-        "max_observed_after_request_window_lag_ns": max(
-            (row["routing_to_event_observation_ns"] for row in late), default=None
-        ),
+        "observed_correlation_count": observed_count,
+        "max_observed_lag_ns": max_observed,
+        "observed_after_request_window_count": late_count,
+        "max_observed_after_request_window_lag_ns": max_late,
         "status_counts": counts,
         "excluded_counts": {
             status: count for status, count in counts.items() if status != "observed"
         },
-        "excluded_count": len(correlations) - len(observed),
+        "excluded_count": len(correlations) - observed_count,
         "no_store_expected_request_failed_count": counts.get("no_store_expected_request_failed", 0),
         "no_post_decision_store_event_count": counts.get("no_post_decision_store_event", 0),
         "no_identity_specific_store_cache_state_unknown_count": counts.get(
@@ -522,6 +413,7 @@ def capture_zmq_event_stream(
     on_subscribed: Callable[[], None] | None = None,
     stop_after_block_stored: bool = False,
     stop_file: Path | None = None,
+    observation_path: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Capture vLLM's PUB multipart frames: topic, uint64 sequence, msgpack batch."""
 
@@ -542,7 +434,7 @@ def capture_zmq_event_stream(
     poller = zmq.Poller()
     poller.register(subscriber, zmq.POLLIN)
     deadline = time.perf_counter() + duration_seconds
-    observations: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = DiskList()
     try:
         if on_subscribed:
             on_subscribed()
@@ -554,13 +446,17 @@ def capture_zmq_event_stream(
             if len(frames) != 3 or len(frames[1]) != 8:
                 raise ValueError("vLLM KV publisher emitted an invalid multipart frame")
             sequence = int.from_bytes(frames[1], "big")
-            observations.extend(
-                decode_vllm_msgpack_batch(
-                    frames[2], sequence=sequence, observed_monotonic_ns=clock_ns()
-                )
+            decoded = decode_vllm_msgpack_batch(
+                frames[2], sequence=sequence, observed_monotonic_ns=clock_ns()
             )
+            observations.extend(decoded)
+            if observation_path:
+                with observation_path.open("a", encoding="utf-8", newline="\n") as output:
+                    for row in decoded:
+                        output.write(json.dumps(row) + "\n")
+                    output.flush()
             if stop_after_block_stored and any(
-                event["event_type"] == "BlockStored" for event in observations
+                event["event_type"] == "BlockStored" for event in decoded
             ):
                 break
     finally:
@@ -637,6 +533,7 @@ def main() -> int:
     parser.add_argument("--ready-file", type=Path, help="Local subscription startup receipt")
     parser.add_argument("--decisions", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--stream-output", action="store_true")
     parser.add_argument("--readiness-probe", action="store_true")
     parser.add_argument("--probe-url", default="http://127.0.0.1:8000")
     parser.add_argument("--model")
@@ -665,6 +562,9 @@ def main() -> int:
             duration_seconds=args.duration_seconds,
             topic=args.topic,
             stop_file=args.stop_file,
+            observation_path=args.output.with_suffix(".observations.jsonl")
+            if args.stream_output
+            else None,
             on_subscribed=(
                 lambda: args.ready_file.write_text(
                     json.dumps({"subscribed": True, "clock_info": clocks}) + "\n",
@@ -703,11 +603,19 @@ def main() -> int:
         "raw_block_hashes_retained": False,
         "event_inventory": event_inventory,
     }
-    pending_output = Path(str(args.output) + ".tmp")
-    pending_output.write_text(
-        json.dumps(artifact, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
-    )
-    pending_output.replace(args.output)
+    if args.stream_output:
+        for suffix, rows in (("observations", observations), ("correlations", correlations)):
+            path = args.output.with_suffix("." + suffix + ".jsonl")
+            with path.open("w", encoding="utf-8", newline="\n") as stream:
+                for row in rows:
+                    stream.write(json.dumps(row) + "\n")
+        artifact.pop("event_observations")
+        artifact.pop("routing_to_event_observation")
+        artifact["stream_files"] = {
+            "observations": args.output.with_suffix(".observations.jsonl").name,
+            "correlations": args.output.with_suffix(".correlations.jsonl").name,
+        }
+    write_json(args.output, artifact)
     return 0
 
 

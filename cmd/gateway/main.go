@@ -239,6 +239,7 @@ func runWithMode(checkConfig bool) int {
 		logger.Error("cannot create backend registry", "error", err)
 		return 2
 	}
+	registry.SetHealthLogger(logger)
 	if discoveryConfig != nil && !checkConfig {
 		discovery, discoveryErr := gateway.NewInClusterDiscovery(*discoveryConfig, registry, logger)
 		if discoveryErr != nil {

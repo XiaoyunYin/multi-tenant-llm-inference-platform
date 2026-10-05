@@ -70,7 +70,7 @@ def capture_layout_fitness(root: Path) -> tuple[bool, str]:
                 f"assert pathlib.Path(m.__file__).is_relative_to(pathlib.Path({str(staged_root)!r}))"
             )
             result = subprocess.run(
-                [sys.executable, "-c", code],
+                [sys.executable, "-B", "-c", code],
                 cwd=container,
                 env={**os.environ, "PYTHONPATH": str(staged_root), "PYTHONDONTWRITEBYTECODE": "1"},
                 capture_output=True,
@@ -385,6 +385,42 @@ def check_fitness(
         ),
         ENTRYPOINT,
         "persisted deadline minus all useful runs/export; per-attempt process health; reaped sampler; immediate export",
+    )
+    from .host_headroom import headroom_fitness
+
+    bounded, provider = headroom_fitness(root, inputs.get("host_headroom_receipt_path"))
+    trace(
+        "host_headroom_bound",
+        bounded,
+        provider,
+        "All full runs >=6937 requests, <=2 CPUs/6 GiB, peak <=60%, no OOM, all session process peaks and host series, exact committed source and evidence hashes",
+    )
+    from .stage_c_digest import digest_fitness
+
+    bounded, provider = digest_fitness(root, inputs.get("host_headroom_receipt_path"))
+    trace(
+        "measurement_digest_bound",
+        bounded,
+        provider,
+        "Four source-bound full-volume compressed digests <=1 MiB; last digest <=208.8 s plus final <=32000 bytes / 100 B/s, leaving >=71.2 s in 600 s",
+    )
+    from .remote_source_fitness import remote_source_fitness
+
+    clean, provider = remote_source_fitness(root, inputs.get("clean_remote_rehearsal_receipt_path"))
+    trace(
+        "clean_remote_source_integrity",
+        clean,
+        provider,
+        "Fresh env -i Linux bootstrap, real bundle PUT/verify_sources/fake readiness, forward and command status, SIGKILL/restart; exact manifest file set and hashes after every step",
+    )
+    from .host_disk import disk_fitness
+
+    bounded, provider = disk_fitness(inputs, launcher)
+    trace(
+        "root_disk_budget",
+        bounded,
+        provider,
+        "60 GiB free after model readiness before load; root/directory series and every checkpoint",
     )
     return records
 

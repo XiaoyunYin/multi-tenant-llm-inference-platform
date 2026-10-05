@@ -9,10 +9,12 @@ import os
 import re
 import threading
 import urllib.request
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .disk_records import DiskList, jsonl_rows
 from .time_budget import deadline_urlopen
 
 _write_lock = threading.Lock()
@@ -55,22 +57,37 @@ def export_decisions(
     timeout_seconds: float = 5,
     deadline: float | None = None,
 ) -> list[dict[str, Any]]:
-    if not prompts or len(prompts) > 100_000:
+    index = DiskList()
+    index.db.execute(
+        "create table prompts (id text primary key, value text, seen integer default 0)"
+    )
+    count = 0
+    for prompt in prompts:
+        count += 1
+        if count > 100_000:
+            raise ValueError("prompt manifest must contain 1..100000 requests")
+        try:
+            index.db.execute(
+                "insert into prompts(id,value) values (?,?)",
+                (prompt["request_id"], json.dumps(prompt)),
+            )
+        except __import__("sqlite3").IntegrityError as error:
+            raise ValueError("duplicate recorder request ID") from error
+    if not count:
         raise ValueError("prompt manifest must contain 1..100000 requests")
-    by_id = {p["request_id"]: p for p in prompts}
-    if len(by_id) != len(prompts):
-        raise ValueError("duplicate recorder request ID")
-    decisions = []
-    seen = set()
-    token_cache = {}
+    decisions = DiskList()
+    token_cache = OrderedDict()
     for terminal in terminals:
         if terminal.get("msg") != "request terminal" or not terminal.get("router_decision_unix_ns"):
             continue  # Startup/admission failures made no routing decision.
         request_id = terminal["request_id"]
-        if request_id in seen or request_id not in by_id:
+        matched = index.db.execute(
+            "select value,seen from prompts where id=?", (request_id,)
+        ).fetchone()
+        if matched is None or matched[1]:
             raise ValueError("duplicate or unmatched gateway decision")
-        seen.add(request_id)
-        prompt = by_id[request_id]
+        index.db.execute("update prompts set seen=1 where id=?", (request_id,))
+        prompt = json.loads(matched[0])
         request = urllib.request.Request(
             tokenize_url.rstrip("/") + "/tokenize",
             data=json.dumps(
@@ -87,6 +104,9 @@ def export_decisions(
         if cache_key not in token_cache:
             with deadline_urlopen(request, timeout=timeout_seconds, deadline=deadline) as response:
                 token_cache[cache_key] = json.load(response)["tokens"]
+            if len(token_cache) > 8:
+                token_cache.popitem(last=False)
+        token_cache.move_to_end(cache_key)
         tokens = token_cache[cache_key]
         if not tokens or any(type(t) is not int or t < 0 for t in tokens):
             raise ValueError("invalid /tokenize IDs")
@@ -108,6 +128,7 @@ def export_decisions(
         decisions.append(row)
     if not decisions:
         raise ValueError("empty gateway decision join; event lag is unestablished")
+    index.close()
     return decisions
 
 
@@ -119,10 +140,9 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
-    def rows(path: Path) -> list[dict[str, Any]]:
-        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
-
-    result = export_decisions(rows(args.gateway_jsonl), rows(args.prompt_jsonl), args.tokenize_url)
+    result = export_decisions(
+        jsonl_rows(args.gateway_jsonl), jsonl_rows(args.prompt_jsonl), args.tokenize_url
+    )
     descriptor = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
         stream.writelines(json.dumps(row) + "\n" for row in result)

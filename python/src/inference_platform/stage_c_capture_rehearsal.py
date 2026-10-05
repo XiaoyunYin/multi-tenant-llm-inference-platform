@@ -8,7 +8,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
-from .stage_c_capture import start_live_capture
+from .disk_records import jsonl_rows
+from .stage_c_capture import CAPTURE_ROOT, prepare_paths, start_live_capture
 from .stage_c_container import (
     CONTAINER,
     PACKAGE_ROOT,
@@ -62,15 +63,78 @@ def publisher():
             context.term()
 
 
-def rehearse(sources: Path, output: Path, image="python:3.12-slim-bookworm"):
+def checkpoint_fixture(megabytes):
+    """Exercise the session callback against real bind-mounted, prompt-sized rows."""
+    import hashlib
+    from types import SimpleNamespace
+
+    from .stage_c_checkpoint import checkpoint_run, file_sha
+
+    session = Path(CAPTURE_ROOT) / "checkpoint-session"
+    session.mkdir(mode=0o700)
+    (session / "gateway.log").write_text("")
+    observations = Path(CAPTURE_ROOT) / "capture.observations.jsonl"
+    row = next(jsonl_rows(observations))
+    row.update(token_count=6144, token_block_size=16)
+    started = time.perf_counter()
+    count = 0
+    with observations.open("w", encoding="utf-8", newline="\n") as stream:
+        while stream.tell() < megabytes * 1024 * 1024:
+            count += 1
+            row["sequence"] = count
+            row["block_hash_digests"] = [
+                hashlib.sha256(f"block-{count}-{i}".encode()).hexdigest() for i in range(384)
+            ]
+            row["token_block_digests"] = [
+                hashlib.sha256(f"token-{count}-{i}".encode()).hexdigest() for i in range(384)
+            ]
+            stream.write(json.dumps(row) + "\n")
+    config = SimpleNamespace(
+        kv_capture_output_path=str(CAPTURE_ROOT / "capture.json"),
+        decision_prompt_export_path="/absent-checkpoint-prompts",
+    )
+    receipts = []
+    for number in range(1, 5):
+        start = time.perf_counter()
+        receipt = checkpoint_run(session, number, {"status": "completed", "levels": []}, config)
+        if receipt is None or receipt["measurement_digest"]["event_lag_status"] == "unavailable":
+            raise RuntimeError("real-size checkpoint failed to seal")
+        receipt["elapsed_seconds"] = time.perf_counter() - start
+        receipts.append(receipt)
+    return {
+        "status": "passed",
+        "observations_bytes": observations.stat().st_size,
+        "observations_sha256": file_sha(observations),
+        "observation_rows": count,
+        "blocks_per_row": 384,
+        "elapsed_seconds": time.perf_counter() - started,
+        "checkpoints": receipts,
+        "basis": "Actual session checkpoint_run and seal_run, actual host bind mount, real capture-shaped high-entropy observations; no GPU/AWS or copy",
+    }
+
+
+def rehearse(
+    sources: Path, output: Path, image="python:3.12-slim-bookworm", checkpoint_megabytes=0
+):
     def run(argv, **kwargs):
         return subprocess.run(argv, capture_output=True, text=True, **kwargs)
 
-    if run(["docker", "inspect", CONTAINER], check=False).returncode == 0:
+    if run(["docker", "inspect", CONTAINER], check=False, timeout=10).returncode == 0:
         raise RuntimeError("local inf011-vllm already exists; use an isolated Docker context")
     output.mkdir(parents=True, exist_ok=False)
     run(
-        ["docker", "run", "--detach", "--name", CONTAINER, image, "sleep", "600"],
+        [
+            "docker",
+            "run",
+            "--detach",
+            "--name",
+            CONTAINER,
+            "--volume",
+            f"{output.resolve()}:{CAPTURE_ROOT}",
+            image,
+            "sleep",
+            "1800",
+        ],
         check=True,
         timeout=120,
     )
@@ -95,8 +159,10 @@ def rehearse(sources: Path, output: Path, image="python:3.12-slim-bookworm"):
         (output / "dependencies.log").write_text(
             install.stdout + install.stderr, encoding="utf-8", newline="\n"
         )
-        private = PurePosixPath("/tmp/inf011-capture-rehearsal")
+        private = PurePosixPath(str(CAPTURE_ROOT))
+        staging_start = time.perf_counter()
         stage_capture_package(sources, private, run=run)
+        staging_elapsed = time.perf_counter() - staging_start
         fixture = capture_argv()
         fixture[-1] = "inference_platform.stage_c_capture_rehearsal"
         fixture += ["--publisher"]
@@ -141,12 +207,15 @@ def rehearse(sources: Path, output: Path, image="python:3.12-slim-bookworm"):
             kv_event_topic="kv-events",
             evidence_export_margin_seconds=600,
         )
-        process = start_live_capture(config, time.perf_counter() + 30)
-        run(
-            ["docker", "exec", CONTAINER, "touch", config.decision_export_output_path],
-            check=True,
-            timeout=10,
+        # Host paths address the same files through the real bind mount.
+        host_config = SimpleNamespace(
+            decision_prompt_export_path=str(output / "restricted-prompts.jsonl"),
+            decision_export_output_path=str(output / "decisions.jsonl"),
         )
+        prepare_paths(host_config)
+        if not (output / "decisions.jsonl").exists():
+            raise RuntimeError("host decisions file was not prepared")
+        process = start_live_capture(config, time.perf_counter() + 30)
         # Subscribe via the actual live branch, then emit another warm-up store.
         trigger = run(command, check=True, timeout=15)
         run(
@@ -157,27 +226,34 @@ def rehearse(sources: Path, output: Path, image="python:3.12-slim-bookworm"):
         process.wait(timeout=15)
         if process.returncode:
             raise RuntimeError(f"continuous capture exited ({process.returncode})")
-        run(
-            [
-                "docker",
-                "cp",
-                f"{CONTAINER}:{config.kv_capture_output_path}",
-                str(output / "capture.json"),
-            ],
-            check=True,
-            timeout=10,
+        # The real host bind mount supplies metadata and streams without docker cp.
+        count = sum(
+            row["event_type"] == "BlockStored"
+            for row in jsonl_rows(output / "capture.observations.jsonl")
         )
-        artifact = json.loads((output / "capture.json").read_text(encoding="utf-8"))
-        count = sum(row["event_type"] == "BlockStored" for row in artifact["event_observations"])
         if count <= 0:
             raise RuntimeError("continuous capture decoded no BlockStored")
         receipt.update(
+            host_prepare_paths_before_capture=True,
+            shared_decisions_visible_at_start=True,
             continuous_decoded_block_stored_count=count,
             second_probe=json.loads(trigger.stdout),
             status="passed",
+            package_staging_seconds=staging_elapsed,
+            package_source_bytes=sum(
+                p.stat().st_size
+                for p in (sources / "python/src/inference_platform").rglob("*")
+                if p.is_file()
+            ),
         )
+        if checkpoint_megabytes:
+            checkpoint_command = capture_argv()
+            checkpoint_command[-1] = "inference_platform.stage_c_capture_rehearsal"
+            checkpoint_command += ["--checkpoint-fixture", str(checkpoint_megabytes)]
+            fixture = run(checkpoint_command, check=True, timeout=900)
+            receipt["real_branch_checkpoints"] = json.loads(fixture.stdout)
         receipt["image_id"] = run(
-            ["docker", "inspect", "--format", "{{.Image}}", CONTAINER], check=True
+            ["docker", "inspect", "--format", "{{.Image}}", CONTAINER], check=True, timeout=10
         ).stdout.strip()
         (output / "receipt.json").write_text(
             json.dumps(receipt, indent=2) + "\n", encoding="utf-8", newline="\n"
@@ -194,11 +270,19 @@ def main():
     parser.add_argument("--sources", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--publisher", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--checkpoint-megabytes", type=int, default=0)
+    parser.add_argument("--checkpoint-fixture", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.publisher:
         publisher()
+    elif args.checkpoint_fixture:
+        print(json.dumps(checkpoint_fixture(args.checkpoint_fixture)))
     elif args.sources and args.output:
-        print(json.dumps(rehearse(args.sources, args.output)))
+        print(
+            json.dumps(
+                rehearse(args.sources, args.output, checkpoint_megabytes=args.checkpoint_megabytes)
+            )
+        )
     else:
         parser.error("--sources and --output are required")
 

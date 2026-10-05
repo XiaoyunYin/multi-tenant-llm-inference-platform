@@ -1,0 +1,68 @@
+{
+  "container_image": "sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f",
+  "base_image_reference": "python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f",
+  "docker_server": "29.7.2",
+  "uv_version": "0.9.5",
+  "cpu_limit": 2.0,
+  "memory_limit_bytes": 6442450944,
+  "gpu_device_requests": null,
+  "networks_during_execution": {},
+  "system_packages": [
+    "libgomp1:amd64\t14.2.0-19",
+    "libnuma1:amd64\t2.0.19-1"
+  ],
+  "vllm_wheel": {
+    "url": "https://github.com/vllm-project/vllm/releases/download/v0.29.0/vllm-0.29.0%2Bcpu-cp38-abi3-manylinux_2_34_x86_64.whl",
+    "sha256": "4d22dac8259e7e24dbc615531c73cbd1a6d4b4214a3329ccddb7854f26c9dac8",
+    "hash_verification": "uv install URL hash fragment; same hash reproduced by uv compile"
+  },
+  "execution_source_commit": "b9ca85b8f21c382c9ab438e40c1b80d6a408e6cb",
+  "registration_commit": "208cd03f619d9b63a34da30027c5a323b449a9f7",
+  "environment_variables": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "PYTHONDONTWRITEBYTECODE": "1"
+  },
+  "large_files": "Dependency caches, wheels, setup logs and unsealed attempts stay ignored in .cache/inf048; no model weights.",
+  "visible_distribution_manifests": 168,
+  "uv_managed_distributions": 152,
+  "additional_visible_distribution_names": [
+    "autocommand",
+    "backports.tarfile",
+    "importlib_metadata",
+    "inflect",
+    "jaraco.collections",
+    "jaraco.context",
+    "jaraco.functools",
+    "jaraco.text",
+    "more-itertools",
+    "platformdirs",
+    "tomli",
+    "typeguard",
+    "wheel",
+    "zipp"
+  ],
+  "package_hash_note": "Trace records SHA256 of visible distribution RECORD manifests (including setuptools vendored metadata); requirements.lock.txt pins and hashes all 152 uv-managed distributions. Executed vLLM core files have independent byte hashes matched to the previously inspected tag.",
+  "duplicate_visible_metadata": [
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "record_sha256": "1b8655965b0d83e9a067fd7f84b977bd1e117e0fb9f2874b2572781bdc9e2147"
+    },
+    {
+      "name": "packaging",
+      "version": "24.2",
+      "record_sha256": "6380eb5ccd0a63402b7f385b0046b52d814fc16dd612011e2f8882a977be03e3"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "record_sha256": "9e07fea845cac76293d927afa7157a14ecba39b318bc8af236b8de530b7656c1"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.12.2",
+      "record_sha256": "c68fe34e01468a182d13422ad9acf42bf86d85d7ed3ad3d47c747062e989072a"
+    }
+  ]
+}

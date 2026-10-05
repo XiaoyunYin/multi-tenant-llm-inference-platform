@@ -13,8 +13,11 @@ def capture_argv(container: str = CONTAINER) -> list[str]:
         "exec",
         "--env",
         f"PYTHONPATH={PACKAGE_ROOT}",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
         container,
         "python3",
+        "-B",
         "-m",
         "inference_platform.kv_event_capture",
     ]

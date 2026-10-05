@@ -25,6 +25,32 @@ def remaining_seconds(deadline: float | None, maximum: float) -> float:
     return min(maximum, remaining)
 
 
+def read_error_body(response, *, deadline, maximum_bytes=8192, timeout=5):
+    """HTTPError bypasses urlopen's context; bound its body, including trickles."""
+    duration = remaining_seconds(deadline, timeout)
+    transport = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+
+    def expire():
+        if transport is not None:
+            try:
+                transport.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    timer = threading.Timer(duration, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        data = response.read(maximum_bytes + 1)
+        if len(data) > maximum_bytes:
+            raise ValueError("error_body_too_large")
+        return data
+    finally:
+        timer.cancel()
+        timer.join()
+        response.close()
+
+
 @contextmanager
 def deadline_urlopen(
     request: urllib.request.Request, *, timeout: float, deadline: float | None = None

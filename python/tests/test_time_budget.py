@@ -123,7 +123,7 @@ class TimeBudgetTest(unittest.TestCase):
             self.config("http://localhost"),
             instance_boot_unix_s=0,
             instance_termination_unix_s=14400,
-            observed_readiness_unix_s=13800,
+            observed_readiness_unix_s=13200,
             evidence_export_margin_seconds=120,
             run_time_budgets_seconds=(3000, 2700, 1800, 3600),
             minimum_useful_run_seconds=(60, 300, 60, 150),
@@ -151,12 +151,12 @@ class TimeBudgetTest(unittest.TestCase):
             patch("inference_platform.stage_c._run_rewarm", side_effect=rewarm),
         ):
             result = run_stage_c(
-                config, monotonic_clock=lambda: clock[0], wall_clock=lambda: 13800 + clock[0] - 1000
+                config, monotonic_clock=lambda: clock[0], wall_clock=lambda: 13200 + clock[0] - 1000
             )
         self.assertEqual(result["clock_info"]["deadline_clock"], "perf_counter")
         self.assertIn("implementation", result["clock_info"]["clocks"]["time"])
-        self.assertEqual(result["readiness"]["observed_readiness_seconds"], 13800)
-        self.assertEqual(result["readiness"]["session_deadline_unix_s"], 14280)
+        self.assertEqual(result["readiness"]["observed_readiness_seconds"], 13200)
+        self.assertEqual(result["readiness"]["session_deadline_unix_s"], 13680)
         self.assertEqual(result["readiness"]["session_deadline_monotonic_s"], 1480)
         self.assertLessEqual(clock[0], 1480)
         self.assertEqual(

@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
+from .disk_records import DiskList
+
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$")
 _MAX_REQUEST_BYTES = 1_048_576
 
@@ -46,6 +48,9 @@ class FailureMode(StrEnum):
     MALFORMED_AFTER_CHUNKS = "malformed_after_chunks"
     CLOSE_AFTER_CHUNKS = "close_after_chunks"
     STALL_AFTER_CHUNKS = "stall_after_chunks"
+    VLLM_HTTP_REJECTION = "vllm_http_rejection"
+    VLLM_SSE_ERROR_BEFORE_CONTENT = "vllm_sse_error_before_content"
+    VLLM_SSE_ERROR_AFTER_CONTENT = "vllm_sse_error_after_content"
 
 
 class StreamFraming(StrEnum):
@@ -90,6 +95,7 @@ class FakeBackendConfig:
     kv_blocks_per_unique_prompt: int = 2
     runtime_shaped_metrics: bool = False
     kv_event_blocks_per_store: int = 1
+    overload_shape: str = "legacy"
 
     def __post_init__(self) -> None:
         if not isinstance(self.backend_id, str) or not _IDENTIFIER_PATTERN.fullmatch(
@@ -107,6 +113,8 @@ class FakeBackendConfig:
         _require_milliseconds("stall_timeout_ms", self.stall_timeout_ms)
         if not isinstance(self.failure_mode, FailureMode):
             raise ValueError("failure_mode must be a FailureMode value")
+        if self.overload_shape not in ("legacy", "http_error", "sse_error", "cycle"):
+            raise ValueError("invalid overload shape")
         _require_count("failure_after_chunks", self.failure_after_chunks)
         if self.failure_after_chunks > len(self.chunks):
             raise ValueError("failure_after_chunks cannot exceed the number of chunks")
@@ -208,7 +216,9 @@ class _ObservationStore:
         self._condition = threading.Condition()
         self._requests: dict[str, _MutableObservation] = {}
         self._cached_blocks: OrderedDict[str, None] = OrderedDict()
-        self._kv_events: list[dict[str, Any]] = []
+        self._kv_events = DiskList()
+        self._active = 0
+        self._overflows = 0
         self._prefix_queries = 0
         self._prefix_hits = 0
         self._preemptions = 0
@@ -218,6 +228,7 @@ class _ObservationStore:
             if request_id in self._requests:
                 return False
             self._requests[request_id] = _MutableObservation(request_id, time.perf_counter_ns())
+            self._active += 1
             self._condition.notify_all()
             return True
 
@@ -232,6 +243,7 @@ class _ObservationStore:
             observation = self._requests[request_id]
             if observation.terminal is None:
                 observation.terminal = terminal
+                self._active -= 1
                 observation.cancellation_observed = cancelled
             self._condition.notify_all()
 
@@ -259,7 +271,7 @@ class _ObservationStore:
         del blocks_per_prompt
         with self._condition:
             self._prefix_queries += len(token_ids) if runtime_shaped else 1
-            active = sum(r.terminal is None for r in self._requests.values())
+            active = self._active
             if runtime_shaped and active * (len(token_ids) // 16) > capacity_blocks:
                 self._preemptions += 1  # Declared fake pressure signal, not GPU performance.
             block_hashes = []
@@ -331,7 +343,7 @@ class _ObservationStore:
     ) -> dict[str, int | float]:
         del blocks_per_prompt
         with self._condition:
-            active = sum(observation.terminal is None for observation in self._requests.values())
+            active = self._active
             running = min(active, running_capacity)
             waiting = max(0, active - running_capacity)
             kv_used = min(
@@ -349,11 +361,12 @@ class _ObservationStore:
 
     def kv_events_after(self, sequence: int) -> list[dict[str, Any]]:
         with self._condition:
-            return [event.copy() for event in self._kv_events if event["sequence"] >= sequence]
+            end = len(self._kv_events)
+            return self._kv_events.window(sequence, end)
 
     def wait_for_kv_event(self, sequence: int, timeout: float) -> None:
         with self._condition:
-            if any(event["sequence"] >= sequence for event in self._kv_events):
+            if len(self._kv_events) > sequence:
                 return
             self._condition.wait(timeout)
 
@@ -377,7 +390,7 @@ class _ObservationStore:
 
     def active_count(self) -> int:
         with self._condition:
-            return sum(observation.terminal is None for observation in self._requests.values())
+            return self._active
 
 
 class _FakeBackendHTTPServer(ThreadingHTTPServer):
@@ -528,8 +541,24 @@ class _FakeBackendHandler(BaseHTTPRequestHandler):
                 self.server.config.reject_above_active is not None
                 and self.server.observations.active_count() > self.server.config.reject_above_active
             ):
-                self._write_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "fake_capacity_rejected"})
-                self.server.observations.finish(request_id, "capacity_rejected")
+                shape = self.server.config.overload_shape
+                if shape == "legacy":
+                    self._write_json(
+                        HTTPStatus.TOO_MANY_REQUESTS, {"error": "fake_capacity_rejected"}
+                    )
+                    self.server.observations.finish(request_id, "capacity_rejected")
+                else:
+                    with self.server.observations._condition:
+                        self.server.observations._overflows += 1
+                        count = self.server.observations._overflows
+                    self._native_rejection(
+                        request_id,
+                        "sse_error"
+                        if shape == "cycle" and count % 2
+                        else shape
+                        if shape != "cycle"
+                        else "http_error",
+                    )
                 return
             self._stream(request_id, request)
         except OSError:
@@ -642,6 +671,47 @@ class _FakeBackendHandler(BaseHTTPRequestHandler):
                 raise ValueError("truncated chunked body")
             body.extend(chunk)
 
+    def _native_rejection(self, request_id, shape, *, after_content=False, request=None):
+        # Shape comes from the SHA-verified 0.29.0 wheel: GracefulHTTPError uses
+        # HTTPStatus.phrase, code=503; the generator yields error then [DONE].
+        error = {
+            "error": {
+                "message": "Engine busy; retry later.",
+                "type": "Service Unavailable",
+                "code": 503,
+                "param": None,
+            }
+        }
+        if shape == "http_error":
+            self._write_json(HTTPStatus.SERVICE_UNAVAILABLE, error)
+        else:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Connection", "close")
+            self.send_header("X-Inference-Backend", self.server.config.backend_id)
+            self.end_headers()
+            if after_content:
+                self._write_event(
+                    request_id,
+                    "content",
+                    {
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "model": (request or {}).get("model", "test-model"),
+                        "created": int(time.time()),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": "partial"},
+                                "finish_reason": None,
+                            }
+                        ],
+                    },
+                )
+            self._write_event(request_id, "native_error", error)
+            self._write_raw_event(request_id, "done", b"data: [DONE]\n\n")
+        self.server.observations.finish(request_id, "vllm_queue_overflow_fixture")
+
     def _stream(self, request_id: str, request: dict[str, Any]) -> None:
         config = self.server.config
         if self.server.chat_tokenizer is None:
@@ -656,6 +726,20 @@ class _FakeBackendHandler(BaseHTTPRequestHandler):
         except ValueError:
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": "unsupported_tokenize_message"})
             self.server.observations.finish(request_id, "invalid_messages")
+            return
+        if config.failure_mode in (
+            FailureMode.VLLM_HTTP_REJECTION,
+            FailureMode.VLLM_SSE_ERROR_BEFORE_CONTENT,
+            FailureMode.VLLM_SSE_ERROR_AFTER_CONTENT,
+        ):
+            self._native_rejection(
+                request_id,
+                "http_error"
+                if config.failure_mode is FailureMode.VLLM_HTTP_REJECTION
+                else "sse_error",
+                after_content=config.failure_mode is FailureMode.VLLM_SSE_ERROR_AFTER_CONTENT,
+                request=request,
+            )
             return
         if config.failure_mode is FailureMode.HTTP_ERROR:
             self._write_json(

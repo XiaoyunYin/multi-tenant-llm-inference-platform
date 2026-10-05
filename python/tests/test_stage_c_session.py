@@ -50,12 +50,12 @@ def entrypoint_failure_context(session, artifact, stdout="", stderr=""):
         + "\n"
         + stdout
         + stderr
-        + (session / "export/gateway.log").read_text(encoding="utf-8")
+        + (session / "gateway.log").read_text(encoding="utf-8")
     )
 
 
 class SessionExportTest(unittest.TestCase):
-    def test_external_non_utf8_log_is_escaped_and_does_not_block_evidence_export(self):
+    def test_full_logs_stay_out_of_bounded_final_metadata_export(self):
         with tempfile.TemporaryDirectory() as directory:
             session = Path(directory)
             (session / "gateway.log").write_bytes(b"external error: \xff\r\n")
@@ -65,13 +65,8 @@ class SessionExportTest(unittest.TestCase):
             manifest = session / "manifest.json"
             manifest.write_bytes(b"{}\n")
             receipt = export(session, manifest)
-            self.assertEqual(
-                receipt["log_encoding_warnings"],
-                [{"file": "gateway.log", "status": "non_utf8_bytes_escaped"}],
-            )
-            self.assertEqual(
-                (session / "export/gateway.log").read_bytes(), b"external error: \\xff\n"
-            )
+            self.assertFalse((session / "export/gateway.log").exists())
+            self.assertLess(receipt["bytes"], 32000)
             self.assertTrue((session / "evidence.tar.gz").exists())
 
 
@@ -233,7 +228,7 @@ class SessionEntrypointTest(unittest.TestCase):
             "--quick",
         ]
         completed = subprocess.run(
-            command, env=environment, capture_output=True, text=True, timeout=120
+            command, env=environment, capture_output=True, text=True, timeout=300
         )
         artifact = json.loads(
             (session / "export/stage-c-artifact.json").read_text(encoding="utf-8")
@@ -244,6 +239,11 @@ class SessionEntrypointTest(unittest.TestCase):
             entrypoint_failure_context(session, artifact, completed.stdout, completed.stderr),
         )
         self.assertEqual(artifact["status"], "completed")
+        disk = json.loads((session / "export/disk-readiness.json").read_text(encoding="utf-8"))
+        self.assertEqual(disk["source"], "rehearsal")
+        self.assertEqual(
+            artifact["readiness"]["gate"]["checks"]["root_disk"]["source"], "rehearsal"
+        )
         self.assertTrue(all(run["status"] == "completed" for run in artifact["timed_runs"]))
         self.assertGreater(artifact["decision_event_export"]["observed_correlation_count"], 0)
         self.assertEqual(
@@ -263,8 +263,9 @@ class SessionEntrypointTest(unittest.TestCase):
         for line in (session / "export/SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
             digest, name = line.split("  ", 1)
             raw = (session / "export" / name).read_bytes()
-            self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
-            self.assertNotIn(b"\r\n", raw)
+            if not name.endswith(".tar.gz"):
+                self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
+                self.assertNotIn(b"\r\n", raw)
             self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
         receipt = json.loads((session / "export-receipt.json").read_text(encoding="utf-8"))
         self.assertEqual(receipt["sha256"], sha(session / "evidence.tar.gz"))

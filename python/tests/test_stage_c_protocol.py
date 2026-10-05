@@ -35,7 +35,13 @@ class ApprovedProtocolTest(unittest.TestCase):
             patch("inference_platform.calibration._stream_request", side_effect=censored),
         ):
             result = run_calibration(
-                config, (1, 2), level_duration_seconds=0.03, minimum_cycle_seconds=0.005
+                # Disk recorder creation and Windows thread scheduling can consume
+                # the former 30 ms window before a second cycle starts. Exercise
+                # sustained repetition without weakening its count assertions.
+                config,
+                (1, 2),
+                level_duration_seconds=0.3,
+                minimum_cycle_seconds=0.005,
             )
         for level in result["levels"]:
             self.assertGreater(len(level["records"]), level["concurrency"])
@@ -110,9 +116,9 @@ class ApprovedProtocolTest(unittest.TestCase):
 
     def test_capture_freshness_precedes_subscription_and_stale_path_fails(self):
         config = SimpleNamespace(
-            kv_capture_output_path="/session/capture.json",
-            kv_capture_stop_file="/session/stop",
-            decision_export_output_path="/session/decisions.jsonl",
+            kv_capture_output_path="/opt/inf011/capture-private/test/capture.json",
+            kv_capture_stop_file="/opt/inf011/capture-private/test/stop",
+            decision_export_output_path="/opt/inf011/capture-private/test/decisions.jsonl",
             kv_event_endpoint="tcp://127.0.0.1:5557",
             kv_event_topic="kv-events",
             evidence_export_margin_seconds=600,
@@ -121,14 +127,44 @@ class ApprovedProtocolTest(unittest.TestCase):
         process.poll.return_value = None
         receipt = SimpleNamespace(returncode=0, stdout=json.dumps({"subscribed": True}))
         with (
-            patch("inference_platform.stage_c_capture.docker", return_value=receipt) as docker,
+            patch(
+                "inference_platform.stage_c_capture.docker",
+                side_effect=[
+                    SimpleNamespace(
+                        stdout=json.dumps(
+                            [
+                                {
+                                    "Type": "bind",
+                                    "Source": "/host/private",
+                                    "Destination": "/opt/inf011/capture-private",
+                                    "RW": True,
+                                }
+                            ]
+                        )
+                    ),
+                    receipt,
+                    receipt,
+                ],
+            ) as docker,
             patch(
                 "inference_platform.stage_c_capture.subprocess.Popen", return_value=process
             ) as launch,
             patch("inference_platform.stage_c_capture.time.sleep"),
         ):
             self.assertIs(start_live_capture(config, time.perf_counter() + 20), process)
-        self.assertIn("os.path.exists", docker.call_args_list[0].args[1][4])
+        freshness = docker.call_args_list[1].args[1]
+        self.assertIn("os.path.exists", freshness[freshness.index("-c") + 1])
+        self.assertEqual(
+            freshness[freshness.index("-c") + 2 :],
+            [
+                config.kv_capture_output_path + ".ready",
+                config.kv_capture_stop_file,
+                config.kv_capture_output_path,
+            ],
+        )
+        self.assertNotIn(config.decision_export_output_path, freshness)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", freshness)
+        self.assertEqual(freshness[freshness.index("python3") + 1], "-B")
         self.assertEqual(launch.call_args.kwargs["shell"], False)
         self.assertIn("--ready-file", launch.call_args.args[0])
         command = launch.call_args.args[0]

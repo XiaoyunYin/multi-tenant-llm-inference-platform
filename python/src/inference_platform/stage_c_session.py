@@ -7,6 +7,12 @@ never staged as source or exported. No Apply operation is embedded in this tool.
 
 from __future__ import annotations
 
+# Bytecode must be disabled before any package import, including standalone bootstrap.
+# ruff: noqa: E402, I001
+import sys
+
+sys.dont_write_bytecode = True
+
 import argparse
 import base64
 import gzip
@@ -21,12 +27,10 @@ import shutil
 import signal
 import socket
 import subprocess
-import sys
 import tarfile
 import time
-import urllib.request
 from datetime import UTC
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ENTRYPOINT = "python/src/inference_platform/stage_c_session.py"
@@ -37,13 +41,21 @@ BUNDLE = "payload.tar.gz"
 
 
 def sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def write_json(path: Path, value: dict) -> None:
-    path.write_text(
-        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
-    )
+    pending = path.with_name(path.name + ".pending")
+    with pending.open("w", encoding="utf-8", newline="\n") as stream:
+        json.dump(value, stream, indent=2, sort_keys=True, allow_nan=False)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    pending.replace(path)
 
 
 def git(root: Path, *args: str) -> bytes:
@@ -292,6 +304,7 @@ def free_port() -> int:
 
 def sampler(output: Path, pids: list[int]) -> None:
     from .clocks import measurement_clocks
+    from .host_diagnostics import host_snapshot, session_processes
     from .process_metrics import process_snapshot
 
     stopped = False
@@ -303,66 +316,151 @@ def sampler(output: Path, pids: list[int]) -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     clocks = measurement_clocks(wall_clock=True)
+    roles = dict(zip(("gateway", "backend", "host_controller"), pids, strict=False))
+    peaks, previous = {}, {}
+    minimum_root_free = None
+    last = time.perf_counter()
+    host_peak = 0
     with output.open("w", encoding="utf-8", newline="\n") as stream:
         while not stopped:
+            now = time.perf_counter()
+            samples = []
+            for role, pid in session_processes(roles).items():
+                sample = process_snapshot(pid)
+                sample["role"] = role
+                if "rss_bytes" in sample:
+                    cpu = sample["cpu_seconds"]
+                    percent = (
+                        100 * max(0, cpu - previous.get((role, pid), cpu)) / max(now - last, 0.001)
+                    )
+                    previous[role, pid] = cpu
+                    sample["cpu_percent"] = percent
+                    peak = peaks.setdefault(
+                        role, {"peak_rss_bytes": 0, "peak_cpu_percent": 0, "cpu_seconds": 0}
+                    )
+                    peak["peak_rss_bytes"] = max(
+                        peak["peak_rss_bytes"], sample["rss_bytes"], sample.get("peak_rss_bytes", 0)
+                    )
+                    peak["peak_cpu_percent"] = max(peak["peak_cpu_percent"], percent)
+                    peak["cpu_seconds"] = max(peak["cpu_seconds"], cpu)
+                samples.append(sample)
+            host = host_snapshot()
+            root_free = host.get("root_disk", {}).get("free_bytes")
+            if root_free is not None:
+                minimum_root_free = (
+                    root_free if minimum_root_free is None else min(minimum_root_free, root_free)
+                )
+            value = host["cgroup"].get("memory.peak")
+            if value and value.isdecimal():
+                host_peak = max(host_peak, int(value))
             stream.write(
                 json.dumps(
                     {
                         "unix_ns": time.time_ns(),
                         "perf_counter_ns": time.perf_counter_ns(),
-                        "processes": [process_snapshot(pid) for pid in pids],
+                        "processes": samples,
+                        "host": host,
                     }
                 )
                 + "\n"
             )
             stream.flush()
-            time.sleep(0.1)
+            write_json(
+                output.parent / "host-footprint-peaks.json",
+                {
+                    "schema": "inf011-host-footprint.v1",
+                    "processes": peaks,
+                    "cgroup_peak_bytes": host_peak,
+                    "host": host,
+                    "sampled_root_minimum_free_bytes": minimum_root_free,
+                    "sample_interval_seconds": 1,
+                    "coverage": "includes artifact creation and first export; per-process kernel high-water RSS where available",
+                },
+            )
+            last = now
+            time.sleep(1)
     write_json(
         output.with_suffix(".clock.json"), {"status": "stopped", "measurement_clocks": clocks}
     )
 
 
-def export(session: Path, manifest_path: Path) -> dict:
+def export(session: Path, manifest_path: Path, *, recovery=False) -> dict:
     """Explicit evidence allowlist excludes credentials, raw prompts and token IDs."""
     from .evidence_sanitize import sanitize_accounts
+    from .stage_c_digest import FINAL_LIMIT, compact
 
     evidence = session / "export"
-    evidence.mkdir()
+    evidence.mkdir(exist_ok=recovery)
     names = [
         "staging-verification.json",
         "readiness-wait.json",
         "container-readiness-wait.json",
         "deadline-epoch.json",
-        "stage-c-artifact.json",
         "session-finalization.json",
-        "host-process-samples.jsonl",
         "host-process-samples.clock.json",
         "runtime-config-sanitized.json",
-        "gateway.log",
-        "vllm-startup.log",
-        "dcgm.prom",
         "dcgm-status.json",
+        "host-footprint-peaks.json",
+        "disk-readiness.json",
+        "disk-before-pull.json",
+        *[f"disk-checkpoint-{n}.json" for n in range(1, 5)],
     ]
+    if (session / "stage-c-summary.json").exists():
+        # The full measurements are already in the per-run archives and digests.
+        # Final export carries computations/acceptance metadata, never raw streams.
+        shutil.copyfile(session / "stage-c-summary.json", evidence / "stage-c-artifact.json")
+    elif (session / "stage-c-artifact.json").exists() and (
+        session / "stage-c-artifact.json"
+    ).stat().st_size < FINAL_LIMIT:
+        write_json(
+            evidence / "stage-c-artifact.json",
+            compact(
+                json.loads((session / "stage-c-artifact.json").read_text()), measurements=False
+            ),
+        )
     encoding_warnings = []
     for name in names:
         source = session / name
         if source.is_file():
-            try:
-                content = source.read_text(encoding="utf-8", errors="strict")
-            except UnicodeDecodeError:
-                if not name.endswith(".log"):
-                    raise
-                # External runtime logs must not prevent export of completed runs.
-                # Preserve undecodable bytes visibly rather than guess a code page.
-                content = source.read_bytes().decode("utf-8", errors="backslashreplace")
+            warned = False
+            with (
+                source.open("rb") as original,
+                (evidence / name).open("w", encoding="utf-8", newline="\n") as target,
+            ):
+                for line in original:
+                    try:
+                        content = line.decode("utf-8", errors="strict")
+                    except UnicodeDecodeError:
+                        if not name.endswith(".log"):
+                            raise
+                        content = line.decode("utf-8", errors="backslashreplace")
+                        warned = True
+                    target.write(
+                        sanitize_accounts(content.replace("\r\n", "\n").replace("\r", "\n"))
+                    )
+            if warned:
                 encoding_warnings.append({"file": name, "status": "non_utf8_bytes_escaped"})
-            (evidence / name).write_text(
-                sanitize_accounts(content.replace("\r\n", "\n").replace("\r", "\n")),
-                encoding="utf-8",
-                newline="\n",
-            )
+    for path in sorted((session / "sealed-runs").glob("run-*")):
+        if path.is_file() and path.name.endswith(".receipt.json"):
+            shutil.copyfile(path, evidence / path.name)
+    if recovery and not (evidence / "stage-c-artifact.json").exists():
+        write_json(
+            evidence / "stage-c-artifact.json",
+            {
+                "status": "host_controller_died",
+                "accepted_measurement": False,
+                "recovered_sealed_runs": [
+                    p.name for p in (session / "sealed-runs").glob("run-*.tar.gz")
+                ],
+                "partial_in_progress_run": "unavailable",
+            },
+        )
     (evidence / "staging-manifest.json").write_bytes(manifest_path.read_bytes())
-    sums = "".join(f"{sha(p)}  {p.name}\n" for p in sorted(evidence.iterdir()) if p.is_file())
+    sums = "".join(
+        f"{sha(p)}  {p.name}\n"
+        for p in sorted(evidence.iterdir())
+        if p.is_file() and p.name != "SHA256SUMS.txt"
+    )
     (evidence / "SHA256SUMS.txt").write_text(sums, encoding="utf-8", newline="\n")
     archive = session / "evidence.tar.gz"
     with tarfile.open(archive, "w:gz") as stream:
@@ -376,7 +474,13 @@ def export(session: Path, manifest_path: Path) -> dict:
         "files": len(list(evidence.iterdir())),
         "finalization_started_immediately": True,
         "log_encoding_warnings": encoding_warnings,
+        "forward_worst_case_bytes_per_second": 100,
+        "compressed_limit_bytes": FINAL_LIMIT,
+        "full_runs_exported_separately": True,
     }
+    if receipt["bytes"] > FINAL_LIMIT:
+        archive.unlink()
+        raise ValueError("final export exceeds conservative 600-second transfer reserve")
     write_json(session / "export-receipt.json", receipt)
     return receipt
 
@@ -409,6 +513,7 @@ def run_session(args) -> int:
     session.mkdir(parents=True, exist_ok=False)
     private = session / "private"
     private.mkdir(mode=0o700)
+    capture_private = None
     children = []
     result = {"status": "readiness_failed", "timed_runs": []}
     finalization = {"start": "immediately_after_last_run_or_abort", "children": [], "errors": []}
@@ -435,7 +540,8 @@ def run_session(args) -> int:
                 "long_prompt_delay_ms": 10000,
                 "kv_event_blocks_per_store": 32,
                 "running_capacity": 16,
-                "reject_above_active": 48,
+                "reject_above_active": 32,
+                "overload_shape": "cycle",
                 "kv_cache_capacity_blocks": 3891,
                 "runtime_shaped_metrics": True,
             }
@@ -446,6 +552,7 @@ def run_session(args) -> int:
             backend_child = subprocess.Popen(
                 [
                     sys.executable,
+                    "-B",
                     "-m",
                     "inference_platform.fake_backend",
                     "--config",
@@ -455,7 +562,12 @@ def run_session(args) -> int:
                 ],
                 stdout=backend_log,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+                env={
+                    **os.environ,
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "PYTHONUTF8": "1",
+                    "PYTHONIOENCODING": "utf-8",
+                },
             )
             children.append(("fake_vllm", backend_child))
             backend_log.close()
@@ -494,7 +606,8 @@ def run_session(args) -> int:
             container_readiness = wait_startup(
                 epoch,
                 config["minimum_useful_run_seconds"],
-                config["evidence_export_margin_seconds"],
+                config["evidence_export_margin_seconds"]
+                + config.get("cleanup_margin_seconds", 600),
                 inspect_container,
             )
             write_json(session / "container-readiness-wait.json", container_readiness)
@@ -554,6 +667,7 @@ def run_session(args) -> int:
         sample_child = subprocess.Popen(
             [
                 sys.executable,
+                "-B",
                 "-m",
                 "inference_platform.stage_c_session",
                 "--sampler",
@@ -561,8 +675,14 @@ def run_session(args) -> int:
                 "--pids",
                 str(gateway.pid),
                 str(backend_pid),
+                str(os.getpid()),
             ],
-            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
+            env={
+                **os.environ,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONUTF8": "1",
+                "PYTHONIOENCODING": "utf-8",
+            },
         )
         children.append(("sampler", sample_child))
 
@@ -572,7 +692,7 @@ def run_session(args) -> int:
         readiness = wait_readiness(
             epoch,
             tuple(config["minimum_useful_run_seconds"]),
-            config["evidence_export_margin_seconds"],
+            config["evidence_export_margin_seconds"] + config.get("cleanup_margin_seconds", 600),
             (backend_url + "/health", gateway_url + "/healthz", gateway_url + "/readyz"),
             lambda: check_processes(gateway, alive, session / "gateway.log"),
         )
@@ -582,6 +702,13 @@ def run_session(args) -> int:
         if readiness["status"] != "ready":
             result.update(timed_runs=readiness["timed_runs"], readiness=readiness)
         else:
+            from .stage_c_capture import CAPTURE_ROOT
+
+            capture_root = (
+                Path(CAPTURE_ROOT) if not args.rehearse else session.parent / "capture-private"
+            )
+            capture_private = capture_root / session.name
+            capture_private.mkdir(mode=0o700, parents=True, exist_ok=False)
             config.update(
                 token=token,
                 run_id=session.name,
@@ -591,15 +718,43 @@ def run_session(args) -> int:
                 instance_termination_unix_s=epoch["instance_termination_unix_s"],
                 observed_readiness_unix_s=readiness["observed_readiness_unix_s"],
                 decision_prompt_export_path=str(private / "restricted-prompts.jsonl"),
-                decision_export_output_path=str(private / "restricted-decisions.jsonl"),
-                kv_capture_output_path=str(session / "kv-event-capture.json"),
-                kv_capture_stop_file=str(session / "capture.stop"),
+                decision_export_output_path=str(capture_private / "restricted-decisions.jsonl"),
+                kv_capture_output_path=str(capture_private / "kv-event-capture.json"),
+                kv_capture_stop_file=str(capture_private / "capture.stop"),
             )
             write_json(private / "runtime-config.json", config)
             sanitized = {k: v for k, v in config.items() if k != "token"}
             sanitized["token_configured"] = True
             write_json(session / "runtime-config-sanitized.json", sanitized)
-            result = run_stage_c(_config_from_json(private / "runtime-config.json"))
+            from .stage_c_checkpoint import checkpoint_run
+
+            if args.rehearse:
+                capture = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-B",
+                        "-m",
+                        "inference_platform.stage_c_fake_capture",
+                        "--endpoint",
+                        config["fake_event_url"],
+                        "--output",
+                        str(session / "fake-events.jsonl"),
+                        "--stop",
+                        config["kv_capture_stop_file"],
+                    ],
+                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                )
+                children.append(("capture", capture))
+
+            def checkpoint(number, run):
+                return checkpoint_run(
+                    session, number, run, _config_from_json(private / "runtime-config.json")
+                )
+
+            record_disk_readiness(session, rehearse=args.rehearse)
+            result = run_stage_c(
+                _config_from_json(private / "runtime-config.json"), on_run_complete=checkpoint
+            )
             result["readiness_wait"] = readiness
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         result.update(status="session_failed", reason=str(error))
@@ -607,7 +762,12 @@ def run_session(args) -> int:
         # No idle until cutoff: capture/decision finalization belongs to run_stage_c;
         # owned children are stopped and reaped before export, even on readiness abort.
         finalization["started_unix_s"] = time.time()
+        (session / "capture.stop").touch()
+        if capture_private:
+            (capture_private / "capture.stop").touch()
         for role, child in reversed(children):
+            if role == "sampler":
+                continue
             try:
                 finalization["children"].append({"role": role, **stop_child(child)})
             except (OSError, subprocess.SubprocessError) as error:
@@ -621,7 +781,10 @@ def run_session(args) -> int:
                         "inf011-vllm",
                         "rm",
                         "-f",
-                        str(private / "restricted-decisions.jsonl"),
+                        config.get(
+                            "decision_export_output_path",
+                            str(private / "restricted-decisions.jsonl"),
+                        ),
                     ],
                     check=True,
                     timeout=10,
@@ -630,20 +793,21 @@ def run_session(args) -> int:
             except (OSError, subprocess.SubprocessError) as error:
                 finalization["errors"].append(f"container raw input cleanup: {error}")
             try:
-                log = subprocess.run(
-                    ["docker", "logs", "--tail", "2000", "inf011-vllm"],
-                    capture_output=True,
-                    timeout=10,
-                    check=False,
-                )
-                (session / "vllm-startup.log").write_text(
-                    (log.stdout + log.stderr).decode("utf-8", errors="replace"),
-                    encoding="utf-8",
-                    newline="\n",
-                )
-                with urllib.request.urlopen("http://127.0.0.1:9400/metrics", timeout=5) as response:
+                with (session / "vllm-startup.log").open("wb") as log:
+                    subprocess.run(
+                        ["docker", "logs", "--tail", "2000", "inf011-vllm"],
+                        stdout=log,
+                        stderr=subprocess.STDOUT,
+                        timeout=10,
+                        check=False,
+                    )
+                from .time_budget import deadline_urlopen
+
+                with deadline_urlopen(
+                    "http://127.0.0.1:9400/metrics", timeout=5, deadline=time.perf_counter() + 5
+                ) as response:
                     (session / "dcgm.prom").write_text(
-                        response.read().decode("utf-8"), encoding="utf-8", newline="\n"
+                        response.read(1024 * 1024).decode("utf-8"), encoding="utf-8", newline="\n"
                     )
                 write_json(
                     session / "dcgm-status.json",
@@ -652,7 +816,7 @@ def run_session(args) -> int:
                         "timing": "immediate finalization snapshot; per-level native metrics are in the recorder artifact",
                     },
                 )
-            except OSError as error:
+            except (OSError, subprocess.SubprocessError) as error:
                 write_json(
                     session / "dcgm-status.json", {"status": "unavailable", "reason": str(error)}
                 )
@@ -670,11 +834,34 @@ def run_session(args) -> int:
         for path in private.iterdir():
             path.unlink()
         private.rmdir()
+        if capture_private:
+            # Same host/container namespace: removal covers both copies, including
+            # redacted observations. Only private full-run archives retain snapshots.
+            try:
+                shutil.rmtree(capture_private)
+                finalization["private_capture_inputs_removed"] = True
+            except OSError as error:
+                finalization["private_capture_inputs_removed"] = False
+                finalization["errors"].append("private capture cleanup: " + type(error).__name__)
+        from .stage_c_digest import compact
+
+        write_json(session / "stage-c-summary.json", compact(result, measurements=False))
         write_json(session / "stage-c-artifact.json", result)
         write_json(session / "session-finalization.json", finalization)
-        export_receipt = export(session, manifest_path)
+        export(session, manifest_path)
+        time.sleep(1.1)  # Sampler observes serialization and packing before it exits.
+        for role, child in children:
+            if role == "sampler":
+                try:
+                    finalization["children"].append({"role": role, **stop_child(child)})
+                except (OSError, subprocess.SubprocessError) as error:
+                    finalization["errors"].append(f"{role}: {error}")
+        write_json(session / "session-finalization.json", finalization)
+        export_receipt = export(session, manifest_path, recovery=True)
         print(json.dumps(export_receipt))
-    return int(result["status"] != "completed" or bool(finalization["errors"]))
+    code = int(result["status"] != "completed" or bool(finalization["errors"]))
+    write_json(session / "controller-exit.json", {"returncode": code})
+    return code
 
 
 def install_bundle(data: bytes, destination: Path, manifest_hash: str) -> dict:
@@ -707,11 +894,278 @@ def install_bundle(data: bytes, destination: Path, manifest_hash: str) -> dict:
         return manifest
 
 
-def serve_transport(destination: Path, manifest_hash: str, nonce: str, port: int) -> None:
-    """Internal SSM-only loopback transfer; the same entrypoint owns the host child."""
+# Fixed labels prevent diagnostic filenames or host identities entering exports.
+DISK_DIRECTORIES = {
+    "model_cache": "/opt/inf011/hf-cache",
+    "docker": "/var/lib/docker",
+    "containerd": "/var/lib/containerd",
+    "capture_data": "/opt/inf011/capture-private",
+    "inf011_workspace": "/opt/inf011",
+    "system_logs": "/var/log",
+    "temporary": "/tmp",
+    "root_cache": "/root/.cache",
+    "system_usr": "/usr",
+    "system_opt": "/opt",
+}
+_disk_directories_cache = None
+
+
+def disk_snapshot(*, refresh=False, include_directories=True):
+    """Free space every sample; bounded du at readiness/checkpoints only in the sampler.
+
+    Directory figures overlap (opt includes model/session); never sum them.
+    A timeout remains explicit and never blocks measurement for an unbounded scan.
+    """
+    global _disk_directories_cache
+    result = {"status": "unavailable"}
+    try:
+        usage = shutil.disk_usage("/")
+        result = {
+            "status": "available",
+            "total_bytes": usage.total,
+            "used_bytes": usage.used,
+            "free_bytes": usage.free,
+        }
+    except OSError:
+        pass
+    if not include_directories:
+        return result
+    now = time.monotonic()
+    if refresh or _disk_directories_cache is None or now - _disk_directories_cache[0] >= 60:
+        dirs = {
+            "status": "unavailable",
+            "sampled_unix_s": time.time(),
+            "overlapping_sizes_do_not_sum": True,
+            "largest_directories": [],
+            "path_status": {},
+        }
+        if sys.platform == "linux":
+            for label, path in DISK_DIRECTORIES.items():
+                try:
+                    Path(path).stat()
+                except FileNotFoundError:
+                    dirs["path_status"][label] = "absent"
+                    continue
+                except OSError:
+                    dirs["path_status"][label] = "unavailable"
+                    continue
+                try:
+                    completed = subprocess.run(
+                        ["du", "-x", "-s", "-B1", path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        timeout=3,
+                        check=False,
+                    )
+                    output = completed.stdout
+                    state = "available" if completed.returncode == 0 else "partial"
+                except subprocess.TimeoutExpired as error:
+                    output = error.stdout or ""
+                    state = "timeout"
+                except (OSError, subprocess.SubprocessError):
+                    output, state = "", "unavailable"
+                if isinstance(output, bytes):
+                    output = output.decode("utf-8", errors="replace")
+                found = False
+                for line in output.splitlines():
+                    try:
+                        size, name = line.split("\t", 1)
+                        if name == path:
+                            dirs["largest_directories"].append({"label": label, "bytes": int(size)})
+                            found = True
+                    except ValueError:
+                        state = "invalid_output"
+                dirs["path_status"][label] = (
+                    state if found or state != "available" else "missing_output"
+                )
+            dirs["largest_directories"].sort(key=lambda row: row["bytes"], reverse=True)
+            dirs["status"] = (
+                "available"
+                if all(s in ("available", "absent") for s in dirs["path_status"].values())
+                else "partial"
+            )
+        _disk_directories_cache = (now, dirs)
+    result["directory_breakdown"] = _disk_directories_cache[1]
+    return result
+
+
+def record_disk_readiness(session: Path, *, rehearse: bool):
+    """Record and gate the real disk, or an explicitly labelled rehearsal input."""
+    from .host_disk import rehearsal_disk_snapshot, require_disk_headroom
+
+    disk = rehearsal_disk_snapshot() if rehearse else disk_snapshot(refresh=True)
+    if not rehearse:
+        boot_disk = Path("/opt/inf011/disk-before-pull.json")
+        if boot_disk.is_file():
+            shutil.copyfile(boot_disk, session / "disk-before-pull.json")
+    write_json(session / "disk-readiness.json", disk)
+    return require_disk_headroom(disk)
+
+
+def host_snapshot(proc=Path("/proc"), cgroup=Path("/sys/fs/cgroup")):
+    result = {"status": "available", "root_disk": disk_snapshot(include_directories=False)}
+    try:
+        result["uptime_seconds"] = float((proc / "uptime").read_text().split()[0])
+        result["load_average"] = [float(v) for v in (proc / "loadavg").read_text().split()[:3]]
+        memory = dict(line.split(":", 1) for line in (proc / "meminfo").read_text().splitlines())
+        result["memory_total_bytes"] = int(memory["MemTotal"].split()[0]) * 1024
+        result["memory_available_bytes"] = int(memory["MemAvailable"].split()[0]) * 1024
+        vmstat = dict(line.split() for line in (proc / "vmstat").read_text().splitlines())
+        result["oom_kill"] = int(vmstat["oom_kill"])
+        result["pressure"] = {
+            kind: (proc / "pressure" / kind).read_text()[:1024] for kind in ("cpu", "memory", "io")
+        }
+    except (OSError, ValueError, KeyError):
+        result["status"] = "unavailable"
+    result["cgroup"] = {}
+    for name in (
+        "memory.current",
+        "memory.peak",
+        "memory.max",
+        "memory.events",
+        "cpu.max",
+        "cpu.stat",
+    ):
+        try:
+            result["cgroup"][name] = (cgroup / name).read_text()[:1024].strip()
+        except OSError:
+            result["cgroup"][name] = None
+    return result
+
+
+def process_identity(pid):
+    """A start tick prevents PID reuse from adopting another process."""
+    try:
+        fields = (Path("/proc") / str(pid) / "stat").read_text().rpartition(") ")[2].split()
+        return {"pid": pid, "start_ticks": int(fields[19]), "state": fields[0]}
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def identity_alive(identity):
+    if not isinstance(identity, dict):
+        return False
+    current = process_identity(identity.get("pid"))
+    return (
+        current is not None
+        and current["state"] not in ("Z", "X")
+        and current["start_ticks"] == identity.get("start_ticks")
+    )
+
+
+def sidecar(destination, suffix):
+    return destination.with_name(destination.name + suffix)
+
+
+def load_identity(path):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def host_status(destination, termination):
+    identity = load_identity(destination / "controller-pid.json")
+    alive = identity_alive(identity)
+    session = destination / "session"
+    finished = load_identity(session / "controller-exit.json")
+    return {
+        "started": identity is not None,
+        "finished": identity is not None and (finished is not None or not alive),
+        "host_controller_alive": alive,
+        "returncode": finished.get("returncode") if finished else None,
+        "instance_termination_unix_s": termination,
+        "disk_records": {
+            name: record
+            for name in (
+                "disk-before-pull.json",
+                "disk-readiness.json",
+                *(f"disk-checkpoint-{n}.json" for n in range(1, 5)),
+            )
+            if (record := load_identity(session / name)) is not None
+        },
+        "sampled_root_minimum_free_bytes": (
+            load_identity(session / "host-footprint-peaks.json") or {}
+        ).get("sampled_root_minimum_free_bytes"),
+        "completed_runs": [
+            json.loads(path.read_text())
+            for path in sorted((session / "sealed-runs").glob("run-[1-4].receipt.json"))
+        ],
+    }
+
+
+def reply_archive_file(handler, path):
+    """Serve one exact range; reject malformed/multipart/out-of-file requests."""
+    size = path.stat().st_size
+    header = handler.headers.get("Range")
+    start, end = 0, size - 1
+    if header:
+        match = re.fullmatch(r"bytes=(\d+)-(\d+)", header)
+        if not match or not 0 <= int(match[1]) <= int(match[2]) < size:
+            handler.send_response(416)
+            handler.send_header("Content-Range", f"bytes */{size}")
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return
+        start, end = map(int, match.groups())
+    handler.send_response(206 if header else 200)
+    handler.send_header("Content-Type", "application/gzip")
+    handler.send_header("Accept-Ranges", "bytes")
+    handler.send_header("Content-Length", str(end - start + 1))
+    if header:
+        handler.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+    handler.end_headers()
+    with path.open("rb") as stream:
+        stream.seek(start)
+        remaining = end - start + 1
+        while remaining:
+            data = stream.read(min(65536, remaining))
+            if not data:
+                raise OSError("sealed archive truncated")
+            handler.wfile.write(data)
+            remaining -= len(data)
+
+
+def serve_transport(
+    destination: Path,
+    manifest_hash: str,
+    nonce: str,
+    port: int,
+    *,
+    epoch_path=Path("/etc/inf011/deadline_epoch"),
+    rehearse=False,
+) -> None:
+    """Restartable transfer server; host child identity and progress live on disk."""
     child = None
-    termination = int(Path("/etc/inf011/deadline_epoch").read_text().strip())
+    termination = int(epoch_path.read_text().strip())
+    write_json(destination.with_name(destination.name + ".epoch-path.json"), str(epoch_path))
     deadline = time.perf_counter() + max(0, termination - time.time())
+    # This entrypoint initially runs standalone, before package installation.
+    nonce_path = destination.with_name(destination.name + ".nonce")
+    with os.fdopen(
+        os.open(nonce_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w"
+    ) as handle:
+        handle.write(nonce)
+    fields = (
+        (Path("/proc") / str(os.getpid()) / "stat").read_text().rpartition(") ")[2].split()
+        if os.name != "nt"
+        else []
+    )
+    write_json(
+        destination.with_name(destination.name + ".server-pid.json"),
+        {"pid": os.getpid(), "start_ticks": int(fields[19]) if fields else 0},
+    )
+
+    def status():
+        if not (destination / "controller-pid.json").exists():
+            return {
+                "started": False,
+                "finished": False,
+                "instance_termination_unix_s": termination,
+                "completed_runs": [],
+            }
+        return {**host_status(destination, termination), "host": host_snapshot()}
 
     class Transfer(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -729,7 +1183,11 @@ def serve_transport(destination: Path, manifest_hash: str, nonce: str, port: int
 
         def do_PUT(self):  # noqa: N802
             nonlocal child
-            if not self.authorized() or self.path != "/payload" or child is not None:
+            if (
+                not self.authorized()
+                or self.path != "/payload"
+                or (destination / "controller-pid.json").exists()
+            ):
                 self.reply(403, b"{}")
                 return
             length = int(self.headers.get("Content-Length", "0"))
@@ -743,23 +1201,32 @@ def serve_transport(destination: Path, manifest_hash: str, nonce: str, port: int
                     "PYTHONPATH": str(destination / "sources/python/src"),
                     "PYTHONDONTWRITEBYTECODE": "1",
                 }
+                argv = [
+                    sys.executable,
+                    "-B",
+                    "-m",
+                    "inference_platform.stage_c_session",
+                    "--payload",
+                    str(destination),
+                    "--manifest-sha256",
+                    manifest_hash,
+                    "--session",
+                    str(destination / "session"),
+                ]
+                if rehearse:
+                    argv += ["--rehearse", "--quick"]
                 with (destination / "controller.log").open("wb") as log:
                     child = subprocess.Popen(
-                        [
-                            sys.executable,
-                            "-m",
-                            "inference_platform.stage_c_session",
-                            "--payload",
-                            str(destination),
-                            "--manifest-sha256",
-                            manifest_hash,
-                            "--session",
-                            str(destination / "session"),
-                        ],
+                        argv,
                         env=environment,
                         stdout=log,
                         stderr=subprocess.STDOUT,
+                        start_new_session=os.name != "nt",
                     )
+                write_json(
+                    destination / "controller-pid.json",
+                    process_identity(child.pid) or {"pid": child.pid, "start_ticks": 0},
+                )
                 self.reply(200, b'{"status":"started"}')
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 self.reply(400, json.dumps({"error": str(error)}).encode())
@@ -771,27 +1238,36 @@ def serve_transport(destination: Path, manifest_hash: str, nonce: str, port: int
             if self.path == "/status":
                 self.reply(
                     200,
-                    json.dumps(
-                        {
-                            "started": child is not None,
-                            "finished": child is not None and child.poll() is not None,
-                            "returncode": child.poll() if child else None,
-                            "instance_termination_unix_s": termination,
-                        }
-                    ).encode(),
+                    json.dumps(status()).encode(),
                 )
-            elif self.path == "/export" and child and child.poll() is not None:
+            elif self.path == "/export" and status()["finished"]:
                 path = destination / "session/evidence.tar.gz"
                 if path.exists():
-                    self.reply(200, path.read_bytes(), "application/gzip")
+                    self.reply_file(path)
                 else:
-                    self.reply(500, (destination / "controller.log").read_bytes())
-            elif self.path == "/receipt" and child and child.poll() is not None:
+                    self.reply(503, b'{"code":"export_not_sealed"}')
+            elif self.path == "/receipt" and status()["finished"]:
                 self.reply(200, (destination / "session/export-receipt.json").read_bytes())
+            elif re.fullmatch(r"/(run|digest)/[1-4]", self.path):
+                if self.path.startswith("/run/") and not status()["finished"]:
+                    self.reply(409, b'{"code":"archive_export_waits_for_measurement"}')
+                    return
+                suffix = ".digest.json.gz" if self.path.startswith("/digest/") else ".tar.gz"
+                path = destination / "session/sealed-runs" / ("run-" + self.path[-1] + suffix)
+                if (
+                    path.exists()
+                    and path.with_name("run-" + self.path[-1] + ".receipt.json").exists()
+                ):
+                    self.reply_file(path)
+                else:
+                    self.reply(404, b"{}")
             else:
                 self.reply(404, b"{}")
 
-    with HTTPServer(("127.0.0.1", port), Transfer) as server:
+        def reply_file(self, path):
+            reply_archive_file(self, path)
+
+    with ThreadingHTTPServer(("127.0.0.1", port), Transfer) as server:
         server.timeout = 1
         while time.perf_counter() < deadline:
             server.handle_request()
@@ -843,6 +1319,45 @@ def require_approval(repo: Path, plan_hash: str) -> dict:
     return bind_approved_inputs(repo, find_approval_target(repo, plan_hash), plan_hash)
 
 
+def bootstrap_commands(
+    source: bytes,
+    manifest_hash: str,
+    manifest: dict,
+    destination: str,
+    nonce: str,
+    remote_port: int,
+    *,
+    rehearse=False,
+) -> list[str]:
+    """The exact reviewed SSM shell command list, shared with the clean Linux rehearsal."""
+    encoded = base64.b64encode(source).decode()
+    bootstrap = destination + "-entrypoint.py"
+    quoted = shlex.quote(bootstrap + ".b64")
+    commands = [f"test ! -e {shlex.quote(bootstrap)} && : > {quoted}"]
+    commands += [
+        f"printf %s {shlex.quote(encoded[i : i + 3000])} >> {quoted}"
+        for i in range(0, len(encoded), 3000)
+    ]
+    commands += [
+        f"base64 -d {quoted} > {shlex.quote(bootstrap)}",
+        f"echo '{manifest['entrypoint']['sha256']}  {bootstrap}' | sha256sum -c -",
+        "PYTHONDONTWRITEBYTECODE=1 nohup python3 -B "
+        + shlex.quote(bootstrap)
+        + " --serve-transport "
+        + shlex.quote(destination)
+        + " --manifest-sha256 "
+        + manifest_hash
+        + " --nonce "
+        + nonce
+        + " --port "
+        + str(remote_port)
+        + " >/opt/inf011/reviewed-transport.log 2>&1 </dev/null &",
+    ]
+    if rehearse:
+        commands[-1] = commands[-1].replace(" >/opt/", " --rehearse >/opt/", 1)
+    return commands
+
+
 def remote_session(args) -> int:
     """Stage over SSM, execute the pinned host entrypoint, export, then tear down.
 
@@ -854,6 +1369,8 @@ def remote_session(args) -> int:
     from .session_stop import stop_forward
     from .stage_c_readiness import read_epoch, readiness_window, wait_startup
     from .stage_c_transport import (
+        CLEANUP_SECONDS,
+        CommandChannel,
         ControlLost,
         ReconnectingTransport,
         command_batches,
@@ -911,29 +1428,9 @@ def remote_session(args) -> int:
     destination = "/opt/inf011/reviewed-" + args.manifest_sha256[:16]
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
         source = archive.extractfile("sources/" + ENTRYPOINT).read()
-    encoded = base64.b64encode(source).decode()
-    bootstrap = destination + "-entrypoint.py"
-    quoted = shlex.quote(bootstrap + ".b64")
-    commands = [f"test ! -e {shlex.quote(bootstrap)} && : > {quoted}"]
-    commands += [
-        f"printf %s {shlex.quote(encoded[i : i + 3000])} >> {quoted}"
-        for i in range(0, len(encoded), 3000)
-    ]
-    commands += [
-        f"base64 -d {quoted} > {shlex.quote(bootstrap)}",
-        f"echo '{manifest['entrypoint']['sha256']}  {bootstrap}' | sha256sum -c -",
-        "nohup python3 "
-        + shlex.quote(bootstrap)
-        + " --serve-transport "
-        + shlex.quote(destination)
-        + " --manifest-sha256 "
-        + args.manifest_sha256
-        + " --nonce "
-        + nonce
-        + " --port "
-        + str(remote_port)
-        + " >/opt/inf011/reviewed-transport.log 2>&1 </dev/null &",
-    ]
+    commands = bootstrap_commands(
+        source, args.manifest_sha256, manifest, destination, nonce, remote_port
+    )
     # Before SSM is Online the persisted file is inaccessible. LaunchTime is
     # earlier than user-data's persisted epoch, so this provisional bound cannot
     # extend readiness. Replace it with the actual file as soon as SSM is usable.
@@ -943,7 +1440,11 @@ def remote_session(args) -> int:
         "instance_termination_unix_s": launch + inputs["maximum_duration_hours"] * 3600,
         "basis": "conservative EC2 LaunchTime bound until persisted epoch can be fetched",
     }
-    minima, margin = inputs["minimum_useful_run_seconds"], inputs["evidence_export_margin_seconds"]
+    minima, export_margin = (
+        inputs["minimum_useful_run_seconds"],
+        inputs["evidence_export_margin_seconds"],
+    )
+    margin = export_margin + CLEANUP_SECONDS
     deadline, _ = readiness_window(epoch, minima, margin)
     transport, termination_deadline = None, None
     outcome = {
@@ -1069,7 +1570,18 @@ def remote_session(args) -> int:
         if status["instance_termination_unix_s"] != persisted["instance_termination_unix_s"]:
             raise ValueError("transport termination differs from persisted epoch")
         transport.put_payload(data)
-        transport.deadline = termination_deadline - 300
+        transport.live_deadline = termination_deadline - margin
+        transport.deadline = termination_deadline - CLEANUP_SECONDS
+        transport.command_channel = CommandChannel(
+            aws, args.remote_instance, destination, remote_port, args.session, outcome
+        )
+        outcome["control_policy"] = {
+            "basis": "Host state from command channel, never elapsed outage alone",
+            "export_margin_seconds": export_margin,
+            "cleanup_margin_seconds": CLEANUP_SECONDS,
+            "measurement_cutoff_unix_s": persisted["instance_termination_unix_s"] - margin,
+            "export_cutoff_unix_s": persisted["instance_termination_unix_s"] - CLEANUP_SECONDS,
+        }
         monitor_and_export(transport, args.session, outcome)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         outcome["reason"] = str(error)
@@ -1095,12 +1607,18 @@ def remote_session(args) -> int:
             ]
             if action == "Destroy":
                 argv += ["-ConfirmationText", "DESTROY INF-011 PILOT"]
-            completed = subprocess.run(
-                argv,
-                env={**os.environ, "AWS_PROFILE": profile, "TF_VAR_aws_region": region},
-                check=False,
-            )
-            outcome[action] = completed.returncode
+            remaining = termination_deadline - time.perf_counter() if termination_deadline else 600
+            try:
+                completed = subprocess.run(
+                    argv,
+                    env={**os.environ, "AWS_PROFILE": profile, "TF_VAR_aws_region": region},
+                    check=False,
+                    timeout=max(1, remaining - (60 if action == "Destroy" else 0)),
+                )
+                outcome[action] = completed.returncode
+            except (OSError, subprocess.SubprocessError) as cleanup_error:
+                outcome[action] = 124
+                outcome[action + "_error_class"] = type(cleanup_error).__name__
         write_json(args.session / "controller-outcome.json", outcome)
     return int(
         not outcome.get("export_verified") or outcome["Destroy"] or outcome["VerifyTeardown"]
@@ -1141,14 +1659,20 @@ def main() -> int:
         "--preflight-rehearsal-target", help="no-AWS binding test only; never authorizes Apply"
     )
     args = parser.parse_args()
-    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     if args.preflight_rehearsal_target and not args.preflight:
         parser.error("--preflight-rehearsal-target is restricted to no-AWS --preflight")
     if args.sampler:
         sampler(args.sampler, args.pids)
         return 0
     if args.serve_transport:
-        serve_transport(args.serve_transport, args.manifest_sha256, args.nonce, args.port)
+        serve_transport(
+            args.serve_transport,
+            args.manifest_sha256,
+            args.nonce,
+            args.port,
+            epoch_path=args.epoch_file,
+            rehearse=args.rehearse,
+        )
         return 0
     if args.prepare:
         manifest = prepare(

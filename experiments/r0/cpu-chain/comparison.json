@@ -1,0 +1,66 @@
+{
+  "comparison": {
+    "cold_6144": {
+      "expected_admitted": 10,
+      "allocator_admitted": 10,
+      "scheduler_running": 10,
+      "scheduler_waiting": 6,
+      "free": 50,
+      "match": true
+    },
+    "cold_6272": {
+      "expected_admitted": 9,
+      "allocator_admitted": 9,
+      "scheduler_running": 9,
+      "scheduler_waiting": 7,
+      "free": 362,
+      "match": true
+    },
+    "growth_ten": {
+      "initial_running": 10,
+      "transitions": [
+        {
+          "step": 82,
+          "victim": "r09",
+          "failed_request": "r00",
+          "failure_free_blocks": 0,
+          "victim_computed_before": 6224,
+          "victim_generated_before": 81,
+          "freed_blocks": 389,
+          "ordered": true
+        }
+      ],
+      "match": true
+    },
+    "growth_eight": {
+      "steps": 129,
+      "allocation_failures": 0,
+      "preemptions": 0,
+      "final_computed": {
+        "r00": 6272,
+        "r01": 6272,
+        "r02": 6272,
+        "r03": 6272,
+        "r04": 6272,
+        "r05": 6272,
+        "r06": 6272,
+        "r07": 6272
+      },
+      "final_generated": {
+        "r00": 129,
+        "r01": 129,
+        "r02": 129,
+        "r03": 129,
+        "r04": 129,
+        "r05": 129,
+        "r06": 129,
+        "r07": 129
+      },
+      "final_free": 754,
+      "match": true
+    }
+  },
+  "conservation_states": 225,
+  "all_predictions_match": true,
+  "trace_sha256": "a8b84610410541ccb14b89910e2bf98d0768dfbdc83ce67eb69f64019eb8cd3b"
+}

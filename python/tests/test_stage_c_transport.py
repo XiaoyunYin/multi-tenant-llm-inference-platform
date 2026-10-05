@@ -1,7 +1,10 @@
+import base64
 import hashlib
 import io
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -38,6 +41,42 @@ class Forward:
 
 
 class RemoteTransportTest(unittest.TestCase):
+    def test_trickling_archive_cannot_extend_absolute_attempt_deadline(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):  # noqa: N802
+                self.send_response(200)
+                self.send_header("Content-Length", "1000000")
+                self.end_headers()
+                try:
+                    while True:
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.02)
+                except OSError:
+                    pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        started = time.perf_counter()
+        transport = ReconnectingTransport(
+            lambda: None, f"http://127.0.0.1:{server.server_port}", "unit", started + 0.15, []
+        )
+        try:
+            with self.assertRaises(OSError):
+                transport.http_request("/export", 30)
+            self.assertLess(time.perf_counter() - started, 1)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=1)
+
     def test_forward_stop_reaps_parent_and_stops_plugin_descendant(self):
         with tempfile.TemporaryDirectory() as directory:
             pid_file = Path(directory) / "plugin.pid"
@@ -106,8 +145,46 @@ class RemoteTransportTest(unittest.TestCase):
             started, finished, bad_export = [False], [False], [False]
             statuses, commands, forwards, order = [], [], [], []
             startup_attempts = [0]
-            data = b"exported evidence"
+            fixture_buffer = io.BytesIO()
+            fixture_content = (
+                b'{"status":"completed","basis":"mocked SSM fixture; no measured GPU data"}\n'
+            )
+            with tarfile.open(fileobj=fixture_buffer, mode="w:gz") as fixture_archive:
+                info = tarfile.TarInfo("completed-run.json")
+                info.size = len(fixture_content)
+                fixture_archive.addfile(info, io.BytesIO(fixture_content))
+            data = fixture_buffer.getvalue()
             termination = int(wall + 14400)
+            restart_count = [0]
+            faults = ("control_server_killed", "forward_650", "both_channels", "host_died")
+            run_receipt = {
+                "run_number": 1,
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+            run_receipt["measurement_digest"] = {
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+            diagnostic = {
+                "schema": "inf011-host-diagnostics.v1",
+                "host": {
+                    "uptime_seconds": 10,
+                    "load_average": [1, 1, 1],
+                    "memory_available_bytes": 4000000000,
+                    "oom_kill": 0,
+                    "pressure": {
+                        "cpu": "some avg10=0",
+                        "memory": "some avg10=0",
+                        "io": "some avg10=0",
+                    },
+                },
+                "free_m": {"status": "captured", "text": "Mem: 16384 8192 8192"},
+                "dmesg_oom_kill_tail": {"status": "captured", "text": []},
+                "top_processes_by_rss": [{"role": "python", "rss_bytes": 200000000}],
+                "control_port_listening": False,
+                "host_controller": {"alive": True, "state": "R"},
+            }
 
             def aws(argv, **kwargs):
                 service, operation = argv[1:3]
@@ -142,9 +219,59 @@ class RemoteTransportTest(unittest.TestCase):
                     ).read_bytes()
                     self.assertLessEqual(len(parameters), 24000)
                     commands.append(parameters)
+                    if (
+                        failure == "both_channels"
+                        and tick[0] - first_tick >= 10
+                        and b"--action" in parameters
+                    ):
+                        raise OSError("mock command channel disconnected")
                     result = {"Command": {"CommandId": "c-test"}}
                 elif operation == "get-command-invocation":
-                    result = {"Status": "Success", "StandardOutputContent": str(termination)}
+                    action = re.search(rb"--action ([a-z]+)", commands[-1])
+                    value = termination
+                    if action:
+                        name = action[1].decode()
+                        elapsed = tick[0] - first_tick
+                        if name == "snapshot":
+                            done = failure == "host_died" or elapsed >= 650
+                            host_alive = not done
+                            value = {
+                                "status": {
+                                    "started": True,
+                                    "finished": done,
+                                    "host_controller_alive": host_alive,
+                                    "instance_termination_unix_s": termination,
+                                    "completed_runs": [run_receipt],
+                                },
+                                "diagnostics": {
+                                    **diagnostic,
+                                    "host_controller": {
+                                        "alive": host_alive,
+                                        "state": "R" if host_alive else None,
+                                    },
+                                },
+                            }
+                        elif name == "restart":
+                            restart_count[0] += 1
+                            value = {
+                                "status": "control_server_restart_requested",
+                                "host_controller_restarted": False,
+                            }
+                        elif name == "recover":
+                            order.append(("command_recover", tick[0]))
+                            value = {"status": "exported"}
+                        elif name == "receipt":
+                            value = {**run_receipt}
+                        elif name == "read":
+                            offset = int(re.search(rb"--offset ([0-9]+)", commands[-1])[1])
+                            order.append(("export", tick[0]))
+                            chunk = data[offset : offset + 12288]
+                            value = {
+                                "offset": offset,
+                                "bytes": len(chunk),
+                                "base64": base64.b64encode(chunk).decode(),
+                            }
+                    result = {"Status": "Success", "StandardOutputContent": json.dumps(value)}
                 else:
                     self.fail(f"unexpected real AWS command: {argv}")
                 return json.dumps(result)
@@ -164,7 +291,7 @@ class RemoteTransportTest(unittest.TestCase):
                 forwards.append(child)
                 return child
 
-            def request(path, timeout, body=None):
+            def request(path, timeout, body=None, *, headers=None):
                 self.assertGreater(timeout, 0)
                 if failure == "startup_delay" and not started[0]:
                     startup_attempts[0] += 1
@@ -181,17 +308,38 @@ class RemoteTransportTest(unittest.TestCase):
                         finished[0] = True
                     else:
                         raise OSError("sustained SSM outage")
+                elapsed = tick[0] - first_tick
+                if started[0] and failure in faults and elapsed >= 5:
+                    if failure != "control_server_killed" or restart_count[0] == 0:
+                        if failure != "forward_650" or elapsed < 650:
+                            raise OSError("mock killed server or blocked forward")
+                if path in ("/run/1", "/digest/1"):
+                    if headers:
+                        self.assertTrue(finished[0] or elapsed >= 650 or failure == "host_died")
+                        start, end = map(int, headers["Range"].removeprefix("bytes=").split("-"))
+                        return data[start : end + 1]
+                    return data
                 if path == "/status":
                     if started[0]:
                         statuses.append(1)
                         if failure == "status_drop" and len(statuses) == 1:
                             raise OSError("connection reset once")
-                        finished[0] = len(statuses) > 1 or finished[0]
+                        finished[0] = (
+                            (len(statuses) > 1 or finished[0])
+                            if failure not in faults
+                            else elapsed >= 650
+                            or (failure == "control_server_killed" and restart_count[0] > 0)
+                        )
                     return json.dumps(
                         {
                             "started": started[0],
                             "finished": finished[0],
                             "instance_termination_unix_s": termination,
+                            "host_controller_alive": started[0] and not finished[0],
+                            "completed_runs": [run_receipt]
+                            if started[0] and failure in faults
+                            else [],
+                            "host": diagnostic["host"],
                         }
                     ).encode()
                 if path == "/receipt":
@@ -274,11 +422,70 @@ class RemoteTransportTest(unittest.TestCase):
                 ["Destroy", "VerifyTeardown"],
             )
             self.assertFalse(outcome["apply_called"])
+            if failure in faults:
+                self.assertTrue((args.session / "sealed-runs/run-1.digest.json.gz").exists())
+                diagnostics = [
+                    json.loads(line)
+                    for line in (args.session / "host-diagnostics.jsonl").read_text().splitlines()
+                ]
+                self.assertTrue(
+                    any(row.get("schema") == "inf011-host-diagnostics.v1" for row in diagnostics)
+                )
+                self.assertLess(order[-1][1] - first_tick, 14400)
+                if failure == "both_channels":
+                    self.assertEqual(code, 1)
+                    self.assertTrue(
+                        any(row["status"] == "UNAVAILABLE_COMMAND_CHANNEL" for row in diagnostics)
+                    )
+                    self.assertGreaterEqual(order[-2][1] - first_tick, 13799)
+                else:
+                    self.assertEqual(code, 0, outcome)
+                    self.assertTrue(outcome["export_verified"])
+                    if failure == "forward_650":
+                        self.assertGreaterEqual(order[-2][1] - first_tick, 650)
+                    if failure == "control_server_killed":
+                        self.assertGreater(restart_count[0], 0)
+                    if failure == "host_died":
+                        self.assertIn("command_recover", [row[0] for row in order])
+                evidence_root = os.environ.get("INF011_FAULT_REHEARSAL_DIR")
+                if evidence_root:
+                    destination = Path(evidence_root) / failure
+                    destination.mkdir(parents=True, exist_ok=True)
+                    for name in (
+                        "controller-outcome.json",
+                        "host-diagnostics.jsonl",
+                        "operator-host-snapshots.jsonl",
+                        "export-receipt.json",
+                        "evidence.tar.gz",
+                    ):
+                        path = args.session / name
+                        if path.exists():
+                            shutil.copyfile(path, destination / name)
+                    shutil.copytree(
+                        args.session / "sealed-runs",
+                        destination / "sealed-runs",
+                        dirs_exist_ok=True,
+                    )
+                    (destination / "basis.json").write_text(
+                        json.dumps(
+                            {
+                                "basis": "Real committed remote controller with mocked AWS/SSM/forward and simulated clock; server loss is injected; separate Linux test kills actual process",
+                                "simulated_elapsed_to_destroy_seconds": order[-2][1] - first_tick,
+                                "simulated_termination_seconds": 14400,
+                                "aws_calls_made": False,
+                                "gpu_measurements": False,
+                            }
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                return
             if failure == "ssm_expired":
                 self.assertFalse(commands)
                 self.assertEqual(code, 1)
                 self.assertEqual(outcome["reason"], "skipped_readiness_deadline")
-                self.assertAlmostEqual(tick[0] - first_tick, 8700, places=5)
+                self.assertAlmostEqual(tick[0] - first_tick, 8100, places=5)
                 self.assertEqual(len(outcome["timed_runs"]), 4)
                 self.assertEqual(forwards, [])
                 return
@@ -286,9 +493,9 @@ class RemoteTransportTest(unittest.TestCase):
             self.assertFalse((args.session / "ssm-stage-request.json").exists())
             if failure == "outage":
                 self.assertEqual(code, 1)
-                self.assertEqual(outcome["reason"], "sustained_transport_outage")
-                self.assertGreaterEqual(order[-2][1] - first_tick, 300)
-                self.assertLessEqual(order[-2][1] - first_tick, 360)
+                self.assertEqual(outcome["reason"], "control_deadline")
+                self.assertGreaterEqual(order[-2][1] - first_tick, 13799)
+                self.assertLessEqual(order[-2][1] - first_tick, 13800)
                 self.assertTrue(outcome["export_recovery_attempted"])
             else:
                 self.assertEqual(code, 0, outcome)
@@ -301,7 +508,7 @@ class RemoteTransportTest(unittest.TestCase):
                 self.assertTrue(outcome["transport_interruptions"])
                 if failure == "startup_delay":
                     self.assertEqual(len(forwards), 1)
-                else:
+                elif failure != "export_drop":
                     self.assertGreater(len(forwards), 1)
 
     def test_mocked_aws_status_drop_forward_exit_and_export_retry_keep_session(self):
@@ -320,6 +527,11 @@ class RemoteTransportTest(unittest.TestCase):
 
     def test_ssm_deadline_expiry_never_sends_or_tears_down_before_wait_bound(self):
         self.exercise("ssm_expired")
+
+    def test_real_controller_command_channel_faults(self):
+        for fault in ("control_server_killed", "forward_650", "both_channels", "host_died"):
+            with self.subTest(fault=fault):
+                self.exercise(fault)
 
     def test_control_deadline_truncates_outage_window(self):
         tick, interruptions = [0.0], []

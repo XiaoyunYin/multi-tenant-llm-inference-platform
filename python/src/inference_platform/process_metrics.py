@@ -33,8 +33,14 @@ def _linux_snapshot(pid: int) -> dict[str, int | float]:
     user_ticks = int(fields[11])
     system_ticks = int(fields[12])
     resident_pages = int((Path("/proc") / str(pid) / "statm").read_text().split()[1])
+    status = dict(
+        line.split(":", 1)
+        for line in (Path("/proc") / str(pid) / "status").read_text().splitlines()
+        if ":" in line
+    )
     return {
         "rss_bytes": resident_pages * os.sysconf("SC_PAGE_SIZE"),
+        "peak_rss_bytes": int(status.get("VmHWM", "0 kB").split()[0]) * 1024,
         "cpu_seconds": (user_ticks + system_ticks) / os.sysconf("SC_CLK_TCK"),
     }
 
@@ -105,6 +111,7 @@ def _windows_snapshot(pid: int) -> dict[str, int | float]:
         user_ticks = (user.high << 32) | user.low
         return {
             "rss_bytes": int(memory.working_set_size),
+            "peak_rss_bytes": int(memory.peak_working_set_size),
             "cpu_seconds": (kernel_ticks + user_ticks) / 10_000_000,
         }
     finally:
