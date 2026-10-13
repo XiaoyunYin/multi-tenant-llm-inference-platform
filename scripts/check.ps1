@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("all", "format", "lint", "build", "test", "race", "benchmark", "gpu", "cloud", "plan")]
+    [ValidateSet("all", "cpu-core", "format", "lint", "build", "test", "race", "benchmark", "gpu", "cloud", "plan")]
     [string]$Suite = "all",
     [string]$PlanPath = (Join-Path (Split-Path -Parent $PSScriptRoot) "PLAN.md")
 )
@@ -113,8 +113,10 @@ function Invoke-TestChecks {
         Write-Output "==> Redis integration tests: SKIPPED (set REDIS_TEST_ADDR to a disposable Redis endpoint)"
     }
     Invoke-Checked "Go package test command" { go test ./... }
-    Invoke-Checked "Python unit tests" {
-        uv run --project python --locked python -m unittest discover -s python/tests -v
+    if ($Suite -ne "cpu-core") {
+        Invoke-Checked "Python unit tests" {
+            uv run --project python --locked python scripts/run_python_tests.py
+        }
     }
 }
 
@@ -190,7 +192,19 @@ try {
             Invoke-TerraformChecks
             Write-Output "==> Paid cloud apply: NOT AUTHORIZED (only the zero-resource offline plan ran)"
         }
-        "all" {
+        { $_ -in @("all", "cpu-core") } {
+            Invoke-Checked "CI visibility/event policy regressions" {
+                uv run --project python --locked python -m unittest discover -s scripts/tests -p test_ci_policy.py -v
+            }
+            Invoke-Checked "R1 chart provenance and corruption regressions" {
+                uv run --project python --locked python -m unittest discover -s scripts/tests -p test_render_r1_packet.py -v
+            }
+            Invoke-Checked "Public snapshot test-context selection regressions" {
+                uv run --project python --locked python -m unittest discover -s scripts/tests -p test_public_python_selection.py -v
+            }
+            Invoke-Checked "Complete Python shard partition regression" {
+                uv run --project python --locked python -m unittest discover -s scripts/tests -p test_python_shards.py -v
+            }
             Invoke-Checked "Large binary evidence guard regressions" {
                 uv run --project python --locked python -m unittest discover -s scripts/tests -p test_evidence_binary_guard.py -v
             }

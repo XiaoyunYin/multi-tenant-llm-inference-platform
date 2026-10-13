@@ -368,7 +368,11 @@ def monitor_and_export(transport, session, outcome):
             target = session / "sealed-runs" / f"run-{number}.tar.gz"
             target.parent.mkdir(exist_ok=True)
             digest = receipt.get("measurement_digest")
-            if digest and not (target.parent / f"run-{number}.digest.json.gz").exists():
+            if (
+                digest
+                and digest.get("status") != "refused"
+                and not (target.parent / f"run-{number}.digest.json.gz").exists()
+            ):
                 fetch_digest(transport, session, receipt)
         # Essential measurements take priority over every best-effort large
         # transfer, including when several runs seal between status polls.
@@ -518,6 +522,8 @@ def fetch_digest(transport, session, receipt):
     from .stage_c_digest import DIGEST_LIMIT
 
     number, digest = receipt["run_number"], receipt["measurement_digest"]
+    if type(digest) is dict and digest.get("status") == "refused":
+        return False
     if type(number) is not int or not 1 <= number <= 4 or not 0 < digest["bytes"] <= DIGEST_LIMIT:
         raise ValueError("invalid measurement digest receipt/bound")
     started = transport.clock()
@@ -539,6 +545,7 @@ def fetch_digest(transport, session, receipt):
             "transport": getattr(transport, "last_channel", "command"),
         },
     )
+    return True
 
 
 class CommandChannel:

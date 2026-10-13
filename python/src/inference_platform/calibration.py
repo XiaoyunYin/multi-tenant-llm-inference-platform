@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import threading
 import time
 import urllib.error
@@ -339,6 +340,7 @@ def run_calibration(
     level_duration_seconds: float = 0,
     drain_seconds: float = 120,
     minimum_cycle_seconds: float = 0.05,
+    capture_prefix_cache_counters: bool = False,
 ) -> dict[str, Any]:
     """Run stepped concurrent streaming bursts and return a JSON-ready record."""
 
@@ -486,6 +488,15 @@ def run_calibration(
             sampler_preceded_load = True  # no dispatch occurred; keep not-dispatched records
         if not sampler_preceded_load:
             raise RuntimeError("metrics sampler did not start before request load")
+        if capture_prefix_cache_counters:
+            # A fast single request may finish between sampler ticks. Bracket it
+            # explicitly after the worker and sampler have stopped, within budget.
+            samples.append(
+                {
+                    "offset_ns": time.perf_counter_ns() - level_start_ns,
+                    **_metrics(config, level_deadline),
+                }
+            )
         result["levels"].append(
             {
                 "concurrency": concurrency,
@@ -500,7 +511,9 @@ def run_calibration(
                     r["http_status"] == 504 and r["first_content_offset_ns"] is None
                     for r in records
                 ),
-                "runtime_regime": derive_runtime_regime(samples),
+                "runtime_regime": derive_runtime_regime(
+                    samples, include_prefix_cache_counters=capture_prefix_cache_counters
+                ),
             }
         )
     if deadline is not None and time.perf_counter() >= deadline:
@@ -510,7 +523,44 @@ def run_calibration(
     return result
 
 
-def derive_runtime_regime(samples: list[dict[str, Any]]) -> dict[str, Any]:
+def _prefix_cache_counter(samples: list[dict[str, Any]], name: str) -> dict[str, Any]:
+    """Summarize one native counter without hiding missing scrapes or series resets."""
+    rows = [
+        {k: v for k, v in sample.get("values", {}).items() if k.split("{", 1)[0].endswith(name)}
+        for sample in samples
+    ]
+
+    def total(row: dict[str, Any]) -> float | None:
+        if not row or any(
+            isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0
+            for v in row.values()
+        ):
+            return None
+        return sum(row.values())
+
+    before = total(rows[0]) if rows else None
+    after = total(rows[-1]) if rows else None
+    status = "unavailable"
+    if len(rows) >= 2 and all(
+        total(row) is not None and row.keys() == rows[0].keys() for row in rows
+    ):
+        reset = any(
+            current[key] < previous[key]
+            for previous, current in zip(rows, rows[1:], strict=False)
+            for key in previous
+        )
+        status = "counter_reset" if reset else "observed"
+    return {
+        "before": before,
+        "after": after,
+        "delta": after - before if status == "observed" else None,
+        "status": status,
+    }
+
+
+def derive_runtime_regime(
+    samples: list[dict[str, Any]], *, include_prefix_cache_counters: bool = False
+) -> dict[str, Any]:
     def value(sample: dict[str, Any], suffix: str) -> float | None:
         series = [
             v for k, v in sample.get("values", {}).items() if k.split("{", 1)[0].endswith(suffix)
@@ -539,7 +589,7 @@ def derive_runtime_regime(samples: list[dict[str, Any]]) -> dict[str, Any]:
         labels.append("regime_unestablished_missing_native_signals")
     if not labels:
         labels.append("no_preemption_or_waiting_observed")
-    return {
+    result = {
         "labels": labels,
         "preemptions_delta": delta,
         "running_peak": max(running) if running else None,
@@ -547,6 +597,16 @@ def derive_runtime_regime(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "signals": signals,
         "basis": "native counter/gauges, not latency inference",
     }
+    if include_prefix_cache_counters:
+        # Separate from signals: survives both digest degradation and the final
+        # metadata projection, without changing the existing regime classifier.
+        result["prefix_cache_counters"] = {
+            "before_offset_ns": samples[0].get("offset_ns") if samples else None,
+            "after_offset_ns": samples[-1].get("offset_ns") if samples else None,
+            "queries": _prefix_cache_counter(samples, "vllm:prefix_cache_queries_total"),
+            "hits": _prefix_cache_counter(samples, "vllm:prefix_cache_hits_total"),
+        }
+    return result
 
 
 def main() -> int:

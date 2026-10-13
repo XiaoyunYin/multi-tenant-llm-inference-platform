@@ -26,12 +26,9 @@ try {
         Invoke-PublicCheck "Scanner wrapper tests (not a release scan)" { uv run --project python --locked python -m unittest discover -s scripts/tests -p test_secret_scan.py -v }
     }
     Invoke-PublicCheck "Pinned tokenizer prerequisite" { uv run --project python --locked python -m inference_platform.stage_c_tokenizer --fetch --fetch-only }
-    $excluded = @("test_remote_source_fitness", "test_stage_c_fitness", "test_stage_c_preflight", "test_stage_c_protocol", "test_stage_c_session", "test_stage_c_sizing")
-    Write-Output "Excluded private-record-dependent Python modules: $($excluded -join ', ')"
-    $modules = @(Get-ChildItem -LiteralPath python/tests -Filter 'test_*.py' | ForEach-Object { $_.BaseName } | Where-Object { $_ -notin $excluded } | Sort-Object)
-    Write-Output "Public-context Python modules: $($modules -join ', ')"
-    $env:PYTHONPATH = Join-Path $root "python/tests"
-    Invoke-PublicCheck "Public-context Python tests" { uv run --project python --locked python -m unittest -v @modules }
+    Invoke-PublicCheck "Public test selection regressions" { uv run --project python --locked python -m unittest discover -s scripts/tests -p test_public_python_selection.py -v }
+    Invoke-PublicCheck "R1 chart provenance regressions" { uv run --project python --locked python -m unittest discover -s scripts/tests -p test_render_r1_packet.py -v }
+    Invoke-PublicCheck "Public-context Python tests (private-record omissions reported)" { uv run --project python --locked python scripts/run_public_python_tests.py }
     Write-Output "Redis integration needs REDIS_TEST_ADDR; report skips. Private PLAN/approval/preflight/builder checks are not part of this snapshot command."
 }
 finally { Pop-Location }

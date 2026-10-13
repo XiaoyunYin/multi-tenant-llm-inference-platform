@@ -73,11 +73,40 @@ def seal_run(session, number, run, config=None, *, core_only=False):
         elif source.exists():
             shutil.copyfile(source, directory / name)
     from .stage_c_digest import measurement_digest, seal_digest
+    from .stage_c_registered import REGISTRATION, RetentionError
 
-    digest = seal_digest(
-        root / f"run-{number}.digest.json.gz",
-        measurement_digest(session, run, directory, None if core_only else config),
-    )
+    try:
+        digest = seal_digest(
+            root / f"run-{number}.digest.json.gz",
+            measurement_digest(session, run, directory, None if core_only else config),
+        )
+    except RetentionError as error:
+        failure_path = root / f"run-{number}.digest.json.gz.failure.json"
+        if not failure_path.exists():
+            write_json(
+                failure_path,
+                {
+                    "schema": "stage-c-retention-failure.v1",
+                    "registration": REGISTRATION,
+                    "run_number": number,
+                    "observed_count": (
+                        len(run["requests"]) if isinstance(run.get("requests"), list) else None
+                    ),
+                    **error.receipt,
+                },
+            )
+        failure = json.loads(failure_path.read_text(encoding="utf-8"))
+        if (
+            failure.get("flag") != error.receipt["flag"]
+            or failure.get("table") != error.receipt["table"]
+        ):
+            raise RetentionError("retention_join_failure", "failure_receipt_binding") from error
+        digest = {
+            "status": "refused",
+            "flag": failure["flag"],
+            "table": failure["table"],
+            "failure_receipt_sha256": file_sha(failure_path),
+        }
     write_json(root / f"run-{number}.digest.receipt.json", digest)
     sums = "".join(f"{file_sha(path)}  {path.name}\n" for path in sorted(directory.iterdir()))
     (directory / "SHA256SUMS.txt").write_text(sums, encoding="utf-8", newline="\n")

@@ -179,6 +179,15 @@ func WithRouter(router Router) Option {
 	}
 }
 
+// WithRoutingSeed makes policy tie breaks reproducible for a registered experiment.
+// Production callers retain the independently randomized default when absent.
+func WithRoutingSeed(seed int64) Option {
+	return func(gateway *Gateway) error {
+		gateway.backendSelection.tieBreaker = NewSeededTieBreaker(seed)
+		return nil
+	}
+}
+
 func WithRoutingKeyTokenizer(tokenizer RoutingKeyTokenizer) Option {
 	return func(gateway *Gateway) error {
 		if tokenizer == nil {

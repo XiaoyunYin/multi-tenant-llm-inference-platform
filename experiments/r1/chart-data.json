@@ -1,0 +1,273 @@
+{
+  "comparisons": [
+    {
+      "differences": [
+        0.07070873946803234,
+        0.04847893281275432
+      ],
+      "exceeds": [
+        true,
+        false
+      ],
+      "mean": 0.05959383614039333,
+      "mean_exceeds": true,
+      "mean_relative": 0.05959383614039333,
+      "metric": "throughput",
+      "policy": "hash",
+      "relative_differences": [
+        0.07070873946803234,
+        0.04847893281275432
+      ],
+      "tolerance": 0.05
+    },
+    {
+      "differences": [
+        -0.0211465389063274,
+        -0.027005043110460276
+      ],
+      "exceeds": [
+        false,
+        false
+      ],
+      "mean": -0.02407579100839384,
+      "mean_exceeds": false,
+      "mean_relative": -0.02407579100839384,
+      "metric": "throughput",
+      "policy": "ll",
+      "relative_differences": [
+        -0.0211465389063274,
+        -0.027005043110460276
+      ],
+      "tolerance": 0.05
+    }
+  ],
+  "conditions": "2 x g6.xlarge / one L4 each; Qwen2.5-7B-Instruct; vLLM v0.29.0; 10.92 offers/s; 6553 offers/run",
+  "definition": "validated cohort completions / fixed 600 seconds including drain completions; 429 denominator is offered",
+  "descriptive_tolerance": 0.05,
+  "measured_seconds": 600,
+  "rows": [
+    {
+      "block": "b1",
+      "completed": 6481,
+      "counts": {
+        "admitted": 6481,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 71
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.5398309836590837,
+          "hits_tokens": 1725248,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3195904,
+          "replica": 0
+        },
+        {
+          "fraction": 0.5511693188578227,
+          "hits_tokens": 1897504,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3442688,
+          "replica": 1
+        }
+      ],
+      "policy": "hash",
+      "position": 1,
+      "positive_joint_wait_fraction": 0.12416666666666666,
+      "run": 1,
+      "throughput": 10.801666666666666,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    },
+    {
+      "block": "b1",
+      "completed": 5925,
+      "counts": {
+        "admitted": 5925,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 627
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.3577388468013468,
+          "hits_tokens": 1087984,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3041280,
+          "replica": 0
+        },
+        {
+          "fraction": 0.34601610040567954,
+          "hits_tokens": 1048080,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3028992,
+          "replica": 1
+        }
+      ],
+      "policy": "ll",
+      "position": 2,
+      "positive_joint_wait_fraction": 0.42333333333333334,
+      "run": 2,
+      "throughput": 9.875,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    },
+    {
+      "block": "b1",
+      "completed": 6053,
+      "counts": {
+        "admitted": 6053,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 499
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.33412826230591347,
+          "hits_tokens": 1035680,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3099648,
+          "replica": 0
+        },
+        {
+          "fraction": 0.3450249834819954,
+          "hits_tokens": 1069456,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3099648,
+          "replica": 1
+        }
+      ],
+      "policy": "rr",
+      "position": 3,
+      "positive_joint_wait_fraction": 0.21333333333333335,
+      "run": 3,
+      "throughput": 10.088333333333333,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    },
+    {
+      "block": "b2",
+      "completed": 6147,
+      "counts": {
+        "admitted": 6147,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 405
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.35804921163849157,
+          "hits_tokens": 1127792,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3149824,
+          "replica": 0
+        },
+        {
+          "fraction": 0.3536515940143136,
+          "hits_tokens": 1113216,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3147776,
+          "replica": 1
+        }
+      ],
+      "policy": "rr",
+      "position": 1,
+      "positive_joint_wait_fraction": 0.21083333333333334,
+      "run": 4,
+      "throughput": 10.245,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    },
+    {
+      "block": "b2",
+      "completed": 5981,
+      "counts": {
+        "admitted": 5981,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 571
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.36250213092396866,
+          "hits_tokens": 1088736,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3003392,
+          "replica": 0
+        },
+        {
+          "fraction": 0.36184695381591875,
+          "hits_tokens": 1131232,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3126272,
+          "replica": 1
+        }
+      ],
+      "policy": "ll",
+      "position": 2,
+      "positive_joint_wait_fraction": 0.3858333333333333,
+      "run": 5,
+      "throughput": 9.968333333333334,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    },
+    {
+      "block": "b2",
+      "completed": 6445,
+      "counts": {
+        "admitted": 6445,
+        "censored": 0,
+        "failed": 0,
+        "missed": 1,
+        "offered": 6553,
+        "rejected": 107
+      },
+      "joint_samples": 1200,
+      "native_hit_fractions": [
+        {
+          "fraction": 0.5323952615434291,
+          "hits_tokens": 1688400,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3171328,
+          "replica": 0
+        },
+        {
+          "fraction": 0.5493804120633025,
+          "hits_tokens": 1884032,
+          "label": "aggregate native token-counter fraction; not per-request hit probability",
+          "query_tokens": 3429376,
+          "replica": 1
+        }
+      ],
+      "policy": "hash",
+      "position": 3,
+      "positive_joint_wait_fraction": 0.125,
+      "run": 6,
+      "throughput": 10.741666666666667,
+      "warm_label": "valid-unstable",
+      "warm_s": 600
+    }
+  ],
+  "schema": 1,
+  "scope": "pilot, one session, two blocks; admitted requests only; no causal claim or confirmatory interval",
+  "source": {
+    "commit": "ec934b25403359842ed621fe17c44946c81b07dc",
+    "path": "docs/evidence/r1-analysis/receipt.json",
+    "sha256": "4774cd05abc77fb0c6b02399f704df3e0e215f1c0b0b7a917390064e197f2002"
+  }
+}

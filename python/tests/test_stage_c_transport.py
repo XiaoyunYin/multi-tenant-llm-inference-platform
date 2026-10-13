@@ -23,6 +23,8 @@ from inference_platform.stage_c_session import ENTRYPOINT, remote_session, sha
 from inference_platform.stage_c_transport import (
     ReconnectingTransport,
     command_batches,
+    fetch_digest,
+    monitor_and_export,
     wait_ssm_online,
 )
 
@@ -41,6 +43,59 @@ class Forward:
 
 
 class RemoteTransportTest(unittest.TestCase):
+    def test_refused_digest_is_skipped_during_poll_but_archive_is_exported(self):
+        class FakeTransport:
+            def __init__(self, status, export_data):
+                self.status = status
+                self.export_data = export_data
+                self.paths = []
+                self.deadline = 100
+                self.last_channel = "fake"
+                self.command_channel = None
+
+            def get(self, path):
+                self.paths.append(path)
+                if path == "/status":
+                    return json.dumps(self.status).encode()
+                if path == "/receipt":
+                    return json.dumps(
+                        {"sha256": hashlib.sha256(self.export_data).hexdigest()}
+                    ).encode()
+                if path == "/export":
+                    return self.export_data
+                raise AssertionError(f"unexpected transport request: {path}")
+
+            def clock(self):
+                return 0
+
+        export_data = b"archive containing a refused digest receipt"
+        run_receipt = {
+            "run_number": 3,
+            "bytes": 5,
+            "sha256": hashlib.sha256(b"run-3").hexdigest(),
+            "measurement_digest": {
+                "status": "refused",
+                "flag": "retention_field_overflow",
+                "table": "requests_exact.v1",
+                "failure_receipt_sha256": "a" * 64,
+            },
+        }
+        status = {"finished": True, "completed_runs": [run_receipt], "disk_records": {}}
+        transport = FakeTransport(status, export_data)
+        outcome = {}
+        with tempfile.TemporaryDirectory() as directory:
+            session = Path(directory)
+            archive_dir = session / "sealed-runs"
+            archive_dir.mkdir()
+            (archive_dir / "run-3.tar.gz").write_bytes(b"run-3")
+
+            self.assertFalse(fetch_digest(transport, session, run_receipt))
+            monitor_and_export(transport, session, outcome)
+
+            self.assertNotIn("/digest/3", transport.paths)
+            self.assertTrue(outcome["export_verified"])
+            self.assertEqual((session / "evidence.tar.gz").read_bytes(), export_data)
+
     def test_trickling_archive_cannot_extend_absolute_attempt_deadline(self):
         import threading
         from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

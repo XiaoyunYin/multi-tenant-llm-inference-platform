@@ -1,0 +1,247 @@
+{
+  "source_commit": "98dff2a81d747d1dba01a47f939f48c3526d4206",
+  "upstream": "https://github.com/vllm-project/vllm",
+  "license": "SPDX-License-Identifier: Apache-2.0; Copyright contributors to the vLLM project",
+  "files": {
+    "vllm/utils/hashing.py": {
+      "source_sha256": "89b4bd2bd246a5bfdcf00d766ea38a8182376aecfd6b6b7d5c47d96b1559243e",
+      "snippets": {
+        "sha256": {
+          "lines": [
+            26,
+            40
+          ],
+          "sha256": "dc24561952daece744aabffdf597c3e7bec137a8ca2cf10b379afe44b8f567b7",
+          "text": "def sha256(input: Any) -> bytes:\n    \"\"\"Hash any picklable Python object using SHA-256.\n\n    The input is serialized using pickle before hashing, which allows\n    arbitrary Python objects to be used. Note that this function does\n    not use a hash seed\u2014if you need one, prepend it explicitly to the input.\n\n    Args:\n        input: Any picklable Python object.\n\n    Returns:\n        Bytes representing the SHA-256 hash of the serialized input.\n    \"\"\"\n    input_bytes = pickle.dumps(input, protocol=pickle.HIGHEST_PROTOCOL)\n    return hashlib.sha256(input_bytes).digest()\n"
+        }
+      }
+    },
+    "vllm/v1/request.py": {
+      "source_sha256": "da610d5203e72d2d524adc5fb39df11502a23520f2f31d9a44cf13d343f9c25d",
+      "snippets": {
+        "Request.append_output_token_ids": {
+          "lines": [
+            265,
+            276
+          ],
+          "sha256": "8ff2924a5d8749d6c1671de48f6bd2563e4eacae5553701990f5daf6fcb75d20",
+          "text": "    def append_output_token_ids(\n        self,\n        token_ids: int | list[int],\n    ) -> None:\n        if isinstance(token_ids, int):\n            self._output_token_ids.append(token_ids)\n            self._all_token_ids.append(token_ids)\n        else:\n            self._output_token_ids.extend(token_ids)\n            self._all_token_ids.extend(token_ids)\n\n        self.update_block_hashes()\n"
+        },
+        "Request.update_block_hashes": {
+          "lines": [
+            278,
+            281
+          ],
+          "sha256": "fbb2f6a93ec8525b3ca010ac624aac4f21cb0431920c3b1a779d7b2b1c81fd9d",
+          "text": "    def update_block_hashes(self) -> None:\n        \"\"\"Compute block hashes for any new full blocks and append them.\"\"\"\n        if self._block_hasher is not None:\n            self.block_hashes.extend(self._block_hasher(self))\n"
+        },
+        "Request.num_tokens": {
+          "lines": [
+            287,
+            289
+          ],
+          "sha256": "396cec34e98c382e2bcffbc21a2ee6860847f4e64d59301f226b5d4c15830901",
+          "text": "    @property\n    def num_tokens(self) -> int:\n        return len(self._all_token_ids)\n"
+        }
+      }
+    },
+    "vllm/v1/core/kv_cache_utils.py": {
+      "source_sha256": "5294bef00c2f127f672a37eda9acbe440418f01622ef49b9be57761c54ebd7f6",
+      "snippets": {
+        "make_block_hash_with_group_id": {
+          "lines": [
+            61,
+            70
+          ],
+          "sha256": "f34dae022dc86adcf33ab095583ed63a6dd9eca090b8aeded8d0a405e2b9063f",
+          "text": "def make_block_hash_with_group_id(\n    block_hash: BlockHash, group_id: int\n) -> BlockHashWithGroupId:\n    \"\"\"Pack a `BlockHash` and group id into a `BlockHashWithGroupId`.\n\n    The group id is encoded using 4 bytes in big-endian order and appended to\n    the block hash bytes.  This representation avoids creating tuples while\n    still allowing us to recover both components when needed.\n    \"\"\"\n    return BlockHashWithGroupId(block_hash + group_id.to_bytes(4, \"big\", signed=False))\n"
+        },
+        "maybe_convert_block_hash": {
+          "lines": [
+            83,
+            86
+          ],
+          "sha256": "b08dbe7419f329f17b605344552ac56e2f20b98aab184fee8bcea86b2922698b",
+          "text": "def maybe_convert_block_hash(hash_bytes: BlockHash) -> ExternalBlockHash:\n    if not envs.VLLM_KV_EVENTS_USE_INT_BLOCK_HASHES:\n        return hash_bytes\n    return int.from_bytes(hash_bytes, byteorder=\"big\") & ((1 << 64) - 1)\n"
+        },
+        "KVCacheBlock": {
+          "lines": [
+            162,
+            221
+          ],
+          "sha256": "6b99c88836da897804dff36e8e94e68929ad7068a2bd13e7688d9e10098e753b",
+          "text": "@dataclass(slots=True)\nclass KVCacheBlock:\n    \"\"\"KV-cache block metadata.\"\"\"\n\n    # Block ID, ranging from 0 to num_gpu_blocks - 1.\n    block_id: int\n    # Reference count.\n    ref_cnt: int = 0\n    # The hash key (block hash + group id) of the block, only available\n    # when the block is full and cached.\n    _block_hash: BlockHashWithGroupId | None = None\n    # Number of prefix tokens covered by _block_hash. For full blocks this is\n    # the full block boundary; partial entries can end inside a cache block.\n    _block_hash_num_tokens: int | None = None\n\n    # Used to construct a doubly linked list for free blocks.\n    # These two attributes should only be manipulated by FreeKVCacheBlockQueue.\n    prev_free_block: \"KVCacheBlock | None\" = None\n    next_free_block: \"KVCacheBlock | None\" = None\n\n    # Whether the block is a null block that should never be cached.\n    is_null: bool = False\n\n    @property\n    def block_hash(self) -> BlockHashWithGroupId | None:\n        return self._block_hash\n\n    @property\n    def block_hash_num_tokens(self) -> int | None:\n        return self._block_hash_num_tokens\n\n    def set_block_hash(\n        self,\n        block_hash: BlockHashWithGroupId,\n        num_tokens: int | None = None,\n    ) -> None:\n        assert self.block_hash is None and self._block_hash_num_tokens is None, (\n            \"The block already has a hash. This should not happen.\"\n        )\n        self._block_hash = block_hash\n        self._block_hash_num_tokens = num_tokens\n\n    def reset_hash(self):\n        \"\"\"Reset the block hash when the block is evicted.\"\"\"\n        self._block_hash = None\n        self._block_hash_num_tokens = None\n\n    def __repr__(self) -> str:\n        # Use block_id instead of KVCacheBlock object to avoid calling __repr__\n        # on KVCacheBlock object recursively.\n        prev_block_id = self.prev_free_block.block_id if self.prev_free_block else None\n        next_block_id = self.next_free_block.block_id if self.next_free_block else None\n        return (\n            f\"KVCacheBlock(block_id={self.block_id}, \"\n            f\"ref_cnt={self.ref_cnt}, \"\n            f\"_block_hash={self._block_hash!r}, \"\n            f\"_block_hash_num_tokens={self._block_hash_num_tokens}, \"\n            f\"prev_free_block={prev_block_id}, \"\n            f\"next_free_block={next_block_id})\"\n        )\n"
+        },
+        "_gen_mm_extra_hash_keys": {
+          "lines": [
+            475,
+            539
+          ],
+          "sha256": "4706dfacbb110a7e91f951a56577a06dfbb0664b121b94d0f67fcfb4473f5afb",
+          "text": "def _gen_mm_extra_hash_keys(\n    request: Request, start_token_idx: int, end_token_idx: int, start_mm_idx: int\n) -> tuple[list[Any], int]:\n    \"\"\"Generate extra keys related to MultiModal request for block hash\n    computation. For multi-modal inputs, the extra keys are\n    (mm_hash, start_offset) that indicate a mm input contained in the\n    block and its starting offset in the block tokens.\n\n    Args:\n        request: The request object.\n        start_token_idx: The start token index of the block.\n        end_token_idx: The end token index of the block.\n        start_mm_idx: The start multi-modal index of the block.\n\n    Returns:\n        A tuple of extra keys and the next multi-modal index.\n    \"\"\"\n    extra_keys: list[Any] = []\n\n    mm_features = request.mm_features\n    if not mm_features:\n        return extra_keys, start_mm_idx\n\n    # Note that we assume mm_features are sorted by mm_position.offset.\n    # We do not need to check all mm inputs if the start token index is out of\n    # range. This usually happens in the late prefill phase and decoding phase.\n    last_pos = mm_features[-1].mm_position\n    if last_pos.offset + last_pos.length <= start_token_idx:\n        return extra_keys, start_mm_idx\n\n    # Support start_mm_idx == -1 to indicate the last mm input.\n    if start_mm_idx < 0:\n        assert -start_mm_idx <= len(mm_features)\n        start_mm_idx = len(mm_features) + start_mm_idx\n\n    curr_mm_idx = start_mm_idx\n    while mm_features and curr_mm_idx < len(mm_features):\n        mm_feature = mm_features[curr_mm_idx]\n        assert mm_feature.identifier is not None\n        offset = mm_feature.mm_position.offset\n        length = mm_feature.mm_position.length\n        if end_token_idx > offset:\n            if start_token_idx >= offset + length:\n                # This block has passed the current mm input.\n                curr_mm_idx += 1\n                continue\n\n            # The block contains the current mm input. Include its offset\n            # relative to the start of the block so prefix-cache keys stay\n            # distinct when the same MM item appears at different positions\n            # within otherwise-identical placeholder blocks.\n            extra_keys.append((mm_feature.identifier, offset - start_token_idx))\n\n            if end_token_idx >= offset + length:\n                # If this block contains the end of the current mm input,\n                # move to the next mm input as this block may also contain\n                # the next mm input.\n                curr_mm_idx += 1\n            else:\n                # Otherwise this block is done with mm inputs.\n                break\n        else:\n            # This block has not reached the current mm input.\n            break\n    return extra_keys, curr_mm_idx\n"
+        },
+        "_gen_lora_extra_hash_keys": {
+          "lines": [
+            542,
+            554
+          ],
+          "sha256": "75285033f18510bee8ccaffeba7ca4efe4998fa5eb3dc6f73fda6c1d8b50384e",
+          "text": "def _gen_lora_extra_hash_keys(request: Request) -> list[str]:\n    \"\"\"Generate extra keys related to LoRA for block hash computation.\n\n    Args:\n        request: The request object.\n\n    Returns:\n        Return LoRA name of the request if it is a LoRA request. Return empty\n        list otherwise.\n    \"\"\"\n    if not request.lora_request:\n        return []\n    return [request.lora_request.lora_name]\n"
+        },
+        "_gen_prompt_embeds_extra_hash_keys": {
+          "lines": [
+            557,
+            580
+          ],
+          "sha256": "912e5ec7bda570903dca04a6742365e3b19b31451bd913e5288ce1eb4f72c6bc",
+          "text": "def _gen_prompt_embeds_extra_hash_keys(\n    request: Request, start_token_idx: int, end_token_idx: int\n) -> list[bytes]:\n    \"\"\"Generate extra keys related to prompt embeds for block hash computation.\n\n    Args:\n        request: The request object.\n        start_token_idx: The start token index of the block.\n        end_token_idx: The end token index of the block.\n\n    Returns:\n        Return a stable hash of the block prompt embeddings if prompt embeds\n        are present. Return empty list otherwise.\n    \"\"\"\n    if request.prompt_embeds is None:\n        return []\n    block_range = (start_token_idx, end_token_idx)\n    embeds_hash = request._prompt_embeds_per_block_hashes.get(block_range)\n    if embeds_hash is None:\n        block_prompt_embeds = request.prompt_embeds[start_token_idx:end_token_idx]\n        # Hash prompt embeds once per block and cache on request\n        embeds_hash = hashlib.sha256(tensor_data(block_prompt_embeds)).digest()\n        request._prompt_embeds_per_block_hashes[block_range] = embeds_hash\n    return [embeds_hash]\n"
+        },
+        "generate_block_hash_extra_keys": {
+          "lines": [
+            583,
+            618
+          ],
+          "sha256": "e09249e0ccb5e5d88e43b4be3a2732c3d88f431eaea69a733c21bec188a4eb84",
+          "text": "def generate_block_hash_extra_keys(\n    request: Request, start_token_idx: int, end_token_idx: int, start_mm_idx: int\n) -> tuple[tuple[Any, ...] | None, int]:\n    \"\"\"Generate extra keys for the block hash. The extra keys can come from\n    the multi-modal inputs, request specific metadata (e.g., LoRA names), and\n    hashed data from prompt embeddings.\n\n    Args:\n        request: The request object.\n        start_token_idx: The start token index of the block.\n        end_token_idx: The end token index of the block.\n        start_mm_idx: The start multi-modal index of the block.\n\n    Returns:\n        A tuple of extra keys and the next multi-modal index.\n    \"\"\"\n    mm_extra_keys: list[Any]\n    mm_extra_keys, new_start_mm_idx = _gen_mm_extra_hash_keys(\n        request, start_token_idx, end_token_idx, start_mm_idx\n    )\n    lora_extra_keys: list[str] = _gen_lora_extra_hash_keys(request)\n    cache_salt_keys: list[str] = (\n        [request.cache_salt] if (start_token_idx == 0 and request.cache_salt) else []\n    )\n    prompt_embeds_keys = _gen_prompt_embeds_extra_hash_keys(\n        request, start_token_idx, end_token_idx\n    )\n\n    extra_keys: list[Any] = (\n        lora_extra_keys + mm_extra_keys + cache_salt_keys + prompt_embeds_keys\n    )\n\n    if not extra_keys:\n        return None, new_start_mm_idx\n\n    return tuple(extra_keys), new_start_mm_idx\n"
+        },
+        "hash_block_tokens": {
+          "lines": [
+            621,
+            648
+          ],
+          "sha256": "dbbdb365ef38a52fe9f47ffd4f11d137e86f670be4cf2dcb1f0a263d093966d7",
+          "text": "def hash_block_tokens(\n    hash_function: Callable[[Any], bytes],\n    parent_block_hash: BlockHash | None,\n    curr_block_token_ids: Sequence[int],\n    extra_keys: tuple[Any, ...] | None = None,\n) -> BlockHash:\n    \"\"\"Computes a hash value corresponding to the contents of a block and\n    the contents of the preceding block(s). The hash value is used for\n    prefix caching. We use LRU cache for this function to avoid recomputing\n    hash values for the same block contents.\n    Args:\n        hash_function: The hash function used to compute block hash.\n        parent_block_hash: The hash of the parent block. None\n            if this is the first block.\n        curr_block_token_ids: A list of token ids in the current\n            block. The current block is assumed to be full.\n        extra_keys: Extra keys for the block.\n    Returns:\n        The hash value of the block and the token ids in the block.\n        The entire tuple is used as the hash key of the block.\n    \"\"\"\n    if not parent_block_hash:\n        parent_block_hash = NONE_HASH\n\n    curr_block_token_ids_tuple = tuple(curr_block_token_ids)\n    return BlockHash(\n        hash_function((parent_block_hash, curr_block_token_ids_tuple, extra_keys))\n    )\n"
+        },
+        "get_request_block_hasher": {
+          "lines": [
+            792,
+            849
+          ],
+          "sha256": "ff5d1cc37d9cc4c08e0d85c2f6b99feaab1ceff11936554ee5be0c0aeb18c0c4",
+          "text": "def get_request_block_hasher(\n    hash_block_size: int,\n    caching_hash_fn: Callable[[Any], bytes],\n) -> Callable[[Request], list[BlockHash]]:\n    \"\"\"\n    Returns a function which computes the list of un-computed block hashes\n    of a request.\n\n    Hashes are computed at ``hash_block_size`` granularity and chained over the\n    full prefix, so each hash uniquely fingerprints the prefix ending at its\n    boundary. Coarser group block sizes and partial-cache boundaries reuse\n    these hashes directly (see ``BlockHashListWithBlockSize``).\n    \"\"\"\n\n    def request_block_hasher(request: Request) -> list[BlockHash]:\n        start_token_idx = len(request.block_hashes) * hash_block_size\n        num_tokens = request.num_tokens\n\n        if start_token_idx + hash_block_size > num_tokens:\n            # Early stop when there no new full blocks created.\n            return []\n\n        curr_mm_idx = 0\n        if start_token_idx > 0:\n            # Set curr_mm_idx = -1 to indicate the last mm input.\n            # Note that since we reach to this branch only when the block is\n            # completed with generated tokens, we only need to consider the\n            # last mm input.\n            curr_mm_idx = -1\n\n        prev_block_hash_value = (\n            request.block_hashes[-1] if request.block_hashes else None\n        )\n        new_block_hashes: list[BlockHash] = []\n        while True:\n            end_token_idx = start_token_idx + hash_block_size\n            if end_token_idx > num_tokens:\n                # We only hash full blocks\n                break\n\n            # MM and LoRA requests need extra keys for block-hash computation.\n            extra_keys, curr_mm_idx = generate_block_hash_extra_keys(\n                request, start_token_idx, end_token_idx, curr_mm_idx\n            )\n\n            # Compute the hash of the current block\n            block_tokens = request.all_token_ids[start_token_idx:end_token_idx]\n            block_hash = hash_block_tokens(\n                caching_hash_fn, prev_block_hash_value, block_tokens, extra_keys\n            )\n\n            new_block_hashes.append(block_hash)\n            start_token_idx += hash_block_size\n            prev_block_hash_value = block_hash\n\n        return new_block_hashes\n\n    return request_block_hasher\n"
+        },
+        "resolve_block_hashes": {
+          "lines": [
+            2446,
+            2476
+          ],
+          "sha256": "52bbbf4bef20acfc3c258dfb0be77d11302c1c261d746a6a8d3d4d595610d9ee",
+          "text": "def resolve_block_hashes(\n    block_hashes: BlockHashList,\n    hash_block_size: int,\n    block_size: int,\n    *,\n    supports_fine_grained_hash_lookup: bool = False,\n    alignment_tokens: int | None = None,\n) -> BlockHashList:\n    \"\"\"Resolve the block-hash view at ``block_size``.\n\n    When ``block_size`` equals ``hash_block_size``, reuse the precomputed block\n    hashes directly; otherwise view them at ``block_size`` granularity.\n    Fine-grained lookup keeps the original hashes for partial cache hits.\n    \"\"\"\n    if block_size == hash_block_size:\n        return block_hashes\n    if isinstance(block_hashes, BlockHashListWithBlockSize):\n        # Already a block-size view\n        assert block_hashes.scale_factor == block_size // hash_block_size\n        return block_hashes\n    # Fine-grained partial hits keep the raw hashes. The caller passes\n    # alignment_tokens = hash_block_size to enable them, else >= block_size.\n    if (\n        supports_fine_grained_hash_lookup\n        and alignment_tokens is not None\n        and alignment_tokens < block_size\n        and block_size % alignment_tokens == 0\n    ):\n        return block_hashes\n    assert block_size % hash_block_size == 0\n    return BlockHashListWithBlockSize(block_hashes, hash_block_size, block_size)\n"
+        }
+      }
+    },
+    "vllm/v1/core/block_pool.py": {
+      "source_sha256": "daf37f8c3e85d6debac02df2ac2356f5500555b613a369e8efdc66a0db94286b",
+      "snippets": {
+        "BlockHashToBlockMap": {
+          "lines": [
+            33,
+            140
+          ],
+          "sha256": "4b83d3a18ed7c89ae16ec163f963795e11b0b15075ee74661eaae461df1631aa",
+          "text": "class BlockHashToBlockMap:\n    \"\"\"\n    Cache of blocks that are used for prefix caching. It caches blocks\n    from hash directly to a block or multiple blocks\n    (i.e. {block_hash: KVCacheBlocks})\n    - Mostly block_hash maps to a single KVCacheBlock, and KVCacheBlocks\n        would simply be a KVCacheBlock.\n    - Otherwise, KVCacheBlocks is a dict from {block_id: KVCacheBlock}\n\n    A cached block is a full block with a block hash that can be used\n    for prefix caching.\n    The cached block may be used by running requests or in the\n    free_block_queue that could potentially be evicted.\n\n    NOTE #1: We currently don't de-duplicate the blocks in the cache,\n    meaning that if a block becomes full and is cached, we don't check\n    if there is already an identical block in the cache. This is because\n    we want to make sure the allocated block IDs won't change so that\n    block tables are append-only.\n    NOTE #2: The union type is introduced in order to reduce GC costs\n    from the inner dict.\n    \"\"\"\n\n    def __init__(self):\n        self._cache: dict[\n            BlockHashWithGroupId, KVCacheBlock | dict[int, KVCacheBlock]\n        ] = {}\n\n    def get_one_block(self, key: BlockHashWithGroupId) -> KVCacheBlock | None:\n        \"\"\"\n        Gets any block with the given block hash key.\n        \"\"\"\n        blocks = self._cache.get(key)\n        if blocks is not None:\n            if isinstance(blocks, KVCacheBlock):\n                return blocks\n            if isinstance(blocks, dict):\n                return next(iter(blocks.values()))\n            self._unexpected_blocks_type(blocks)\n        return None\n\n    def contain(self, key: BlockHashWithGroupId, block_id: int) -> bool:\n        \"\"\"\n        Checks whether the key maps to the given block ID.\n        \"\"\"\n        blocks = self._cache.get(key)\n        if blocks is None:\n            return False\n        if isinstance(blocks, KVCacheBlock):\n            return blocks.block_id == block_id\n        if isinstance(blocks, dict):\n            return block_id in blocks\n        self._unexpected_blocks_type(blocks)\n        return False\n\n    def insert(self, key: BlockHashWithGroupId, block: KVCacheBlock) -> None:\n        \"\"\"\n        Inserts the KVCacheBlock to the cache\n        \"\"\"\n        blocks = self._cache.get(key)\n        if blocks is None:\n            # When key is not found, attach a single block to the key\n            self._cache[key] = block\n        elif isinstance(blocks, KVCacheBlock):\n            # If there's a block with the same key, merge the original block\n            # and the new block into a dict\n            self._cache[key] = {blocks.block_id: blocks, block.block_id: block}\n        elif isinstance(blocks, dict):\n            # If it's already a dict, simply insert the block\n            blocks[block.block_id] = block\n        else:\n            self._unexpected_blocks_type(blocks)\n\n    def pop(self, key: BlockHashWithGroupId, block_id: int) -> KVCacheBlock | None:\n        \"\"\"\n        Checks if block_hash exists and pop block_id from the cache\n        \"\"\"\n        blocks = self._cache.pop(key, None)\n        if blocks is None:\n            # block_hash not found in the cache\n            return None\n        # TODO(Jialin): If key is found, block_id should always present\n        # in blocks. We currently keep the original behaviour for safety.\n        #\n        # Will add block_id == blocks.block_id assertion and\n        # use del blocks[block_id] instead as followup.\n        if isinstance(blocks, KVCacheBlock):\n            if blocks.block_id == block_id:\n                return blocks\n            # If the single block ID doesn't match, we should put the\n            # block back (it should happen rarely)\n            self._cache[key] = blocks\n            return None\n        if isinstance(blocks, dict):\n            # Try to pop block_id from the block dict, and if dict still\n            # contain blocks, put back to the cache.\n            block = blocks.pop(block_id, None)\n            if len(blocks) > 0:\n                self._cache[key] = blocks\n            return block\n        self._unexpected_blocks_type(blocks)\n        return None\n\n    def __len__(self) -> int:\n        return len(self._cache)\n\n    def _unexpected_blocks_type(self, blocks: Any) -> None:\n        raise AssertionError(f\"Invalid KV cache block type {type(blocks)}\")\n"
+        },
+        "BlockPool.cache_full_blocks": {
+          "lines": [
+            225,
+            342
+          ],
+          "sha256": "f964ae344ecab385ab80722ba7e29764e18d8dbb835d19889a34b15f56b3cae8",
+          "text": "    def cache_full_blocks(\n        self,\n        request: Request,\n        blocks: list[KVCacheBlock],\n        num_cached_blocks: int,\n        num_full_blocks: int,\n        block_size: int,\n        kv_cache_group_id: int,\n        block_mask: list[bool] | None = None,\n    ) -> None:\n        \"\"\"Cache a list of full blocks for prefix caching.\n        This function takes a list of blocks that will have their block hash\n        metadata to be updated and cached. Given a request, it updates the\n        metadata for each block and caching it in the\n        `cached_block_hash_to_block`.\n        The block hashes values are computed by the Request object immediately\n        when it is created and when new tokens are appended.\n\n        Args:\n            request: The request to cache the blocks.\n            blocks: All blocks in the request.\n            num_cached_blocks: The number of blocks that are already cached.\n            num_full_blocks: The number of blocks that are full and should\n                be cached after this function.\n            block_size: Number of tokens in each block.\n            kv_cache_group_id: The id of the KV cache group.\n            block_mask: Optional mask aligned with\n                ``blocks[num_cached_blocks:num_full_blocks]``. When provided,\n                blocks where the mask is False are skipped (treated like null\n                blocks). Used by groups whose ``find_longest_cache_hit`` only\n                consults a subset of blocks (e.g. SWA tail-window), so blocks\n                that can never serve a hit stay out of the prefix-cache hash\n                map.\n        \"\"\"\n        if num_cached_blocks >= num_full_blocks:\n            return\n        new_full_blocks = blocks[num_cached_blocks:num_full_blocks]\n        assert block_mask is None or len(block_mask) == len(new_full_blocks)\n        block_hashes = resolve_block_hashes(\n            request.block_hashes, self.hash_block_size, block_size\n        )\n\n        new_block_hashes = block_hashes[num_cached_blocks:]\n        new_hashes: list[ExternalBlockHash] | None = (\n            [] if self.enable_kv_cache_events else None\n        )\n        for i, blk in enumerate(new_full_blocks):\n            # Some blocks may be null or masked out when enabling sparse attention\n            # like sliding window attention, or Mamba models with prefix-caching\n            # in align mode. We skip null blocks here.\n            if blk.is_null or (block_mask is not None and not block_mask[i]):\n                continue\n            block_hash = new_block_hashes[i]\n            num_hash_tokens = (num_cached_blocks + i + 1) * block_size\n\n            # Update and added the full block to the cache.\n            block_hash_with_group_id = make_block_hash_with_group_id(\n                block_hash, kv_cache_group_id\n            )\n            if blk.block_hash is not None:\n                # The only valid case where a \"new full block\" already has a\n                # hash is partial->full promotion of the same cache block.\n                assert (\n                    blk.block_hash_num_tokens is not None\n                    and blk.block_hash_num_tokens < num_hash_tokens\n                )\n                removed_hashes = self._remove_cached_block_hashes(blk)\n                self._emit_block_removed_events(removed_hashes)\n            self._insert_block_hash(\n                block_hash_with_group_id,\n                blk,\n                num_tokens=num_hash_tokens,\n            )\n            if new_hashes is not None:\n                new_hashes.append(maybe_convert_block_hash(block_hash))\n\n        if self.enable_kv_cache_events:\n            if num_cached_blocks == 0:\n                parent_block_hash: ExternalBlockHash | None = None\n            else:\n                parent_block_hash = maybe_convert_block_hash(\n                    block_hashes[num_cached_blocks - 1]\n                )\n\n            # Calculate token range for the blocks being cached\n            start_token_idx = num_cached_blocks * block_size\n            end_token_idx = num_full_blocks * block_size\n\n            # Generate extra keys for each block individually.\n            # Each block may have different extra_keys (e.g., different MM\n            # features, or cache_salt only for the first block).\n            # Skip null/masked-out blocks to match the length of new_hashes.\n            extra_keys_list: list[tuple[Any, ...] | None] = []\n            curr_mm_idx = 0\n            for i in range(num_cached_blocks, num_full_blocks):\n                if blocks[i].is_null:\n                    continue\n                if block_mask is not None and not block_mask[i - num_cached_blocks]:\n                    continue\n                block_start = i * block_size\n                block_end = block_start + block_size\n                extra_keys, curr_mm_idx = generate_block_hash_extra_keys(\n                    request, block_start, block_end, curr_mm_idx\n                )\n                extra_keys_list.append(extra_keys)\n\n            self.kv_event_queue.append(\n                self._build_block_stored_event(\n                    request,\n                    block_hashes=new_hashes,\n                    parent_block_hash=parent_block_hash,\n                    start_token_idx=start_token_idx,\n                    end_token_idx=end_token_idx,\n                    block_size=block_size,\n                    kv_cache_group_id=kv_cache_group_id,\n                    extra_keys_list=extra_keys_list,\n                )\n            )\n"
+        },
+        "BlockPool._build_block_stored_event": {
+          "lines": [
+            344,
+            371
+          ],
+          "sha256": "6a63978c89363c4813378d181b507026288bde328723f72d0dcbbe36179a15ea",
+          "text": "    def _build_block_stored_event(\n        self,\n        request: Request,\n        block_hashes: list[ExternalBlockHash] | None,\n        parent_block_hash: ExternalBlockHash | None,\n        start_token_idx: int,\n        end_token_idx: int,\n        block_size: int,\n        kv_cache_group_id: int,\n        extra_keys_list: list[tuple[Any, ...] | None],\n    ) -> BlockStored:\n        \"\"\"Build a ``BlockStored`` KV event for ``request``.\n\n        Shared by ``cache_full_blocks`` (newly cached blocks) and\n        ``emit_cached_block_events`` (prefix-cache-reused blocks) so both emit\n        identical event shapes for downstream consumers.\n        \"\"\"\n        return BlockStored(\n            block_hashes=block_hashes,\n            parent_block_hash=parent_block_hash,\n            token_ids=request.all_token_ids[start_token_idx:end_token_idx],\n            block_size=block_size,\n            lora_id=request.lora_request.adapter_id if request.lora_request else None,\n            medium=MEDIUM_GPU,\n            lora_name=request.lora_request.name if request.lora_request else None,\n            extra_keys=extra_keys_list if extra_keys_list else None,\n            group_idx=kv_cache_group_id,\n        )\n"
+        },
+        "BlockPool._insert_block_hash": {
+          "lines": [
+            607,
+            627
+          ],
+          "sha256": "14a8749486bcd9f6c32840674d6829e7f23c8e5355c4194694757a0a3d08559d",
+          "text": "    def _insert_block_hash(\n        self,\n        block_hash_with_group_id: BlockHashWithGroupId,\n        block: KVCacheBlock,\n        num_tokens: int | None,\n    ) -> None:\n        if block.block_hash == block_hash_with_group_id:\n            return\n\n        if self.cached_block_hash_to_block.contain(\n            block_hash_with_group_id, block.block_id\n        ):\n            return\n\n        if block.block_hash is None:\n            block.set_block_hash(block_hash_with_group_id, num_tokens=num_tokens)\n        else:\n            self.cached_block_hashes_by_block.setdefault(block.block_id, set()).add(\n                block_hash_with_group_id\n            )\n        self.cached_block_hash_to_block.insert(block_hash_with_group_id, block)\n"
+        }
+      }
+    },
+    "vllm/v1/core/single_type_kv_cache_manager.py": {
+      "source_sha256": "3038a12b187453a5e1a3b2fd4f5cb4f5be08b23108f8352263032d9179472d55",
+      "snippets": {
+        "SingleTypeKVCacheManager.cache_blocks": {
+          "lines": [
+            432,
+            482
+          ],
+          "sha256": "21d844c61f349f04c7144edacd15255c1d37cf72103c16a680bc3d8651a189b1",
+          "text": "    def cache_blocks(\n        self,\n        request: Request,\n        num_tokens: int,\n        retention_interval: int | None = None,\n    ) -> None:\n        \"\"\"\n        Cache the blocks for the request.\n\n        Args:\n            request: The request.\n            num_tokens: The total number of tokens that need to be cached\n                (including tokens that are already cached).\n            retention_interval: Sparse local-checkpoint granularity. ``None``\n                keeps dense checkpointing; ``0`` keeps only the latest replay\n                boundary; a positive multiple of ``scheduler_block_size`` keeps\n                a tail once per that-sized segment. Only SWA acts on it.\n        \"\"\"\n        num_cached_blocks = self.num_cached_block.get(request.request_id, 0)\n        num_full_blocks = num_tokens // self.block_size\n\n        if num_cached_blocks >= num_full_blocks:\n            return\n\n        # Token boundaries whose reachable tail must be retained under sparse\n        # retention: the replay boundary (``num_prompt - 1``, capped by\n        # ``get_computed_blocks``) and any detected shared-prefix junction.\n        reachable_boundaries = [request.num_prompt_tokens - 1]\n        if request.shared_prefix_boundary:\n            reachable_boundaries.append(request.shared_prefix_boundary)\n\n        block_mask = self.reachable_block_mask(\n            start_block=num_cached_blocks,\n            end_block=num_full_blocks,\n            alignment_tokens=self.cache_hit_alignment_tokens,\n            kv_cache_spec=self.kv_cache_spec,\n            use_eagle=self.use_eagle,\n            retention_interval=retention_interval,\n            reachable_boundaries=reachable_boundaries,\n        )\n        self.block_pool.cache_full_blocks(\n            request=request,\n            blocks=self.req_to_blocks[request.request_id],\n            num_cached_blocks=num_cached_blocks,\n            num_full_blocks=num_full_blocks,\n            block_size=self.block_size,\n            kv_cache_group_id=self.kv_cache_group_id,\n            block_mask=block_mask,\n        )\n\n        self.num_cached_block[request.request_id] = num_full_blocks\n"
+        },
+        "SingleTypeKVCacheManager.reachable_block_mask": {
+          "lines": [
+            484,
+            503
+          ],
+          "sha256": "9ae5dc3aad6024c2dea309a3577078adf0c9f1277913f82624bb8298928df1af",
+          "text": "    @classmethod\n    def reachable_block_mask(\n        cls,\n        start_block: int,\n        end_block: int,\n        alignment_tokens: int | None,\n        kv_cache_spec: KVCacheSpec,\n        use_eagle: bool,\n        retention_interval: int | None = None,\n        reachable_boundaries: Sequence[int] = (),\n    ) -> list[bool] | None:\n        \"\"\"Per-block mask for ``cache_full_blocks``. ``None`` means cache\n        every (non-null) block \u2014 the default for full attention.\n\n        Subclasses with sparse hit semantics (SWA / Mamba) override this to skip\n        blocks that can never serve a hit at any alignment-aligned prefix length.\n        ``reachable_boundaries`` are token positions whose reachable tail must be\n        retained; the base (dense) policy ignores them.\n        \"\"\"\n        return None\n"
+        },
+        "FullAttentionManager.cache_blocks": {
+          "lines": [
+            789,
+            799
+          ],
+          "sha256": "621b47e9e0738729605024ef1bb0a1c1ba8773210240818f0b840dfeda843eca",
+          "text": "    def cache_blocks(\n        self,\n        request: Request,\n        num_tokens: int,\n        retention_interval: int | None = None,\n    ) -> None:\n        super().cache_blocks(request, num_tokens, retention_interval=retention_interval)\n        hash_block_size = self.block_pool.hash_block_size\n        if self.block_size == hash_block_size:\n            return\n        self._cache_partial_tail_block(request, num_tokens)\n"
+        }
+      }
+    },
+    "vllm/v1/core/sched/async_scheduler.py": {
+      "source_sha256": "e586a0ef3c6778be56a93e7f9bb712d4de9de6e7d7fe7e3e1d51dae83ecfc508",
+      "snippets": {
+        "AsyncScheduler._update_request_with_output": {
+          "lines": [
+            51,
+            70
+          ],
+          "sha256": "c4c4ccac872af0405757c4f8c7cccc489c7df04d626ca676eade8ad93870bf52",
+          "text": "    def _update_request_with_output(\n        self, request: Request, new_token_ids: list[int], is_stale: bool = False\n    ) -> tuple[list[int], bool]:\n        status_before_update = request.status\n        new_token_ids, stopped = super()._update_request_with_output(\n            request, new_token_ids\n        )\n\n        # Placeholders were zeroed at preemption; a stale delivery must not\n        # decrement them (it would underflow).\n        if not is_stale:\n            request.num_output_placeholders -= len(new_token_ids)\n            assert request.num_output_placeholders >= 0\n\n        # Cache the new tokens. Preempted requests should be skipped.\n        if status_before_update == RequestStatus.RUNNING:\n            self.kv_cache_manager.cache_blocks(\n                request, request.num_computed_tokens - request.num_output_placeholders\n            )\n        return new_token_ids, stopped\n"
+        }
+      }
+    },
+    "vllm/v1/core/sched/scheduler.py": {
+      "source_sha256": "abca7134821e2fb5cc8572df5c4a0b570ecf702646254327bc786fc452074983",
+      "snippets": {
+        "Scheduler._update_request_with_output": {
+          "lines": [
+            2270,
+            2287
+          ],
+          "sha256": "ff6e3f664c996a8f17eefa1808b392ae97ff3c57ee996a6d21d17b26d298f062",
+          "text": "    def _update_request_with_output(\n        self, request: Request, new_token_ids: list[int], is_stale: bool = False\n    ) -> tuple[list[int], bool]:\n        # is_stale is only used by the AsyncScheduler override.\n        # Append generated tokens and check for stop. Note that if\n        # a request is still being prefilled, we expect the model runner\n        # to return empty token ids for the request.\n        stopped = False\n        for num_new, output_token_id in enumerate(new_token_ids, 1):\n            request.append_output_token_ids(output_token_id)\n\n            # Check for stop and update request state.\n            # This must be called before we make the EngineCoreOutput.\n            stopped = check_stop(request, self.max_model_len)\n            if stopped:\n                del new_token_ids[num_new:]  # Trim new tokens if needed.\n                break\n        return new_token_ids, stopped\n"
+        }
+      }
+    },
+    "vllm/distributed/kv_events.py": {
+      "source_sha256": "b1b0e99292790b39e05b27a2800294cd00821bbc1cc8bec8e05279fab72ad6c2",
+      "snippets": {
+        "KVCacheEvent": {
+          "lines": [
+            36,
+            42
+          ],
+          "sha256": "2ff86cf2bdb3b1a3f56020c3315d0783cb965c0533da80930b5f3bc8217cd145",
+          "text": "class KVCacheEvent(\n    msgspec.Struct,\n    omit_defaults=True,  # type: ignore[call-arg]\n    gc=False,  # type: ignore[call-arg]\n    tag=True,\n):\n    \"\"\"Base class for all KV cache-related events\"\"\"\n"
+        },
+        "BlockStored": {
+          "lines": [
+            50,
+            98
+          ],
+          "sha256": "306a28ac867e7c9057ad02ccb2fc381976883356691a5369c6421485c49c3d34",
+          "text": "class BlockStored(KVCacheEvent):\n    block_hashes: list[ExternalBlockHash]\n    parent_block_hash: ExternalBlockHash | None\n    token_ids: list[int]\n    block_size: int\n\n    \"\"\"Deprecated: use `lora_name` for KV block key hash.\n    Retained for backward compatibility.\n    \"\"\"\n    lora_id: int | None\n\n    medium: str | None\n    lora_name: str | None\n\n    \"\"\"Extra keys used in block hash computation, one entry per block in\n    block_hashes. Each entry contains MM identifiers, LoRA name, cache_salt,\n    prompt embedding hashes, etc. for that specific block. Exposed for external\n    KV cache consumers to reconstruct block hashes.\n    \"\"\"\n    extra_keys: list[tuple[Any, ...] | None] | None = None\n\n    \"\"\"Store events carry cache-spec metadata so consumers can classify and\n    filter groups as they are learned. Remove events only need group_idx+hash.\n    \"\"\"\n    group_idx: int | None = None\n    kv_cache_spec_kind: str | None = None\n    kv_cache_spec_sliding_window: int | None = None\n    \"\"\"LOCAL or REMOTE relative to the publisher; None means unspecified.\"\"\"\n    locality: str | None = None\n    \"\"\"Secondary offloading tier identifier, if generated by one.\"\"\"\n    ownership: str | None = None\n\n    def __hash__(self) -> int:\n        return hash(\n            (\n                tuple(self.block_hashes),\n                self.parent_block_hash,\n                tuple(self.token_ids),\n                self.block_size,\n                self.lora_id,\n                self.medium,\n                tuple(self.extra_keys) if self.extra_keys else None,\n                self.group_idx,\n                self.kv_cache_spec_kind,\n                self.kv_cache_spec_sliding_window,\n                self.locality,\n                self.ownership,\n            )\n        )\n"
+        }
+      }
+    }
+  }
+}

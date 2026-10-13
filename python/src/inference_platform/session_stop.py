@@ -2,10 +2,82 @@
 
 import argparse
 import ctypes
+import json
 import os
+import re
 import signal
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+
+
+def terminate_forward_session(child) -> dict:
+    """End only the session in this owned child's private log, before killing it."""
+    log = getattr(child, "r1_ssm_log", None)
+    if not isinstance(log, Path):
+        return {"status": "not_ssm_forward"}
+    previous = getattr(child, "r1_ssm_termination", None)
+    if isinstance(previous, dict):
+        return previous
+    receipt = log.with_suffix(".termination.json")
+    if receipt.exists():
+        try:
+            previous = json.loads(receipt.read_bytes())
+            if isinstance(previous, dict):
+                child.r1_ssm_termination = previous
+                return previous
+        except (OSError, ValueError):
+            pass  # A damaged receipt must not prevent session termination.
+    result = {"status": "session_id_unavailable"}
+    try:
+        matches = re.findall(
+            r"(?m)^Starting session with SessionId:\s*(\S+)\s*$",
+            log.read_bytes().decode("utf-8", errors="replace"),
+        )
+        if len(matches) == 1:
+            env = {**child.r1_ssm_env, "AWS_CLI_OUTPUT_ENCODING": "utf-8"}
+            command = [
+                *child.r1_ssm_argv,
+                "ssm",
+                "terminate-session",
+                "--session-id",
+                matches[0],
+                "--output",
+                "json",
+                "--no-cli-pager",
+            ]
+            completed = subprocess.run(
+                command, env=env, capture_output=True, timeout=10, check=True
+            )
+            completed.stdout.decode("utf-8")
+            result = {"status": "terminated", "returncode": completed.returncode}
+    except Exception as exc:
+        result = {"status": "failed", "error_type": type(exc).__name__}
+    child.r1_ssm_termination = result
+    try:
+        receipt.write_bytes((json.dumps(result) + "\n").encode("utf-8"))
+    except OSError as exc:
+        result["receipt_error_type"] = type(exc).__name__
+    return result
+
+
+def terminate_operator_sessions(runtime, invocation_token):
+    """A lifecycle timeout must close this operator's sessions before tree kill."""
+    results = []
+    for registry in Path(runtime).glob("*.owner.json"):
+        try:
+            binding = json.loads(registry.read_bytes())
+            if not invocation_token or binding.get("invocation_token") != invocation_token:
+                continue
+            child = SimpleNamespace(
+                r1_ssm_log=registry.with_suffix("").with_suffix(".log"),
+                r1_ssm_env=dict(os.environ),
+                r1_ssm_argv=["aws", "--profile", binding["profile"], "--region", binding["region"]],
+            )
+            results.append(terminate_forward_session(child))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            results.append({"status": "registry_unreadable", "error_type": type(exc).__name__})
+    return results
 
 
 def stop_child(child: subprocess.Popen, timeout: float = 5) -> dict:
@@ -22,6 +94,7 @@ def stop_child(child: subprocess.Popen, timeout: float = 5) -> dict:
 
 def stop_forward(child: subprocess.Popen) -> dict:
     """The AWS CLI owns a plugin child; terminate the forward's process tree too."""
+    terminate_forward_session(child)  # Also covers non-R1 paid-path forward owners.
     if os.name == "nt":
         if child.poll() is None:
             subprocess.run(

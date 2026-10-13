@@ -41,6 +41,15 @@ func TestCheckConfigUsesLaunchParser(t *testing.T) {
 	if got := runWithMode(true); got != 0 {
 		t.Fatalf("reviewed backend returned %d, want 0", got)
 	}
+	t.Setenv("GATEWAY_ROUTING_SEED", "4242")
+	if got := runWithMode(true); got != 0 {
+		t.Fatalf("registered routing seed returned %d, want 0", got)
+	}
+	t.Setenv("GATEWAY_ROUTING_SEED", "not-an-integer")
+	if got := runWithMode(true); got != 2 {
+		t.Fatalf("invalid routing seed returned %d, want 2", got)
+	}
+	t.Setenv("GATEWAY_ROUTING_SEED", "4242")
 	t.Setenv("ADMISSION_LEASE", "1s")
 	if got := runWithMode(true); got != 2 {
 		t.Fatalf("invalid full environment returned %d, want 2", got)

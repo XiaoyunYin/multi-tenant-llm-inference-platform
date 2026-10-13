@@ -659,6 +659,7 @@ def _run_rewarm(config: StageCConfig, suffix: str, deadline: float, result: dict
                 else "repeated-reset-rewarm-prefix"
             ),
             deadline=deadline,
+            capture_prefix_cache_counters=True,
         )
         _require_preload_sampling(run)
         repeats.append({"repeat": repeat + 1, "run": run})

@@ -89,6 +89,13 @@ def compact(value, *, measurements=True):
 
 
 def measurement_digest(session, run, directory, config=None):
+    from .stage_c_registered import REGISTRATION
+
+    if run.get("retention_registration") == REGISTRATION:
+        # The checkpoint uses the same validated source-table serializer as sizing.
+        # There is no sizing-only encoder or activation of the observational patch.
+        return {"schema": "stage-c-registered-source.v1", "run": run}
+
     from .decision_export import export_decisions
     from .failure_taxonomy import classification
     from .kv_event_capture import (
@@ -323,6 +330,11 @@ def request_table(run, lookup=None):
 
 def seal_digest(path, value):
     from .stage_c_checkpoint import file_sha
+
+    if value.get("schema") == "stage-c-registered-source.v1":
+        from .stage_c_registered import seal_registered
+
+        return seal_registered(path, value["run"])
 
     if not isinstance(value.get("run"), dict) or not isinstance(value.get("event_lag"), dict):
         raise ValueError("measurement digest requires run and event_lag objects")

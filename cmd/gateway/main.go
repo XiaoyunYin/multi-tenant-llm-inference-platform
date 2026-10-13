@@ -274,6 +274,16 @@ func runWithMode(checkConfig bool) int {
 		gateway.WithTenantRegistry(tenants), gateway.WithAdmissionCoordinator(coordinator),
 		gateway.WithBackendMetricsCollector(backendMetrics), gateway.WithRouter(router),
 	}
+	var routingSeed *int64
+	if value, present := os.LookupEnv("GATEWAY_ROUTING_SEED"); present {
+		seed, parseErr := strconv.ParseInt(value, 10, 64)
+		if parseErr != nil {
+			logger.Error("invalid routing seed", "error", parseErr)
+			return 2
+		}
+		routingSeed = &seed
+		serviceOptions = append(serviceOptions, gateway.WithRoutingSeed(seed))
+	}
 	if discoveryConfig != nil {
 		serviceOptions = append(serviceOptions, gateway.WithRoutingEvents())
 	}
@@ -313,6 +323,7 @@ func runWithMode(checkConfig bool) int {
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
 	logger.Info("gateway started", "address", address, "backends", len(backends), "pid", os.Getpid(),
+		"routing_policy", router.PolicyName(), "routing_seed", routingSeed,
 		"first_item_timeout_seconds", gatewayConfig.FirstItemTimeout.Seconds(),
 		"total_timeout_seconds", gatewayConfig.TotalTimeout.Seconds(),
 		"admission_configuration", map[string]any{

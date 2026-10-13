@@ -405,7 +405,18 @@ def export(session: Path, manifest_path: Path, *, recovery=False) -> dict:
         "disk-before-pull.json",
         *[f"disk-checkpoint-{n}.json" for n in range(1, 5)],
     ]
-    if (session / "stage-c-summary.json").exists():
+    from .stage_c_registered import final_metadata_projection
+
+    registered_receipts = list((session / "sealed-runs").glob("*.digest.json.gz.failure.json"))
+    registered_receipts += [
+        path
+        for path in (session / "sealed-runs").glob("*.digest.receipt.json")
+        if json.loads(path.read_text(encoding="utf-8")).get("registration")
+        == "stage-c-remainder-v1"
+    ]
+    if registered_receipts:
+        write_json(evidence / "stage-c-artifact.json", final_metadata_projection(session))
+    elif (session / "stage-c-summary.json").exists():
         # The full measurements are already in the per-run archives and digests.
         # Final export carries computations/acceptance metadata, never raw streams.
         shutil.copyfile(session / "stage-c-summary.json", evidence / "stage-c-artifact.json")
@@ -442,6 +453,15 @@ def export(session: Path, manifest_path: Path, *, recovery=False) -> dict:
                 encoding_warnings.append({"file": name, "status": "non_utf8_bytes_escaped"})
     for path in sorted((session / "sealed-runs").glob("run-*")):
         if path.is_file() and path.name.endswith(".receipt.json"):
+            if registered_receipts and path.name.endswith(".digest.receipt.json"):
+                receipt_value = json.loads(path.read_text(encoding="utf-8"))
+                write_json(
+                    evidence / path.name,
+                    {key: value for key, value in receipt_value.items() if key != "sections"},
+                )
+            else:
+                shutil.copyfile(path, evidence / path.name)
+        elif path.is_file() and path.name.endswith(".digest.json.gz.failure.json"):
             shutil.copyfile(path, evidence / path.name)
     if recovery and not (evidence / "stage-c-artifact.json").exists():
         write_json(
@@ -480,6 +500,18 @@ def export(session: Path, manifest_path: Path, *, recovery=False) -> dict:
     }
     if receipt["bytes"] > FINAL_LIMIT:
         archive.unlink()
+        write_json(
+            session / "export-retention.failure.json",
+            {
+                "schema": "stage-c-final-metadata-retention-failure.v1",
+                "flag": "retention_byte_ceiling_hit",
+                "table": "final_metadata",
+                "allowed": FINAL_LIMIT,
+                "attempted_count": receipt["bytes"],
+                "dependent_outputs": "unavailable",
+                "full_measured_session_acceptance": False,
+            },
+        )
         raise ValueError("final export exceeds conservative 600-second transfer reserve")
     write_json(session / "export-receipt.json", receipt)
     return receipt
@@ -1408,6 +1440,8 @@ def remote_session(args) -> int:
                     "--no-cli-pager",
                 ],
                 text=True,
+                encoding="utf-8",
+                env={**os.environ, "AWS_CLI_OUTPUT_ENCODING": "utf-8"},
                 timeout=timeout,
                 stderr=subprocess.PIPE,
             )
@@ -1535,8 +1569,10 @@ def remote_session(args) -> int:
             parameters = json.dumps(
                 {"portNumber": [str(remote_port)], "localPortNumber": [str(port)]}
             )
-            with (args.session / "ssm-forward.log").open("ab") as log:
-                return subprocess.Popen(
+            log_path = args.session / ("ssm-forward-" + str(time.time_ns()) + ".log")
+            child_env = {**os.environ, "AWS_CLI_OUTPUT_ENCODING": "utf-8"}
+            with log_path.open("xb") as log:
+                child = subprocess.Popen(
                     [
                         "aws",
                         "ssm",
@@ -1553,10 +1589,21 @@ def remote_session(args) -> int:
                         profile,
                     ],
                     stdout=log,
+                    env=child_env,
                     stderr=subprocess.STDOUT,
                     creationflags=flags,
                     start_new_session=os.name != "nt",
                 )
+            child.r1_ssm_log = log_path
+            child.r1_ssm_env = child_env
+            child.r1_ssm_argv = ["aws", "--profile", profile, "--region", region]
+            return child
+
+        def stop_session_forward(child):
+            result = stop_forward(child)
+            with (args.session / "ssm-session-termination.jsonl").open("ab") as log:
+                log.write((json.dumps(child.r1_ssm_termination) + "\n").encode("utf-8"))
+            return result
 
         transport = ReconnectingTransport(
             start_forward,
@@ -1564,7 +1611,7 @@ def remote_session(args) -> int:
             nonce,
             deadline,
             outcome["transport_interruptions"],
-            stop=stop_forward,
+            stop=stop_session_forward,
         )
         status = json.loads(transport.get("/status"))
         if status["instance_termination_unix_s"] != persisted["instance_termination_unix_s"]:

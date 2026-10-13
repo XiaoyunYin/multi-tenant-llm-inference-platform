@@ -3,6 +3,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from inference_platform.calibration import CalibrationConfig, run_calibration
 from inference_platform.fake_backend import FakeBackend, FakeBackendConfig
 from inference_platform.stage_c import StageCConfig, _config_from_json, main, run_stage_c
+from inference_platform.time_budget import BudgetExhausted, deadline_urlopen
 
 
 class TimeBudgetTest(unittest.TestCase):
@@ -61,10 +63,50 @@ class TimeBudgetTest(unittest.TestCase):
             replace(config, session_window_seconds=20000).validate()
 
     def test_all_four_expire_cleanly_and_cli_writes_partial_nested_results(self):
+        # A 200 ms real budget can expire in reset/metrics/thread setup on CI,
+        # before the first level is offered. Drive expiry at the stream boundary
+        # instead. Keep the real recorder, sampler, partial nesting and CLI; the
+        # separate trickling-stream test below exercises real socket deadlines.
+        class RunClock:
+            now = time.perf_counter()
+
+            def perf_counter(self):
+                return self.now
+
+            def perf_counter_ns(self):
+                return int(self.now * 1e9)
+
+            def __getattr__(self, name):
+                return getattr(time, name)
+
+        clock = RunClock()
+
+        @contextmanager
+        def expiring_stream(request, *, timeout, deadline):
+            if not request.full_url.endswith("/v1/chat/completions"):
+                with deadline_urlopen(request, timeout=timeout, deadline=deadline) as response:
+                    yield response
+                return
+
+            class Response:
+                status = 200
+                headers = {"X-Inference-Backend": "fake-backend"}
+
+                def __iter__(self):
+                    clock.now = deadline + 0.001
+                    raise BudgetExhausted("run_time_budget_exhausted")
+
+            yield Response()
+
         with FakeBackend(FakeBackendConfig(first_item_delay_ms=1000)) as backend:
             config = self.config(backend.base_url)
             started = time.perf_counter()
-            result = run_stage_c(config)
+            with (
+                patch("inference_platform.calibration.time", clock),
+                patch("inference_platform.time_budget.time", clock),
+                patch("inference_platform.calibration.deadline_urlopen", expiring_stream),
+            ):
+                result = run_stage_c(config, monotonic_clock=clock.perf_counter)
             self.assertLess(time.perf_counter() - started, 2.5)
             self.assertEqual(result["status"], "partial")
             for run in result["timed_runs"]:

@@ -1,0 +1,8 @@
+{
+  "Events": [
+    {
+      "EventTime": "2026-10-07T14:20:48-07:00",
+      "CloudTrailEvent": "{\"eventTime\":\"2026-10-07T21:20:48Z\",\"eventName\":\"RunInstances\",\"eventSource\":\"ec2.amazonaws.com\",\"errorCode\":\"Server.InsufficientInstanceCapacity\",\"requestParameters\":{\"instanceType\":\"g6.xlarge\",\"instancesSet\":{\"items\":[{\"instanceType\":null}]}}}"
+    }
+  ]
+}
