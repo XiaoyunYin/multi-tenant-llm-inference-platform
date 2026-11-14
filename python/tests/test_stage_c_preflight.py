@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from environment_requirements import require_powershell
+
 from inference_platform.stage_c_session import (
     BUNDLE,
     ENTRYPOINT,
@@ -25,9 +27,7 @@ class PreflightTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[2]
-        cls.powershell_executable = shutil.which("powershell") or shutil.which("pwsh")
-        if cls.powershell_executable is None:
-            raise RuntimeError("PowerShell is required for the wrapper preflight tests")
+        cls.powershell_executable = require_powershell()
         cls.temp = tempfile.TemporaryDirectory(dir=cls.root / ".cache", prefix="preflight-")
         cls.directory = Path(cls.temp.name)
         cls.repo = cls.directory / "synthetic"

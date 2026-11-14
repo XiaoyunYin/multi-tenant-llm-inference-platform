@@ -1,0 +1,19 @@
+{
+  "scope": "Synthetic recorded authority protocol, not an AWS response or live proof",
+  "response": {
+    "status": "confirmed",
+    "complete": true,
+    "proof_id": "offline-durable-authority-proof"
+  },
+  "operations": {
+    "application.lookup": {"request_body": null, "absent_result": null},
+    "application.apply": {"result_fields": ["session_id", "plan_hash"]},
+    "odcr.lookup": {"request_body": null, "absent_result": null},
+    "odcr.acquire": {"result_fields": ["reservation_id", "zone", "instance_type", "platform", "tenancy", "total", "available", "state", "match_criteria"]},
+    "odcr.add": {"request_fields": ["group", "reservation_id"]},
+    "odcr.members": {"request_body": null, "empty_result": []},
+    "odcr.cancel": {"request_fields": ["group", "expected_ids"], "result_fields": ["verified", "complete", "stop_ms", "reservation_ids", "states"]},
+    "backstop.arm": {"request_fields": ["session_id", "deadline_ms"]},
+    "backstop.lookup": {"request_body": null, "absent_result": null}
+  }
+}

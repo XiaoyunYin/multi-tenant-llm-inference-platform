@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from inference_platform.r1_cloud_operator import Forward, Operator
+from inference_platform.package_a_operator import Ports
+from inference_platform.package_a_cloud import save
 from inference_platform.r1_spec import encoded
 from inference_platform.session_stop import stop_child
 
@@ -28,6 +30,7 @@ def run(output):
     paths = [
         "scripts/r1_windows_cli_rehearsal.py",
         "python/src/inference_platform/r1_cloud_operator.py",
+        "python/src/inference_platform/package_a_operator.py",
         "python/src/inference_platform/session_stop.py",
     ]
     sources = {}
@@ -39,6 +42,9 @@ def run(output):
         sources[path] = hashlib.sha256(data).hexdigest()
     calls, stopped = [], []
     text = "\u2192 \u2018cloud-init\u2019"
+    retry_polls = []
+    inject_first_poll = [False]
+    observed_invocation_exits = []
 
     class SSM(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -54,11 +60,25 @@ def run(output):
                 }
             )
             if target.endswith("GetCommandInvocation"):
+                if inject_first_poll[0]:
+                    retry_polls.append(time.monotonic())
+                    if len(retry_polls) == 1:
+                        data = b'{"__type":"InvocationDoesNotExist","Message":"first poll fixture"}'
+                        self.send_response(400)
+                        self.send_header("Content-Type", "application/x-amz-json-1.1")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
                 result = {
                     "Status": "Success",
                     "StandardOutputContent": text,
                     "StandardErrorContent": "",
                     "ResponseCode": 0,
+                }
+            elif target.endswith("SendCommand"):
+                result = {
+                    "Command": {"CommandId": "00000000-0000-0000-0000-000000000000"}
                 }
             elif target.endswith("TerminateSession"):
                 result = {"SessionId": body["SessionId"]}
@@ -142,6 +162,36 @@ def run(output):
             ):
                 channel.close()
             assert child.poll() is not None and stopped
+            # Drive the production override and inherited SSM retry through the
+            # real Windows CLI, including its first-poll exit 254.
+            manifest = {"session_manager_plugin_path": "unused-fixture"}
+            save(output / "dec077/manifest.json", manifest)
+            ports = Ports(output / "dec077", manifest, profile="fixture")
+            inject_first_poll[0] = True
+            retry_started = time.monotonic()
+            check_output = subprocess.check_output
+
+            def observe_invocation_exit(argv, *args, **kwargs):
+                try:
+                    return check_output(argv, *args, **kwargs)
+                except subprocess.CalledProcessError as exc:
+                    if "get-command-invocation" in [str(part).lower() for part in argv]:
+                        observed_invocation_exits.append(exc.returncode)
+                    raise
+
+            with patch(
+                "inference_platform.r1_cloud_operator.subprocess.check_output",
+                side_effect=observe_invocation_exit,
+            ):
+                retry_value = ports.ssm(
+                    "i-00000000000000000", ["printf fixture"], timeout_s=20
+                )
+            retry_elapsed = time.monotonic() - retry_started
+            assert retry_value["Status"] == "Success" and len(retry_polls) == 2
+            assert (
+                len(observed_invocation_exits) == 1
+                and observed_invocation_exits[0] != 0
+            )
         events = [
             json.loads(line)
             for line in (output / "operator/generator-ready-channel.jsonl")
@@ -162,6 +212,9 @@ def run(output):
             "unicode_parsed": value["StandardOutputContent"],
             "unicode_utf8_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "operator_aws_elapsed_s": elapsed,
+            "dec077_observed_invocation_exits": observed_invocation_exits,
+            "dec077_invocation_polls": len(retry_polls),
+            "dec077_ssm_retry_elapsed_s": retry_elapsed,
             "http_requests": calls,
             "terminate_before_plugin_stop": stopped[0][
                 "terminate_received_before_stop"

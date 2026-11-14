@@ -19,6 +19,7 @@ const (
 	TenantRateLimited
 	TenantConcurrencyLimited
 	SystemCapacityLimited
+	CapacityReportsExpired
 )
 
 func (decision Decision) Code() string {
@@ -31,6 +32,8 @@ func (decision Decision) Code() string {
 		return "tenant_concurrency_limit"
 	case SystemCapacityLimited:
 		return "system_capacity"
+	case CapacityReportsExpired:
+		return "capacity_reports_expired"
 	default:
 		return ""
 	}
@@ -52,6 +55,7 @@ type Result struct {
 	Decision   Decision
 	RetryAfter time.Duration
 	Idempotent bool
+	Capacity   int64 // Effective B; -1 for legacy three-field responses.
 }
 
 type Coordinator interface {
@@ -60,10 +64,20 @@ type Coordinator interface {
 }
 
 type RedisConfig struct {
-	Namespace      string
-	GlobalCapacity int64
-	LeaseDuration  time.Duration
-	TombstoneTTL   time.Duration
+	MeasurementCapture bool // Secured, untrimmed Redis Stream; default off.
+	Namespace          string
+	GlobalCapacity     int64
+	LeaseDuration      time.Duration
+	TombstoneTTL       time.Duration
+	DynamicCapacity    *DynamicCapacityConfig // nil explicitly retains configured GlobalCapacity.
+}
+
+// Values are deployment inputs, frozen in slice 4, never inferred from traffic.
+type DynamicCapacityConfig struct {
+	Running   int64
+	Waiting   int64
+	ReportTTL time.Duration
+	HoldDown  time.Duration
 }
 
 var (
@@ -98,8 +112,15 @@ func NewRedisCoordinator(client redis.Scripter, config RedisConfig) (*RedisCoord
 	if !namespacePattern.MatchString(config.Namespace) {
 		return nil, errors.New("admission namespace must be 1-127 alphanumeric, colon, underscore, or hyphen characters")
 	}
-	if config.GlobalCapacity <= 0 {
+	if config.DynamicCapacity == nil && config.GlobalCapacity <= 0 {
 		return nil, errors.New("global capacity must be positive")
+	}
+	if d := config.DynamicCapacity; d != nil {
+		if d.Running <= 0 || d.Waiting <= 0 || d.Running > 1000000 || d.Waiting > 1000000 || d.ReportTTL.Milliseconds() <= 0 || d.HoldDown.Milliseconds() <= 0 {
+			return nil, errors.New("dynamic capacity requires positive bounded R/W and millisecond TTL/hold-down")
+		}
+		copy := *d
+		config.DynamicCapacity = &copy
 	}
 	if durationMilliseconds(config.LeaseDuration) <= 0 || durationMilliseconds(config.TombstoneTTL) <= 0 {
 		return nil, errors.New("lease and tombstone durations must be at least one millisecond")
@@ -136,27 +157,64 @@ func (c *RedisCoordinator) Admit(ctx context.Context, request Request) (Result, 
 		tenantPrefix + "rate",
 		c.keyPrefix + "config:global",
 		tenantPrefix + "config",
+		c.keyPrefix + "capacity:reports",
+		c.keyPrefix + "capacity:lows",
+		c.keyPrefix + "capacity:state",
 	}
 	globalMember := request.TenantID + ":" + request.ReservationID
+	args := []any{
+		request.ReservationID, globalMember, request.Limits.RequestLimit,
+		durationMilliseconds(request.Limits.RequestWindow), request.Limits.MaxConcurrent,
+		c.config.GlobalCapacity, durationMilliseconds(c.config.LeaseDuration),
+		durationMilliseconds(c.config.TombstoneTTL), c.stateTTLMS,
+	}
+	args = append(args, c.capacityArgs("admit", "", 0)...)
 	value, err := c.admitScript.Run(
 		ctx,
 		c.client,
 		keys,
-		request.ReservationID,
-		globalMember,
-		request.Limits.RequestLimit,
-		durationMilliseconds(request.Limits.RequestWindow),
-		request.Limits.MaxConcurrent,
-		c.config.GlobalCapacity,
-		durationMilliseconds(c.config.LeaseDuration),
-		durationMilliseconds(c.config.TombstoneTTL),
-		c.stateTTLMS,
+		args...,
 	).Result()
 	if err != nil {
 		return Result{}, fmt.Errorf("atomic admission: %w", err)
 	}
 	return parseAdmissionResult(value)
 }
+
+func (c *RedisCoordinator) capacityArgs(operation, gateway string, healthy int64) []any {
+	d := c.config.DynamicCapacity
+	capture := ""
+	if c.config.MeasurementCapture {
+		capture = "capture"
+	}
+	if d == nil {
+		return []any{"fixed", 0, 0, 0, 0, operation, gateway, healthy, capture}
+	}
+	return []any{"dynamic", d.Running, d.Waiting, d.ReportTTL.Milliseconds(), d.HoldDown.Milliseconds(), operation, gateway, healthy, capture}
+}
+
+// ReportHealthy withholds the report when known=false: only an unknown marker
+// is sent, without changing the old count or expiry. No tenant keys are touched.
+func (c *RedisCoordinator) ReportHealthy(ctx context.Context, gateway string, healthy int64, known bool) error {
+	if c.config.DynamicCapacity == nil || !tenantPattern.MatchString(gateway) || healthy < 0 || healthy > 1000000 {
+		return errors.New("dynamic capacity, valid gateway identity and bounded healthy count required")
+	}
+	op := "report"
+	if !known {
+		op = "unknown"
+	}
+	keys := []string{c.keyPrefix + "unused", c.keyPrefix + "unused", c.globalMemberKey, c.keyPrefix + "unused", c.keyPrefix + "config:global", c.keyPrefix + "unused", c.keyPrefix + "capacity:reports", c.keyPrefix + "capacity:lows", c.keyPrefix + "capacity:state", c.keyPrefix + "capacity:report:" + gateway}
+	args := []any{"", "", 1, 1, 1, c.config.GlobalCapacity, c.config.LeaseDuration.Milliseconds(), c.config.TombstoneTTL.Milliseconds(), c.stateTTLMS}
+	args = append(args, c.capacityArgs(op, gateway, healthy)...)
+	value, err := c.admitScript.Run(ctx, c.client, keys, args...).Result()
+	if err != nil {
+		return fmt.Errorf("atomic health report: %w", err)
+	}
+	_, err = parseAdmissionResult(value)
+	return err
+}
+
+func ValidGatewayID(id string) bool { return tenantPattern.MatchString(id) }
 
 func (c *RedisCoordinator) Release(ctx context.Context, tenantID, reservationID string) error {
 	if err := validateIdentity(tenantID, reservationID); err != nil {
@@ -168,6 +226,10 @@ func (c *RedisCoordinator) Release(ctx context.Context, tenantID, reservationID 
 		tenantPrefix + "active",
 		c.globalMemberKey,
 	}
+	capture := ""
+	if c.config.MeasurementCapture {
+		capture = "capture"
+	}
 	globalMember := tenantID + ":" + reservationID
 	value, err := c.releaseScript.Run(
 		ctx,
@@ -176,6 +238,7 @@ func (c *RedisCoordinator) Release(ctx context.Context, tenantID, reservationID 
 		reservationID,
 		globalMember,
 		durationMilliseconds(c.config.TombstoneTTL),
+		capture,
 	).Result()
 	if err != nil {
 		return fmt.Errorf("atomic release: %w", err)
@@ -216,7 +279,7 @@ func durationMilliseconds(duration time.Duration) int64 {
 
 func parseAdmissionResult(value any) (Result, error) {
 	items, ok := value.([]any)
-	if !ok || len(items) != 3 {
+	if !ok || (len(items) != 3 && len(items) != 4) {
 		return Result{}, fmt.Errorf("unexpected admission response %T", value)
 	}
 	code, ok := items[0].(string)
@@ -233,7 +296,13 @@ func parseAdmissionResult(value any) (Result, error) {
 	if retryMilliseconds > (1<<63-1)/int64(time.Millisecond) {
 		return Result{}, errors.New("admission retry value exceeds time.Duration")
 	}
-	result := Result{RetryAfter: time.Duration(retryMilliseconds) * time.Millisecond}
+	result := Result{RetryAfter: time.Duration(retryMilliseconds) * time.Millisecond, Capacity: -1}
+	if len(items) == 4 {
+		result.Capacity, err = responseInt64(items[3])
+		if err != nil || result.Capacity < 0 {
+			return Result{}, errors.New("invalid capacity response")
+		}
+	}
 	switch code {
 	case "allowed":
 		result.Decision = Allowed
@@ -251,6 +320,8 @@ func parseAdmissionResult(value any) (Result, error) {
 		result.Decision = TenantConcurrencyLimited
 	case "system_capacity":
 		result.Decision = SystemCapacityLimited
+	case "capacity_reports_expired":
+		result.Decision = CapacityReportsExpired
 	case "released":
 		return Result{}, ErrReservationReleased
 	case "config_mismatch":

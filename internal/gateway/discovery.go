@@ -39,16 +39,18 @@ func (c DiscoveryConfig) Validate() error {
 // EndpointSliceDiscovery lists one namespace with a service selector. No Pod,
 // Secret, mutation or watch permission is required. Each failure clears routing.
 type EndpointSliceDiscovery struct {
-	config   DiscoveryConfig
-	registry *Registry
-	client   *http.Client
-	apiURL   string
-	token    func() (string, error)
-	logger   *slog.Logger
-	mu       sync.Mutex
-	last     string
-	cancel   context.CancelFunc
-	done     chan struct{}
+	config          DiscoveryConfig
+	registry        *Registry
+	client          *http.Client
+	apiURL          string
+	token           func() (string, error)
+	logger          *slog.Logger
+	mu              sync.Mutex
+	last            string
+	cancel          context.CancelFunc
+	done            chan struct{}
+	pollSeq         uint64
+	resourceVersion string
 }
 
 func NewEndpointSliceDiscovery(config DiscoveryConfig, registry *Registry, client *http.Client, apiURL string, token func() (string, error), logger *slog.Logger) (*EndpointSliceDiscovery, error) {
@@ -95,7 +97,8 @@ func NewInClusterDiscovery(config DiscoveryConfig, registry *Registry, logger *s
 
 type endpointSliceList struct {
 	Metadata struct {
-		Continue string `json:"continue"`
+		Continue        string `json:"continue"`
+		ResourceVersion string `json:"resourceVersion"`
 	} `json:"metadata"`
 	Items []struct {
 		AddressType string `json:"addressType"`
@@ -155,6 +158,7 @@ func (d *EndpointSliceDiscovery) list(ctx context.Context) ([]*Backend, error) {
 	if slices.Metadata.Continue != "" {
 		return nil, errors.New("incomplete EndpointSlice list")
 	}
+	d.resourceVersion = slices.Metadata.ResourceVersion
 	byID := make(map[string]*Backend)
 	addresses := make(map[string]string)
 	// The controller may transiently duplicate a Pod across slices. A draining
@@ -229,13 +233,27 @@ func (d *EndpointSliceDiscovery) list(ctx context.Context) ([]*Backend, error) {
 func (d *EndpointSliceDiscovery) Poll(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.pollSeq++
+	d.registry.measurementSnapshot("poll_start", map[string]any{"poll_seq": d.pollSeq})
 	requestCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	backends, err := d.list(requestCtx)
 	if err != nil {
 		backends = nil
 	}
-	d.registry.ReplaceBackends(backends)
+	installStart := d.registry.measurementTime()
+	d.registry.replaceMembership(backends, err != nil)
+	installEnd := d.registry.measurementTime()
+	errorClass := ""
+	if err != nil {
+		errorClass = err.Error()
+	}
+	d.registry.measurementSnapshot("install", map[string]any{"poll_seq": d.pollSeq, "resource_version": d.resourceVersion, "error_class": errorClass, "event_start_ns": installStart, "event_end_ns": installEnd})
+	// Publish unknown transitions even when discovery recovers between health
+	// ticks. ReportCapacity withholds the count and preserves its old expiry.
+	reportCtx, cancelReport := context.WithTimeout(context.WithoutCancel(ctx), 250*time.Millisecond)
+	_ = d.registry.ReportCapacity(reportCtx)
+	cancelReport()
 	identities := make([]string, 0, len(backends))
 	for _, backend := range backends {
 		identities = append(identities, backend.ID+"@"+backend.Generation)

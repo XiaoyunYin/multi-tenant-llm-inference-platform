@@ -1,0 +1,18 @@
+{
+  "namespace": "mti-m5-REPLACE",
+  "gateway_image": "REPLACE_WITH_REVIEWED_IMAGE_DIGEST",
+  "config_sha256": "REPLACE_WITH_RESOLVED_CONFIG_SHA256",
+  "tls_secret": "gateway-tls",
+  "operator_cidrs": ["REPLACE_WITH_REVIEWED_OPERATOR_IPV4_CIDR"],
+  "crictl_host_path": "/usr/bin/crictl",
+  "crictl_sha256": "REPLACE_WITH_PINNED_AMI_CRICTL_HASH",
+  "model_manifest_sha256": "REPLACE_WITH_PINNED_MODEL_FILE_MANIFEST_HASH",
+  "model_manifest": {
+    "REPLACE_WITH_MODEL_RELATIVE_PATH": {
+      "sha256": "REPLACE_WITH_MODEL_FILE_SHA256",
+      "bytes": 1
+    }
+  },
+  "r": 0,
+  "w": 0
+}

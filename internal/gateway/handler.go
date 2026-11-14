@@ -80,6 +80,7 @@ type Config struct {
 	MaxRequestBytes        int64
 	MaxEventBytes          int
 	MaxConcurrent          int
+	FixedModeTerminalCodes bool
 	FirstItemTimeout       time.Duration
 	StreamIdleTimeout      time.Duration
 	TotalTimeout           time.Duration
@@ -87,6 +88,18 @@ type Config struct {
 	AdmissionTimeout       time.Duration
 	ReleaseTimeout         time.Duration
 	RoutingTokenizeTimeout time.Duration
+}
+
+// Fixed-capacity mode keeps the registered Stage C terminal vocabulary. Dynamic
+// capacity retains the more specific post-admission codes for M5 accounting.
+func postAdmissionUnavailableCode(fixedCapacity, discoveryUnknown bool) string {
+	if fixedCapacity {
+		return "no_healthy_backend"
+	}
+	if discoveryUnknown {
+		return "discovery_unknown_after_admit"
+	}
+	return "backend_membership_changed_after_admit"
 }
 
 func DefaultConfig() Config {
@@ -115,6 +128,7 @@ func (c Config) validate() error {
 }
 
 type Gateway struct {
+	measurement      *MeasurementRecorder
 	config           Config
 	registry         *Registry
 	backendSelection *BackendSelectionBoundary
@@ -241,6 +255,9 @@ func (g *Gateway) Handler() http.Handler {
 	mux.HandleFunc("/healthz", g.health)
 	mux.HandleFunc("/readyz", g.ready)
 	mux.HandleFunc("/v1/chat/completions", g.chatCompletions)
+	if g.measurement != nil {
+		mux.Handle("/internal/measurement", g.measurement)
+	}
 	return mux
 }
 
@@ -318,6 +335,7 @@ func (g *Gateway) bestEffortRelease(tenantID, reservationID, requestID string) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := g.admission.Release(ctx, tenantID, reservationID); err == nil {
+			g.measurement.Record("release", map[string]any{"request_id": requestID, "reservation_id": reservationID, "result": "released"})
 			return
 		} else {
 			lastErr = err
@@ -348,6 +366,17 @@ func (g *Gateway) selectBackend(ctx context.Context, requestID string, tenant *T
 		loadSnapshots = g.metrics.backendMetrics.Snapshots(time.Now())
 	}
 	candidates := g.registry.Candidates(loadSnapshots)
+	// Authenticated deployment policy, never an untrusted request/header hint.
+	// A missing/unhealthy pinned endpoint fails closed rather than switching slots.
+	if tenant.SetupBackendID != "" {
+		filtered := make([]BackendCandidate, 0, 1)
+		for _, candidate := range candidates {
+			if candidate.Backend.ID == tenant.SetupBackendID {
+				filtered = append(filtered, candidate)
+			}
+		}
+		return NewBackendSelectionBoundary(NewRoundRobinRouter(), nil).Select(filtered)
+	}
 	if !g.backendSelection.RequiresRoutingContext() {
 		return g.selectThroughBoundary(candidates)
 	}
@@ -401,6 +430,7 @@ type chatRequest struct {
 type upstreamRequest struct {
 	chatRequest
 	CacheSalt     string `json:"cache_salt"`
+	IgnoreEOS     bool   `json:"ignore_eos,omitempty"`
 	StreamOptions struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
@@ -437,6 +467,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			span.SetStatus(codes.Error, terminal.code)
 		}
 		span.End()
+		g.measurement.Record("terminal", map[string]any{"request_id": requestID, "reservation_id": reservationID, "backend_uid": selection.BackendGeneration, "backend_name": terminal.backendID, "outcome": terminal.cause.String(), "code": terminal.code, "committed": terminal.committed})
 		g.logger.Info(
 			"request terminal",
 			"request_id", requestID,
@@ -516,6 +547,13 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		maxTokens := tenant.MaxOutputTokens
 		decoded.MaxTokens = &maxTokens
 	}
+	if g.registry.DiscoveryUnknown() {
+		terminal = requestTerminal{cause: terminalRejected, code: "discovery_unknown"}
+		g.metrics.rejected.Add(1)
+		g.metrics.discoveryUnknown.Add(1)
+		g.writeError(response, http.StatusServiceUnavailable, terminal.code, requestID, true)
+		return
+	}
 	if g.draining.Load() {
 		terminal = requestTerminal{cause: terminalRejected, code: "shutting_down"}
 		g.metrics.rejected.Add(1)
@@ -539,6 +577,11 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		},
 	})
 	cancelAdmission()
+	admissionCapture := map[string]any{"request_id": requestID, "reservation_id": reservationID, "admit_called": true, "decision": admissionResult.Decision.Code(), "effective_b": admissionResult.Capacity, "retry_after_ms": admissionResult.RetryAfter.Milliseconds(), "idempotent": admissionResult.Idempotent}
+	if admissionErr != nil {
+		admissionCapture["error"] = admissionErr.Error()
+	}
+	g.measurement.Record("admit", admissionCapture)
 	if admissionErr != nil {
 		g.bestEffortRelease(tenant.ID, reservationID, requestID)
 		<-g.semaphore
@@ -568,11 +611,14 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		terminal = requestTerminal{cause: terminalRejected, code: code}
 		g.metrics.rejected.Add(1)
 		g.metrics.recordAdmissionDenial(admissionResult.Decision)
-		if admissionResult.RetryAfter > 0 {
+		status := http.StatusTooManyRequests
+		if admissionResult.Decision == admission.CapacityReportsExpired {
+			status = http.StatusServiceUnavailable
+		} else if admissionResult.RetryAfter > 0 {
 			retrySeconds := max(int64(1), int64(math.Ceil(admissionResult.RetryAfter.Seconds())))
 			response.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
 		}
-		g.writeError(response, http.StatusTooManyRequests, code, requestID, true)
+		g.writeError(response, status, code, requestID, true)
 		return
 	}
 	if g.draining.Load() {
@@ -624,6 +670,14 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		routerDecisionUnixNS = time.Now().UnixNano()
 	}
 	g.metrics.recordRoutingDecision(selection)
+	if g.registry.DiscoveryUnknown() {
+		code := postAdmissionUnavailableCode(g.config.FixedModeTerminalCodes, true)
+		terminal = requestTerminal{cause: terminalRejected, code: code}
+		g.metrics.rejected.Add(1)
+		g.metrics.discoveryUnknownAfterAdmit.Add(1)
+		g.writeError(response, http.StatusServiceUnavailable, code, requestID, true)
+		return
+	}
 	if err != nil {
 		terminal = requestTerminal{cause: terminalUpstreamFailure, code: "no_healthy_backend"}
 		g.metrics.failed.Add(1)
@@ -631,11 +685,13 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		return
 	}
 	backend := selection.Backend
+	g.measurement.Record("select", map[string]any{"request_id": requestID, "reservation_id": reservationID, "backend_name": backend.ID, "backend_uid": backend.Generation})
 	terminal.backendID = backend.ID
 	if g.routingEvents {
 		g.logger.Info("request routed", "request_id", requestID, "backend_id", backend.ID, "backend_generation", selection.BackendGeneration, "router_decision_unix_ns", routerDecisionUnixNS)
 	}
 	outbound := upstreamRequest{chatRequest: *decoded, CacheSalt: tenant.cacheSalt}
+	outbound.IgnoreEOS = tenant.SetupBackendID != ""
 	outbound.StreamOptions.IncludeUsage = true
 	body, err := json.Marshal(outbound)
 	if err != nil {
@@ -656,7 +712,23 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	// Propagate only the gateway-owned W3C trace context. In particular, do not
 	// forward client baggage or tracestate into the backend trust boundary.
 	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(upstream.Header))
+	if !g.registry.CanDispatch(backend) {
+		discoveryUnknown := g.registry.DiscoveryUnknown()
+		code := postAdmissionUnavailableCode(g.config.FixedModeTerminalCodes, discoveryUnknown)
+		if discoveryUnknown {
+			g.metrics.discoveryUnknownAfterAdmit.Add(1)
+		} else {
+			// The code covers removal/replacement and health/readiness flips
+			// between selection and dispatch; the selected pointer cannot serve.
+			g.metrics.backendChangedAfterAdmit.Add(1)
+		}
+		terminal = requestTerminal{cause: terminalRejected, code: code}
+		g.metrics.rejected.Add(1)
+		g.writeError(response, http.StatusServiceUnavailable, code, requestID, true)
+		return
+	}
 	firstDeadline := time.Now().Add(g.config.FirstItemTimeout)
+	g.measurement.Record("revalidate", map[string]any{"request_id": requestID, "reservation_id": reservationID, "backend_name": backend.ID, "backend_uid": backend.Generation})
 	type upstreamResult struct {
 		response *http.Response
 		err      error
@@ -664,7 +736,16 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	upstreamResults := make(chan upstreamResult, 1)
 	go func() {
 		result := upstreamResult{}
+		closed := func() {
+			g.measurement.Record("upstream_close", map[string]any{"request_id": requestID, "reservation_id": reservationID, "backend_name": backend.ID, "backend_uid": backend.Generation})
+		}
+		g.measurement.Record("upstream_open", map[string]any{"request_id": requestID, "reservation_id": reservationID, "backend_name": backend.ID, "backend_uid": backend.Generation})
 		result.response, result.err = g.client.Do(upstream)
+		if result.err != nil {
+			closed() // Do has ended with no response body owned by this attempt.
+		} else if result.response != nil {
+			result.response.Body = &capturedUpstreamBody{ReadCloser: result.response.Body, closing: closed}
+		}
 		if ctx.Err() != nil && result.response != nil {
 			result.response.Body.Close()
 		}
@@ -1052,6 +1133,7 @@ func (g *Gateway) interrupt(response http.ResponseWriter, requestID, message str
 }
 
 func (g *Gateway) writeError(response http.ResponseWriter, status int, code, requestID string, retryable bool) {
+	g.measurement.Record("deny", map[string]any{"request_id": requestID, "http_status": status, "denial_code": code})
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(status)
 	_ = json.NewEncoder(response).Encode(map[string]any{"error": map[string]any{

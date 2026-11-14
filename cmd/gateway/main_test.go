@@ -4,8 +4,70 @@ import (
 	"testing"
 	"time"
 
+	"multi-tenant-llm-inference-platform/internal/admission"
 	"multi-tenant-llm-inference-platform/internal/gateway"
 )
+
+func TestGatewayConfigForCapacityModeSetsFixedTerminalCodes(t *testing.T) {
+	tests := []struct {
+		name           string
+		dynamic        *admission.DynamicCapacityConfig
+		wantFixedCodes bool
+	}{
+		{name: "fixed", wantFixedCodes: true},
+		{name: "dynamic", dynamic: &admission.DynamicCapacityConfig{}, wantFixedCodes: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := gatewayConfigForCapacityMode(test.dynamic)
+			if config.FixedModeTerminalCodes != test.wantFixedCodes {
+				t.Fatalf("FixedModeTerminalCodes = %t; want %t", config.FixedModeTerminalCodes, test.wantFixedCodes)
+			}
+		})
+	}
+}
+
+func TestDynamicCapacityRequiresExplicitInputsAndRedis(t *testing.T) {
+	t.Setenv("ADMISSION_CAPACITY_MODE", "fixed")
+	t.Setenv("ADMISSION_RUNNING", "bad")
+	if d, _, err := dynamicCapacityConfiguration(); d != nil || err != nil {
+		t.Fatalf("fixed mode: %v %v", d, err)
+	}
+	t.Setenv("ADMISSION_CAPACITY_MODE", "dynamic")
+	t.Setenv("ADMISSION_GATEWAY_ID", "gateway-a")
+	for _, key := range []string{"ADMISSION_RUNNING", "ADMISSION_WAITING", "ADMISSION_REPORT_TTL", "ADMISSION_HOLD_DOWN"} {
+		t.Setenv(key, "")
+	}
+	if _, _, err := dynamicCapacityConfiguration(); err == nil {
+		t.Fatal("missing inputs accepted")
+	}
+	t.Setenv("ADMISSION_RUNNING", "2")
+	t.Setenv("ADMISSION_WAITING", "1")
+	t.Setenv("ADMISSION_REPORT_TTL", "1s")
+	t.Setenv("ADMISSION_HOLD_DOWN", "500ms")
+	d, id, err := dynamicCapacityConfiguration()
+	if err != nil || id != "gateway-a" || d.Running != 2 || d.Waiting != 1 || d.ReportTTL != time.Second || d.HoldDown != 500*time.Millisecond {
+		t.Fatalf("parsed: %+v %s %v", d, id, err)
+	}
+	t.Setenv("ADMISSION_GATEWAY_ID", "bad id")
+	if _, _, err := dynamicCapacityConfiguration(); err == nil {
+		t.Fatal("invalid identity accepted")
+	}
+	t.Setenv("ADMISSION_GATEWAY_ID", "gateway-a")
+	t.Setenv("BACKEND_DISCOVERY", "static")
+	t.Setenv("TENANT_CONFIG_PATH", "../../deploy/local/tenants.json")
+	t.Setenv("CACHE_SALT_SECRET_FILE", "../../deploy/local/cache-salt.secret.example")
+	t.Setenv("ADMISSION_MODE", "memory-test")
+	t.Setenv("ALLOW_UNSAFE_TEST_ADMISSION", "true")
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	if got := runWithMode(true); got != 2 {
+		t.Fatalf("dynamic memory accepted: %d", got)
+	}
+	t.Setenv("ADMISSION_MODE", "redis")
+	if got := runWithMode(true); got != 0 {
+		t.Fatalf("dynamic Redis offline config rejected: %d", got)
+	}
+}
 
 func TestParseBackendsUsesStableExplicitIdentities(t *testing.T) {
 	backends, err := parseBackends("gpu-a@gen-7=http://127.0.0.1:8001,gpu-b=http://127.0.0.1:8002")

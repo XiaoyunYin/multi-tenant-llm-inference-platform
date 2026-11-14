@@ -1,0 +1,295 @@
+{
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_vpc_endpoint.ssm",
+          "expressions": {
+            "private_dns_enabled": {
+              "constant_value": true
+            },
+            "security_group_ids": {
+              "references": [
+                "aws_security_group.endpoints.id",
+                "aws_security_group.endpoints"
+              ]
+            },
+            "service_name": {
+              "references": [
+                "each.key"
+              ]
+            },
+            "subnet_ids": {
+              "references": [
+                "aws_subnet.gate_a.id",
+                "aws_subnet.gate_a"
+              ]
+            },
+            "tags": {
+              "references": [
+                "local.tags"
+              ]
+            },
+            "vpc_endpoint_type": {
+              "constant_value": "Interface"
+            },
+            "vpc_id": {
+              "references": [
+                "aws_vpc.gate_a.id",
+                "aws_vpc.gate_a"
+              ]
+            }
+          },
+          "mode": "managed",
+          "name": "ssm",
+          "provider_config_key": "aws",
+          "schema_version": 0,
+          "type": "aws_vpc_endpoint"
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_vpc_endpoint.ssm[\"ec2messages\"]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "auto_accept": null,
+          "private_dns_enabled": true,
+          "region": "us-east-1",
+          "resource_configuration_arn": null,
+          "service_name": "com.amazonaws.us-east-1.ec2messages",
+          "service_network_arn": null,
+          "tags": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "tags_all": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "timeouts": null,
+          "vpc_endpoint_type": "Interface"
+        },
+        "after_identity": {
+          "account_id": null,
+          "id": null,
+          "region": null
+        },
+        "after_sensitive": {
+          "cidr_blocks": [],
+          "dns_entry": [],
+          "dns_options": [],
+          "network_interface_ids": [],
+          "route_table_ids": [],
+          "security_group_ids": [],
+          "subnet_configuration": [],
+          "subnet_ids": [],
+          "tags": {},
+          "tags_all": {}
+        },
+        "after_unknown": {
+          "arn": true,
+          "cidr_blocks": true,
+          "dns_entry": true,
+          "dns_options": true,
+          "id": true,
+          "ip_address_type": true,
+          "network_interface_ids": true,
+          "owner_id": true,
+          "policy": true,
+          "prefix_list_id": true,
+          "requester_managed": true,
+          "route_table_ids": true,
+          "security_group_ids": true,
+          "service_region": true,
+          "state": true,
+          "subnet_configuration": true,
+          "subnet_ids": true,
+          "tags": {},
+          "tags_all": {},
+          "vpc_id": true
+        },
+        "before": null,
+        "before_sensitive": false
+      },
+      "index": "ec2messages",
+      "mode": "managed",
+      "name": "ssm",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "type": "aws_vpc_endpoint"
+    },
+    {
+      "address": "aws_vpc_endpoint.ssm[\"ssm\"]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "auto_accept": null,
+          "private_dns_enabled": true,
+          "region": "us-east-1",
+          "resource_configuration_arn": null,
+          "service_name": "com.amazonaws.us-east-1.ssm",
+          "service_network_arn": null,
+          "tags": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "tags_all": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "timeouts": null,
+          "vpc_endpoint_type": "Interface"
+        },
+        "after_identity": {
+          "account_id": null,
+          "id": null,
+          "region": null
+        },
+        "after_sensitive": {
+          "cidr_blocks": [],
+          "dns_entry": [],
+          "dns_options": [],
+          "network_interface_ids": [],
+          "route_table_ids": [],
+          "security_group_ids": [],
+          "subnet_configuration": [],
+          "subnet_ids": [],
+          "tags": {},
+          "tags_all": {}
+        },
+        "after_unknown": {
+          "arn": true,
+          "cidr_blocks": true,
+          "dns_entry": true,
+          "dns_options": true,
+          "id": true,
+          "ip_address_type": true,
+          "network_interface_ids": true,
+          "owner_id": true,
+          "policy": true,
+          "prefix_list_id": true,
+          "requester_managed": true,
+          "route_table_ids": true,
+          "security_group_ids": true,
+          "service_region": true,
+          "state": true,
+          "subnet_configuration": true,
+          "subnet_ids": true,
+          "tags": {},
+          "tags_all": {},
+          "vpc_id": true
+        },
+        "before": null,
+        "before_sensitive": false
+      },
+      "index": "ssm",
+      "mode": "managed",
+      "name": "ssm",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "type": "aws_vpc_endpoint"
+    },
+    {
+      "address": "aws_vpc_endpoint.ssm[\"ssmmessages\"]",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "after": {
+          "auto_accept": null,
+          "private_dns_enabled": true,
+          "region": "us-east-1",
+          "resource_configuration_arn": null,
+          "service_name": "com.amazonaws.us-east-1.ssmmessages",
+          "service_network_arn": null,
+          "tags": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "tags_all": {
+            "ManagedBy": "terraform",
+            "Milestone": "R366-Gate-A",
+            "Project": "multi-tenant-llm-inference-platform",
+            "Role": "ssm-endpoint",
+            "Session": "r366-gate-a-20261102",
+            "Source": "4fa9eadd5f351010c14b4a3bab76c73462fdc8fc"
+          },
+          "timeouts": null,
+          "vpc_endpoint_type": "Interface"
+        },
+        "after_identity": {
+          "account_id": null,
+          "id": null,
+          "region": null
+        },
+        "after_sensitive": {
+          "cidr_blocks": [],
+          "dns_entry": [],
+          "dns_options": [],
+          "network_interface_ids": [],
+          "route_table_ids": [],
+          "security_group_ids": [],
+          "subnet_configuration": [],
+          "subnet_ids": [],
+          "tags": {},
+          "tags_all": {}
+        },
+        "after_unknown": {
+          "arn": true,
+          "cidr_blocks": true,
+          "dns_entry": true,
+          "dns_options": true,
+          "id": true,
+          "ip_address_type": true,
+          "network_interface_ids": true,
+          "owner_id": true,
+          "policy": true,
+          "prefix_list_id": true,
+          "requester_managed": true,
+          "route_table_ids": true,
+          "security_group_ids": true,
+          "service_region": true,
+          "state": true,
+          "subnet_configuration": true,
+          "subnet_ids": true,
+          "tags": {},
+          "tags_all": {},
+          "vpc_id": true
+        },
+        "before": null,
+        "before_sensitive": false
+      },
+      "index": "ssmmessages",
+      "mode": "managed",
+      "name": "ssm",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "type": "aws_vpc_endpoint"
+    }
+  ],
+  "source": ".cache/r321-gate-a-4fa9ead/packet-retry-3/create-show.stdout (Round 321 retained Terraform create-show output)"
+}

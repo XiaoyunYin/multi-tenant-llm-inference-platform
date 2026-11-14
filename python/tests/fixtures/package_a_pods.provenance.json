@@ -1,0 +1,7 @@
+{
+  "schema": "package-a-scripted-pod-fixture-provenance-v1",
+  "source": ".cache/dec077-r232-execution-retrieved/results/runner/kind/diagnostics/003-pods-json.log",
+  "source_sha256": "5b26af4ffe9ba4cc580151b662a75dcf745fca8ccc41be4cb7175d5c1baf7b0b",
+  "transformation": "Pod object structure was projected from the retrieved pod JSON. Fixture scalar values are controlled synthetic values; they are enumerated by JSON pointer in each walk's fixture-provenance.json. Runtime node placement, generation UIDs, annotations, and overflow-pod results are labelled there too.",
+  "limitations": "No API response or cluster measurement is claimed."
+}

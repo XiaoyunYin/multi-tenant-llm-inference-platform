@@ -224,6 +224,19 @@ def require_sigterm_coverage(stages):
             raise ValueError(f"zero backend requests at SIGTERM: {stage['pod']}")
 
 
+def normalize_tokenizer_context(root):
+    """Make copied tokenizer bytes readable and directories traversable by image USER."""
+    root = Path(root)
+    root.chmod(0o755)
+    for path in root.rglob("*"):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+def validate_runtime(python_version, uv_version):
+    if python_version != "3.12.7" or uv_version.split()[:2] != ["uv", "0.9.5"]:
+        raise ValueError("Python 3.12.7 and uv 0.9.5 required")
+
+
 class Campaign:
     def __init__(self, output):
         self.output = output
@@ -265,10 +278,7 @@ class Campaign:
             raise ValueError("kind version mismatch")
         if run("go", "version").split()[2] != "go1.26.6":
             raise ValueError("Go 1.26.6 required")
-        if platform.python_version() != "3.12.7" or not run("uv", "--version").startswith(
-            "uv 0.9.5 "
-        ):
-            raise ValueError("Python 3.12.7 and uv 0.9.5 required")
+        validate_runtime(platform.python_version(), run("uv", "--version"))
 
     def k(self, *args, **kwargs):
         return run(
@@ -316,6 +326,7 @@ class Campaign:
         shutil.copytree(
             cache_directory(), build / "tokenizer" / cache_directory().name, dirs_exist_ok=True
         )
+        normalize_tokenizer_context(build / "tokenizer")
         for name in ["gateway", "fake", "redis"]:
             run(
                 "docker",

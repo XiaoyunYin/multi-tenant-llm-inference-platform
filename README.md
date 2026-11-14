@@ -62,7 +62,7 @@ The four limits remain: TTFT exists only as vLLM histogram buckets; lag under lo
 
 The private source `cpu-ci` workflow completed successfully at `e5eced3`, run **37093148323**, independently confirmed in private REVIEW Round 49. That run passed the transport regression and the all suite, with one Windows-only preflight test skipped on Linux and passed locally. This names a particular private-source CPU check run; it provides no reliability or deployment guarantee, nor a successful run of this public snapshot.
 
-The [snapshot workflow](.github/workflows/ci.yml) and [public check entrypoint](scripts/check-public.ps1) run Go fmt/vet/build/unit/race, committed-evidence checks, scanner-wrapper tests and the Python modules that do not require excluded private records. Six private-record-dependent Python modules, private PLAN checks, paid approval/payload preflight and private snapshot-builder tests are omitted from this snapshot check command; their files may be retained for source inspection. The original [private check script](scripts/check.ps1) requires excluded private records and is not the snapshot entrypoint. Scanner unit mocks are not publication scans.
+The [snapshot workflow](.github/workflows/ci.yml) and [public check entrypoint](scripts/check-public.ps1) run Go fmt/vet/build/unit/race, committed-evidence checks, scanner-wrapper tests and the Python modules that do not require excluded private records. 7 private-record-dependent Python modules, private PLAN checks, paid approval/payload preflight and private snapshot-builder tests are omitted from this snapshot check command; their files may be retained for source inspection. The original [private check script](scripts/check.ps1) requires excluded private records and is not the snapshot entrypoint. Scanner unit mocks are not publication scans.
 
 Required tools: Go 1.26.6, Python 3.12.7, uv 0.9.5, Git, PowerShell and Docker Linux containers for disposable Redis. See [Go pins](go.mod), [Python pins](python/pyproject.toml), [locked Python dependencies](python/uv.lock) and [synthetic test/schema fixtures](experiments/examples). Hash-pinned tokenizer files may be fetched by tests; no model weights or AWS calls are needed.
 
@@ -74,7 +74,7 @@ On Windows, use a short clone path or pre-set `UV_CACHE_DIR`, `GOCACHE` and `GOM
 ./scripts/check-public.ps1
 ```
 
-Public Python checks report the six existing private-record module exclusions plus seven R1 cases requiring omitted private preregistration history or measurement receipts. Portable sibling tests still run; the private full suite runs all cases. See [public test-context selection](scripts/run_public_python_tests.py).
+Public Python checks report 7 private-record module exclusions and 52 exact private-record-dependent case exclusions, derived from the selector. Portable sibling tests still run; the private full suite runs all cases. See [public test-context selection](scripts/run_public_python_tests.py).
 
 For local fake serving, follow [the CPU deployment instructions](deploy/local/README.md). The [kind campaign entrypoint](scripts/m5-stage1.ps1) and [CPU measurement entrypoint](scripts/inf036.ps1) reproduce separate experiments under their recorded conditions. Cloud orchestration scripts fail closed without the omitted private approvals/payload pins; their presence grants no paid authorization.
 

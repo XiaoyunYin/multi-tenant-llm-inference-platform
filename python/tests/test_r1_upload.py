@@ -209,6 +209,40 @@ class HostUploadTests(unittest.TestCase):
 
 
 class OperatorEncodingAndCloseTests(unittest.TestCase):
+    def _operator(self, root):
+        folder = Path(root)
+        return Operator(
+            folder,
+            {
+                "aws_profile": "fixture",
+                "region": "us-east-1",
+                "session_manager_plugin_path": "plugin",
+            },
+            folder,
+            time.time() + 10,
+        )
+
+    def test_aws_returns_empty_object_for_empty_stdout(self):
+        with tempfile.TemporaryDirectory() as root:
+            op = self._operator(root)
+            with patch(
+                "inference_platform.r1_cloud_operator.subprocess.check_output",
+                return_value=b"",
+            ):
+                self.assertEqual(op.aws("s3api", "delete-objects", []), {})
+
+    def test_aws_still_raises_for_non_json_stdout(self):
+        with tempfile.TemporaryDirectory() as root:
+            op = self._operator(root)
+            with (
+                patch(
+                    "inference_platform.r1_cloud_operator.subprocess.check_output",
+                    return_value=b"not json",
+                ),
+                self.assertRaises(json.JSONDecodeError),
+            ):
+                op.aws("s3api", "delete-objects", [])
+
     def test_operator_and_tunnel_env_force_utf8_and_decode_unicode(self):
         with tempfile.TemporaryDirectory() as root:
             folder = Path(root)

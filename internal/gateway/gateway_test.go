@@ -656,6 +656,9 @@ func TestGatewayCancellationReachesUpstream(t *testing.T) {
 	})
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	gateway, server := newTestGatewayWithLogger(t, DefaultConfig(), logger, upstream)
+	var capture bytes.Buffer
+	recorder := NewMeasurementRecorder(&capture, func() error { return nil }, "gateway-boot")
+	gateway.SetMeasurementRecorder(recorder)
 	ctx, cancel := context.WithCancel(context.Background())
 	body := strings.NewReader(`{"model":"test-model","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/v1/chat/completions", body)
@@ -686,6 +689,28 @@ func TestGatewayCancellationReachesUpstream(t *testing.T) {
 	}
 	if !bytes.Contains(logs.Bytes(), []byte(`"cause":"client_cancelled"`)) || !bytes.Contains(logs.Bytes(), []byte(`"backend_id":"backend-0"`)) {
 		t.Fatalf("client cancellation terminal log missing correlation: %s", logs.String())
+	}
+	recorder.mu.Lock()
+	raw := append([]byte(nil), capture.Bytes()...)
+	recorder.mu.Unlock()
+	closes := 0
+	for _, line := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var event struct {
+			Event string         `json:"event"`
+			Data  map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Event == "upstream_close" {
+			closes++
+			if event.Data["request_id"] != response.Header.Get("X-Request-ID") || event.Data["reservation_id"] == "" || event.Data["backend_name"] != "backend-0" {
+				t.Fatalf("upstream close lost identity: %v", event.Data)
+			}
+		}
+	}
+	if closes != 1 {
+		t.Fatalf("wanted exactly one owned upstream close, got %d: %s", closes, raw)
 	}
 }
 

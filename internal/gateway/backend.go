@@ -15,6 +15,11 @@ import (
 
 var ErrNoHealthyBackend = errors.New("no healthy backend")
 
+// Each concurrent health check has this deadline, even if the client has none.
+const HealthCheckTimeout = time.Second
+const HealthFreshnessMargin = 100 * time.Millisecond
+const CapacityReportTimeout = 250 * time.Millisecond
+
 type Backend struct {
 	ID         string
 	Generation string
@@ -22,6 +27,7 @@ type Backend struct {
 
 	healthy atomic.Bool
 	ready   atomic.Bool
+	checked atomic.Int64
 }
 
 func NewBackend(id, rawURL string, generation ...string) (*Backend, error) {
@@ -52,15 +58,19 @@ func (b *Backend) Healthy() bool { return b.healthy.Load() }
 func (b *Backend) Ready() bool   { return b.ready.Load() }
 
 type Registry struct {
-	backends     []*Backend
-	backendMu    sync.RWMutex
-	roundRobin   *RoundRobinRouter
-	client       *http.Client
-	interval     time.Duration
-	mu           sync.Mutex
-	cancel       context.CancelFunc
-	done         chan struct{}
-	healthLogger atomic.Pointer[slog.Logger]
+	backends         []*Backend
+	backendMu        sync.RWMutex
+	roundRobin       *RoundRobinRouter
+	client           *http.Client
+	interval         time.Duration
+	mu               sync.Mutex
+	cancel           context.CancelFunc
+	done             chan struct{}
+	healthLogger     atomic.Pointer[slog.Logger]
+	discoveryUnknown atomic.Bool // closes routing immediately, before a pending report finishes
+	discoveryMode    bool
+	capacityReporter func(context.Context, int64, bool) error
+	measurement      *MeasurementRecorder
 }
 
 // SetHealthLogger enables bounded poll timings and transitions, without addresses.
@@ -100,31 +110,149 @@ func NewDiscoveryRegistry(client *http.Client, interval time.Duration) (*Registr
 	if client == nil || interval <= 0 {
 		return nil, errors.New("health client and positive interval are required")
 	}
-	return &Registry{roundRobin: NewRoundRobinRouter(), client: client, interval: interval}, nil
+	r := &Registry{roundRobin: NewRoundRobinRouter(), client: client, interval: interval, discoveryMode: true}
+	r.discoveryUnknown.Store(true)
+	return r, nil
 }
 
 func (r *Registry) Backends() []*Backend {
+	if r.discoveryUnknown.Load() {
+		return nil
+	}
 	r.backendMu.RLock()
 	defer r.backendMu.RUnlock()
+	if r.discoveryUnknown.Load() {
+		return nil
+	}
 	return append([]*Backend(nil), r.backends...)
 }
 
 // ReplaceBackends retains health only for exactly the same pod incarnation.
 // Removed pointers remain valid for requests already in flight.
 func (r *Registry) ReplaceBackends(backends []*Backend) {
+	r.replaceMembership(backends, false)
+}
+
+func (r *Registry) replaceMembership(backends []*Backend, unknown bool) {
+	// An in-flight publication must not delay clearing locally routable members.
+	if unknown {
+		r.discoveryUnknown.Store(true)
+	}
 	r.backendMu.Lock()
 	defer r.backendMu.Unlock()
 	for i, backend := range backends {
-		backend.healthy.Store(false)
-		backend.ready.Store(false)
+		retained := false
 		for _, old := range r.backends {
 			if old.ID == backend.ID && old.Generation == backend.Generation && old.URL.String() == backend.URL.String() {
 				backends[i] = old
+				retained = true
 				break
 			}
 		}
+		if !retained {
+			backend.healthy.Store(false)
+			backend.ready.Store(false)
+			backend.checked.Store(0)
+		}
 	}
 	r.backends = append([]*Backend(nil), backends...)
+	r.discoveryUnknown.Store(unknown)
+}
+
+func (r *Registry) DiscoveryUnknown() bool {
+	if r.discoveryUnknown.Load() {
+		return true
+	}
+	r.backendMu.RLock()
+	defer r.backendMu.RUnlock()
+	return r.localDiscoveryGateLocked()
+}
+
+// Unsampled members withhold reports, but sampled eligible members can serve
+// through an addition. Start/recovery stays closed until one can serve.
+func (r *Registry) localDiscoveryGateLocked() bool {
+	if r.discoveryUnknown.Load() {
+		return true
+	}
+	if !r.discoveryMode {
+		return false
+	}
+	unsampled := false
+	for _, b := range r.backends {
+		if b.checked.Load() == 0 {
+			unsampled = true
+		} else if b.Healthy() && b.Ready() {
+			return false
+		}
+	}
+	return unsampled
+}
+
+// A validated snapshot is not a count until every current pointer has completed
+// a check since joining. An empty snapshot is a known count of zero.
+func (r *Registry) allSampledLocked() bool {
+	for _, b := range r.backends {
+		if b.checked.Load() == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Registry) HealthFreshnessWindow() time.Duration {
+	// Allow a report after the previous batch and a pending publication ahead
+	// of a membership writer before taking the next health snapshot.
+	return r.interval + HealthCheckTimeout + 2*CapacityReportTimeout + HealthFreshnessMargin
+}
+
+// Selected pointers may drain, but a new dispatch must still belong to the
+// current known UID/address snapshot. In particular unknown clears immediately.
+func (r *Registry) CanDispatch(selected *Backend) bool {
+	if r.discoveryUnknown.Load() {
+		return false
+	}
+	r.backendMu.RLock()
+	defer r.backendMu.RUnlock()
+	if r.localDiscoveryGateLocked() {
+		return false
+	}
+	for _, b := range r.backends {
+		if b == selected && b.Healthy() && b.Ready() {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Registry) SetCapacityReporter(reporter func(context.Context, int64, bool) error) {
+	r.backendMu.Lock()
+	defer r.backendMu.Unlock()
+	r.capacityReporter = reporter
+}
+
+// Serialize the snapshot and publication with membership changes. Unknown
+// sends only the interruption marker; it never refreshes the last report TTL.
+func (r *Registry) ReportCapacity(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, CapacityReportTimeout)
+	defer cancel()
+	r.backendMu.RLock()
+	defer r.backendMu.RUnlock()
+	if r.capacityReporter == nil {
+		return nil
+	}
+	// Read completeness before counting. A first check completing during this
+	// loop must not turn a partially observed count into a known report.
+	known := !r.discoveryUnknown.Load() && r.allSampledLocked()
+	var healthy int64
+	now := time.Now()
+	for _, b := range r.backends {
+		checked := b.checked.Load()
+		if b.Healthy() && b.Ready() && checked > 0 && now.Sub(time.Unix(0, checked)) <= r.HealthFreshnessWindow() {
+			healthy++
+		}
+	}
+	r.measurement.Record("report_intent", map[string]any{"n": healthy, "report_known": known && !r.discoveryUnknown.Load()})
+	return r.capacityReporter(ctx, healthy, known && !r.discoveryUnknown.Load())
 }
 
 func (r *Registry) AnyHealthy() bool {
@@ -169,16 +297,26 @@ func (r *Registry) Select() (*Backend, error) {
 }
 
 func (r *Registry) Poll(ctx context.Context) {
+	var checks sync.WaitGroup
 	for _, backend := range r.Backends() {
-		r.check(ctx, backend)
+		checks.Go(func() { r.check(ctx, backend) })
 	}
+	checks.Wait()
+	r.measurementSnapshot("health", map[string]any{})
+	if ctx.Err() != nil {
+		return // canceled checks during shutdown are not capacity observations
+	}
+	_ = r.ReportCapacity(ctx)
 }
 
 func (r *Registry) check(ctx context.Context, backend *Backend) {
+	ctx, cancel := context.WithTimeout(ctx, HealthCheckTimeout)
+	defer cancel()
 	started := time.Now()
 	beforeHealthy, beforeReady := backend.Healthy(), backend.Ready()
 	statusCode, errorClass := 0, "none"
 	defer func() {
+		backend.checked.Store(time.Now().UnixNano())
 		if logger := r.healthLogger.Load(); logger != nil {
 			logger.Info("backend health poll", "backend_id", backend.ID, "latency_ms", time.Since(started).Seconds()*1000, "http_status", statusCode, "error_class", errorClass, "healthy_before", beforeHealthy, "healthy_after", backend.Healthy(), "ready_before", beforeReady, "ready_after", backend.Ready())
 		}

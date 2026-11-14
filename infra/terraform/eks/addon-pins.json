@@ -1,0 +1,75 @@
+{
+  "kubernetes_version": "1.35",
+  "addons": {
+    "vpc-cni": "v1.22.4-eksbuild.14",
+    "kube-proxy": "v1.35.3-eksbuild.69",
+    "coredns": "v1.13.2-eksbuild.75"
+  },
+  "vpc-cni_configuration_receipt": {
+    "utc": "2026-11-11T19:52:16.619038+00:00",
+    "request": [
+      "aws",
+      "--profile",
+      "admin-learning",
+      "--region",
+      "us-east-1",
+      "eks",
+      "describe-addon-configuration",
+      "--addon-name",
+      "vpc-cni",
+      "--addon-version",
+      "v1.22.4-eksbuild.14"
+    ],
+    "sha256": "10e3f2a5c2f43594a0d4e9c2c6d95be0f6286b7b894d970f329eb207e9c9abbb"
+  },
+  "kube-proxy_configuration_receipt": {
+    "utc": "2026-11-11T19:52:18.021350+00:00",
+    "request": [
+      "aws",
+      "--profile",
+      "admin-learning",
+      "--region",
+      "us-east-1",
+      "eks",
+      "describe-addon-configuration",
+      "--addon-name",
+      "kube-proxy",
+      "--addon-version",
+      "v1.35.3-eksbuild.69"
+    ],
+    "sha256": "5eb9375660079f1e87aeee2d34c9ec6a7560154d51a944588da3655abce3cb9a"
+  },
+  "coredns_schema_supports_placement": true,
+  "coredns_configuration_receipt": {
+    "utc": "2026-11-11T19:52:19.392852+00:00",
+    "request": [
+      "aws",
+      "--profile",
+      "admin-learning",
+      "--region",
+      "us-east-1",
+      "eks",
+      "describe-addon-configuration",
+      "--addon-name",
+      "coredns",
+      "--addon-version",
+      "v1.13.2-eksbuild.75"
+    ],
+    "sha256": "9e5542333b53f631f8aba16e186da2f1ebdaf80e745d86846953f6d8744baad9"
+  },
+  "coredns_configuration": {
+    "replicaCount": 2,
+    "nodeSelector": {
+      "m5-role": "cpu"
+    },
+    "tolerations": [
+      {
+        "key": "CriticalAddonsOnly",
+        "operator": "Exists"
+      }
+    ],
+    "autoScaling": {
+      "enabled": false
+    }
+  }
+}

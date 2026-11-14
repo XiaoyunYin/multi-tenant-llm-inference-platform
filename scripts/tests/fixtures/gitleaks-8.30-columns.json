@@ -1,0 +1,21 @@
+{
+  "scanner": "v8.30.0",
+  "source_report_sha256": "5973e7dd09174c84083505fc6c902f2f227b4e89e70d46f05eca1e03d1ef28bf",
+  "sanitization": "Location/rule only; tests supply synthetic same-length bytes.",
+  "rows": [
+    {
+      "RuleID": "aws-account-id",
+      "StartLine": 1,
+      "EndLine": 1,
+      "StartColumn": 212,
+      "EndColumn": 223
+    },
+    {
+      "RuleID": "aws-account-id",
+      "StartLine": 76,
+      "EndLine": 76,
+      "StartColumn": 44,
+      "EndColumn": 55
+    }
+  ]
+}

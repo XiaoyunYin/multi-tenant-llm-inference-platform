@@ -51,6 +51,7 @@ def verified_files(cache=None, *, fetch=False):
                 temporary = Path(stream.name)
                 stream.write(data)
             try:
+                temporary.chmod(0o644)
                 os.replace(temporary, path)
             finally:
                 temporary.unlink(missing_ok=True)

@@ -32,6 +32,15 @@ from .stage_c_prompts import ChatPrompt, prompt_messages
 from .time_budget import BudgetExhausted, deadline_urlopen, read_error_body, remaining_seconds
 
 
+def _recorder_error_body_code(error_body):
+    """Read the HTTP error code with the recorder's existing precedence."""
+    error_body_code = error_body.get("code")
+    candidate = error_body.get("code") or error_body.get("error")
+    if isinstance(candidate, dict):
+        error_body_code = candidate.get("code")
+    return error_body_code
+
+
 @dataclass(frozen=True, slots=True)
 class CalibrationConfig:
     """Inputs that are hashed into every outcome record."""
@@ -232,10 +241,9 @@ def _stream_request(
         backend_id = error.headers.get("X-Inference-Backend")
         try:
             error_body = json.loads(read_error_body(error, deadline=deadline).decode("utf-8"))
-            error_body_code = error_body.get("code")
+            error_body_code = _recorder_error_body_code(error_body)
             candidate = error_body.get("code") or error_body.get("error")
             if isinstance(candidate, dict):
-                error_body_code = candidate.get("code")
                 error_body_type = candidate.get("type")
                 candidate = candidate.get("code") or candidate.get("type")
             error_shape = "http_error"
@@ -341,6 +349,7 @@ def run_calibration(
     drain_seconds: float = 120,
     minimum_cycle_seconds: float = 0.05,
     capture_prefix_cache_counters: bool = False,
+    request_function=None,
 ) -> dict[str, Any]:
     """Run stepped concurrent streaming bursts and return a JSON-ready record."""
 
@@ -435,7 +444,7 @@ def run_calibration(
                             break
                         if time.perf_counter() >= min(load_until, deadline or float("inf")):
                             break
-                    record = _stream_request(
+                    record = (request_function or _stream_request)(
                         config, configuration_digest, start_ns, prompt_text, work_deadline
                     )
                     output.append(record)

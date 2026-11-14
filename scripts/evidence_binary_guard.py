@@ -14,25 +14,56 @@ def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args])
 
 
+def object_facts(root, names):
+    if not names:
+        return []
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "cat-file",
+            "--batch-check=%(objecttype) %(objectsize) %(objectname)",
+        ],
+        input=("\n".join(names) + "\n").encode(),
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    return [line.split() for line in result.stdout.decode().splitlines()]
+
+
 def check(root, base=BASELINE, revision="HEAD", allowlist=None):
     allowed = allowlist or {}
     if git(root, "cat-file", "-t", revision).strip() == b"commit":
         # Inspect every new reachable blob, including one committed then deleted.
         # Excluding base reachability grandfathers immutable history by object ID.
-        entries = git(root, "rev-list", "--objects", f"{base}..{revision}").decode().splitlines()
+        entries = (
+            git(root, "rev-list", "--objects", f"{base}..{revision}")
+            .decode()
+            .splitlines()
+        )
         targets = []
         for line in entries:
             oid, _, path = line.partition(" ")
-            if path and git(root, "cat-file", "-t", oid).strip() == b"blob":
+            if path:
                 targets.append((path, oid))
     else:
         # Also support git write-tree for pre-commit/staged-copy verification.
-        paths = git(root, "diff", "--name-only", "--diff-filter=ACMR", "-z", base, revision).decode().split("\0")
+        paths = (
+            git(root, "diff", "--name-only", "--diff-filter=ACMR", "-z", base, revision)
+            .decode()
+            .split("\0")
+        )
         targets = [(path, f"{revision}:{path}") for path in filter(None, paths)]
     checked = 0
-    for path, blob in targets:
-        size = int(git(root, "cat-file", "-s", blob))
-        if size <= LIMIT:
+    for (path, _blob), facts in zip(
+        targets, object_facts(root, [blob for _, blob in targets]), strict=True
+    ):
+        if len(facts) != 3:
+            raise ValueError(f"missing evidence object: {path}")
+        kind, size, blob = facts
+        size = int(size)
+        if kind != "blob" or size <= LIMIT:
             continue
         data = git(root, "show", blob)
         try:
@@ -44,18 +75,24 @@ def check(root, base=BASELINE, revision="HEAD", allowlist=None):
             checked += 1
             expected = {"bytes": size, "sha256": hashlib.sha256(data).hexdigest()}
             if allowed.get(path) != expected:
-                raise ValueError(f"new binary evidence exceeds 5 MB (5000000 bytes): {path} ({size} bytes); use ignored .cache/evidence-store with committed receipts/manifests")
+                raise ValueError(
+                    f"new binary evidence exceeds 5 MB (5000000 bytes): {path} ({size} bytes); use ignored .cache/evidence-store with committed receipts/manifests"
+                )
     return {"large_binary_allowlisted": checked, "base": base, "revision": revision}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     parser.add_argument("--base", default=BASELINE)
     parser.add_argument("--revision", default="HEAD")
     args = parser.parse_args()
     try:
-        allowed = json.loads((args.root / "scripts/evidence-binary-allowlist.json").read_text())
+        allowed = json.loads(
+            (args.root / "scripts/evidence-binary-allowlist.json").read_text()
+        )
         print(check(args.root, args.base, args.revision, allowed))
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Evidence size guard failed: {error}\n")

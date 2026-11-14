@@ -1,6 +1,7 @@
 import hashlib
 import http.client
 import json
+import shlex
 import subprocess
 import tempfile
 import time
@@ -21,6 +22,24 @@ from inference_platform.r1_spec import encoded
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_send_ssm_failure_diagnostic_is_lazy_without_aws_profile(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root)
+            op = Operator(folder, {}, folder, time.time() + 30)
+            with patch.object(op, "aws", side_effect=RuntimeError("send failed")):
+                with self.assertRaisesRegex(RuntimeError, "send failed"):
+                    op.send_ssm_command(
+                        "host",
+                        {"commands": ["PRIVATE_CONTROL_TOKEN"]},
+                        step="fixture.bootstrap",
+                    )
+            self.assertEqual(
+                op.last_ssm_failure,
+                {"step": "fixture.bootstrap", "argv_length": None},
+            )
+            self.assertFalse(list(folder.glob("ssm-parameters-*.json")))
+            self.assertNotIn("PRIVATE_CONTROL_TOKEN", repr(op.last_ssm_failure))
+
     def test_terminal_ssm_failures_retain_bounded_diagnostics_without_parameters(self):
         for status in ("Failed", "Cancelled", "TimedOut", "Cancelling", "UnknownTerminal"):
             with self.subTest(status=status), tempfile.TemporaryDirectory() as root:
@@ -151,16 +170,18 @@ class RecoveryTests(unittest.TestCase):
     def test_cloud_init_exit_2_needs_completion_marker(self):
         commands = cloud_init_commands()
         # Execute the actual generated shell conditions with only cloud-init/path
-        # supplied by a fixture. This runs under hosted Linux; Windows uses Docker.
+        # supplied by a fixture. Exercise a path containing spaces on both Linux
+        # and Git Bash so the substituted fixture path remains one shell word.
         with tempfile.TemporaryDirectory() as root:
-            folder = Path(root)
+            folder = Path(root) / "cloud init fixture"
+            folder.mkdir()
             for code, marker, expected in ((0, True, 0), (2, True, 0), (2, False, 1), (1, True, 1)):
                 script = "set -eu\ncloud-init() { echo '{}'; return " + str(code) + "; }\n"
                 marker_path = folder / "user-data.done"
                 marker_path.unlink(missing_ok=True)
                 if marker:
                     marker_path.touch()
-                script += "\n".join(commands).replace("/opt/r1", folder.as_posix())
+                script += "\n".join(commands).replace("/opt/r1", shlex.quote(folder.as_posix()))
                 if __import__("os").name == "nt":
                     # Git Bash has the same set -eu and case semantics; no Docker startup cost.
                     shell = r"C:\Program Files\Git\bin\bash.exe"

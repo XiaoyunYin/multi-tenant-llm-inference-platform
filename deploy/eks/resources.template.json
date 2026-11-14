@@ -1,0 +1,1182 @@
+{
+  "apiVersion": "v1",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "gateway",
+        "namespace": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "endpoint-reader",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "verbs": [
+            "list"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "gateway-endpoints",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "endpoint-reader"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "gateway",
+          "namespace": "${SESSION_NAMESPACE}"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "capture",
+        "namespace": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "capture-reader",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "rules": [
+        {
+          "apiGroups": [
+            ""
+          ],
+          "resources": [
+            "pods",
+            "pods/log",
+            "events"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        },
+        {
+          "apiGroups": [
+            "discovery.k8s.io"
+          ],
+          "resources": [
+            "endpointslices"
+          ],
+          "verbs": [
+            "get",
+            "list",
+            "watch"
+          ]
+        }
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "capture-reader",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "roleRef": {
+        "apiGroup": "rbac.authorization.k8s.io",
+        "kind": "Role",
+        "name": "capture-reader"
+      },
+      "subjects": [
+        {
+          "kind": "ServiceAccount",
+          "name": "capture",
+          "namespace": "${SESSION_NAMESPACE}"
+        }
+      ]
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "capture_runtime.py": "\"\"\"Independent single-API-process supervisor and durable metrics-start signal.\n\nMounted read-only into the pinned vLLM image. No log-line/scrape inference.\nNever reuses a capture directory after a container restart. The node/collector\nmust retain the spool before pod deletion; a missing spool is capture loss.\n\"\"\"\n\nimport hashlib\nimport http.server\nimport json\nimport os\nimport signal\nimport subprocess\nimport sys\nimport threading\nimport time\nimport urllib.parse\nimport uuid\nfrom pathlib import Path\n\nLAUNCHER_SHA256 = \"393c213ea68e12936e2ed018d4b6bc9368049bf0c26ab135790ac4fee15772ed\"\nENTRY_SHA256 = \"db689f8486e5d2c9eb59d347e03a27ce837d014f8d3d7f84d55a0e382813ca84\"\n\n\ndef durable(path, value):\n    temporary = path.with_name(path.name+\".pending-\"+uuid.uuid4().hex)\n    try:\n        with temporary.open(\"xb\") as stream:\n            stream.write(json.dumps(value, sort_keys=True).encode() + b\"\\n\")\n            stream.flush()\n            os.fsync(stream.fileno())\n        # Publish complete bytes without replacing a previous origin/signal.\n        os.link(temporary, path)\n    finally:\n        temporary.unlink(missing_ok=True)\n    if os.name != \"nt\":\n        fd = os.open(path.parent, os.O_RDONLY)\n        try:\n            os.fsync(fd)\n        finally:\n            os.close(fd)\n\n\ndef child(root, argv):\n    import vllm\n    from vllm.entrypoints.launchers import launcher\n    from vllm.entrypoints.launchers.api_server import entry\n\n    if vllm.__version__ != \"0.29.0\":\n        raise RuntimeError(\"runtime_version_mismatch\")\n    for module, expected in ((launcher, LAUNCHER_SHA256), (entry, ENTRY_SHA256)):\n        if hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest() != expected:\n            raise RuntimeError(\"runtime_startup_signal_source_mismatch\")\n    original = launcher.NoSignalServer.startup\n\n    async def observed_startup(server, *args, **kwargs):\n        # Conservative inhibition is durable BEFORE any server may listen.\n        # A crash after this marker can never turn into a loading receipt.\n        durable(root / \"metrics-pending.json\", {\"mono_ns\": time.monotonic_ns()})\n        begin = time.monotonic_ns()\n        if not any(\n            getattr(route, \"path\", None) == \"/metrics\"\n            for route in server.config.app.routes\n        ):\n            raise RuntimeError(\"native_metrics_route_missing\")\n        await original(server, *args, **kwargs)\n        end = time.monotonic_ns()\n        if not server.started:\n            raise RuntimeError(\"native_metrics_server_not_started\")\n        durable(\n            root / \"metrics-started.json\",\n            {\"start_ns\": begin, \"end_ns\": end, \"pid\": os.getpid()},\n        )\n\n    launcher.NoSignalServer.startup = observed_startup\n    sys.argv = [\"vllm\", *argv]\n    entry.main()\n\n\nclass Supervisor:\n    def __init__(self, root, uid):\n        self.root, self.uid = root, uid\n        root.mkdir(parents=True, exist_ok=True)\n        self.boot, self.sequence, self.lost = str(uuid.uuid4()), 0, False\n        self.lock = threading.Lock()\n        durable(root / \"supervisor-origin.json\", {\"boot_id\": self.boot, \"pod_uid\": uid})\n        self.file = (root / \"lifecycle.jsonl\").open(\"xb\")\n        self.record(\"supervisor_start\")\n\n    def record(self, event, **data):\n        with self.lock:\n            if self.lost:\n                raise RuntimeError(\"supervisor_capture_lost\")\n            row = {\n                \"schema\": \"vllm-supervisor-v1\",\n                \"pod_uid\": self.uid,\n                \"boot_id\": self.boot,\n                \"sequence\": self.sequence,\n                \"mono_ns\": time.monotonic_ns(),\n                \"wall_ns\": time.time_ns(),\n                \"event\": event,\n                \"capture_lost\": False,\n                \"restart_count\": 0,\n                **data,\n            }\n            try:\n                self.file.write(json.dumps(row, sort_keys=True).encode() + b\"\\n\")\n                self.file.flush()\n                os.fsync(self.file.fileno())\n            except OSError:\n                self.lost = True\n                raise\n            self.sequence += 1\n            return row\n\n    def handler(self):\n        supervisor = self\n\n        class Handler(http.server.BaseHTTPRequestHandler):\n            def log_message(self, *args):\n                pass\n\n            def do_GET(self):\n                with supervisor.lock:\n                    if supervisor.lost:\n                        self.send_error(503)\n                        return\n                    query = urllib.parse.parse_qs(\n                        urllib.parse.urlsplit(self.path).query\n                    )\n                    if self.path.startswith(\"/clock\"):\n                        data = json.dumps(\n                            {\n                                \"boot_id\": supervisor.boot,\n                                \"mono_ns\": time.monotonic_ns(),\n                                \"wall_ns\": time.time_ns(),\n                            }\n                        ).encode()\n                    elif self.path.startswith(\"/events?\"):\n                        try:\n                            offset = int(query[\"offset\"][0])\n                            with (supervisor.root / \"lifecycle.jsonl\").open(\n                                \"rb\"\n                            ) as source:\n                                if (\n                                    offset < 0\n                                    or offset > os.fstat(source.fileno()).st_size\n                                ):\n                                    raise ValueError(\"truncated\")\n                                if offset:\n                                    source.seek(offset - 1)\n                                    if source.read(1) != b\"\\n\":\n                                        raise ValueError(\"unaligned\")\n                                source.seek(offset)\n                                data = source.read(1_048_576)\n                                data = data[: data.rfind(b\"\\n\") + 1]\n                        except (ValueError, KeyError):\n                            self.send_error(409)\n                            return\n                    else:\n                        self.send_error(404)\n                        return\n                    self.send_response(200)\n                    self.send_header(\"Content-Length\", str(len(data)))\n                    self.send_header(\"X-Capture-Boot\", supervisor.boot)\n                    self.end_headers()\n                    self.wfile.write(data)\n\n        return Handler\n\n    def run(self, argv, *, port=9101, grace=40):\n        server = http.server.ThreadingHTTPServer((\"0.0.0.0\", port), self.handler())\n        serving = threading.Thread(target=server.serve_forever, daemon=True)\n        serving.start()\n        process = subprocess.Popen(argv, start_new_session=os.name != \"nt\")\n        self.record(\"process_start\", pid=process.pid)\n        signalled, seen = [], set()\n\n        def terminate(signum, frame):\n            if not signalled:\n                self.record(\n                    \"signal\", signal=signal.Signals(signum).name, pid=process.pid\n                )\n                signalled.append(time.monotonic())\n                process.terminate()\n\n        previous = signal.signal(signal.SIGTERM, terminate)\n        try:\n            while process.poll() is None:\n                for filename, event in (\n                    (\"metrics-pending.json\", \"metrics_pending\"),\n                    (\"metrics-started.json\", \"startup\"),\n                ):\n                    path = self.root / filename\n                    if path.exists() and filename not in seen:\n                        data = json.loads(path.read_bytes())\n                        self.record(event, signal_data=data)\n                        seen.add(filename)\n                self.record(\"heartbeat\", pid=process.pid)\n                if signalled and time.monotonic() - signalled[0] >= grace:\n                    if os.name != \"nt\":\n                        os.killpg(process.pid, signal.SIGKILL)\n                    else:\n                        process.kill()\n                time.sleep(0.25)\n            self.record(\"process_end\", pid=process.pid, returncode=process.returncode)\n            return process.returncode\n        finally:\n            signal.signal(signal.SIGTERM, previous)\n            if process.poll() is None:\n                process.kill()\n                process.wait()\n            server.shutdown()\n            server.server_close()\n            self.file.close()\n\n\ndef main():\n    root = Path(os.environ.get(\"CAPTURE_ROOT\", \"/capture-data\"))\n    if len(sys.argv) > 1 and sys.argv[1] == \"--child\":\n        child(root, sys.argv[2:])\n    else:\n        supervisor = Supervisor(root, os.environ[\"POD_UID\"])\n        raise SystemExit(\n            supervisor.run(\n                [\n                    sys.executable,\n                    str(Path(__file__).resolve()),\n                    \"--child\",\n                    *sys.argv[1:],\n                ]\n            )\n        )\n\n\nif __name__ == \"__main__\":\n    main()\n"
+      },
+      "immutable": true,
+      "kind": "ConfigMap",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "runtime-capture-f7a91f1ce53a",
+        "namespace": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "nginx.conf": "pid /tmp/nginx.pid;\nevents { worker_connections 4096; }\nhttp {\n  access_log /dev/stdout;\n  error_log /dev/stderr;\n  client_body_temp_path /tmp/client;\n  proxy_temp_path /tmp/proxy;\n  upstream gateways { server gateway:8080; keepalive 32; }\n  server {\n    listen 8443 ssl;\n    ssl_certificate /tls/tls.crt;\n    ssl_certificate_key /tls/tls.key;\n    ssl_protocols TLSv1.2 TLSv1.3;\n    keepalive_timeout 65s;\n    client_header_timeout 10s;\n    client_body_timeout 10s;\n    send_timeout 45s;\n    location = /v1/chat/completions {\n      limit_except POST { deny all; }\n      proxy_pass http://gateways;\n      proxy_http_version 1.1;\n      proxy_set_header Connection \"\";\n      proxy_buffering off;\n      proxy_request_buffering off;\n      proxy_cache off;\n      gzip off;\n      proxy_connect_timeout 2s;\n      proxy_read_timeout 45s;\n      proxy_send_timeout 45s;\n      proxy_next_upstream off;\n      add_header X-Accel-Buffering no always;\n    }\n    location / { return 404; }\n  }\n}\n"
+      },
+      "immutable": true,
+      "kind": "ConfigMap",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "streaming-ingress",
+        "namespace": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "data": {
+        "prometheus.yml": "{\"global\": {\"scrape_interval\": \"500ms\", \"scrape_timeout\": \"400ms\"}, \"scrape_configs\": [{\"job_name\": \"gateway\", \"static_configs\": [{\"targets\": [\"gateway-0.gateway:8080\", \"gateway-1.gateway:8080\"]}]}, {\"job_name\": \"vllm\", \"static_configs\": [{\"targets\": [\"vllm-0.vllm:8000\", \"vllm-1.vllm:8000\"]}]}]}"
+      },
+      "immutable": true,
+      "kind": "ConfigMap",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "telemetry",
+        "namespace": "${SESSION_NAMESPACE}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "vllm",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "clusterIP": "None",
+        "ports": [
+          {
+            "name": "http",
+            "port": 8000,
+            "targetPort": 8000
+          }
+        ],
+        "selector": {
+          "app": "vllm"
+        },
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "redis",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "redis",
+            "port": 6379,
+            "targetPort": 6379
+          }
+        ],
+        "selector": {
+          "app": "redis"
+        },
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "gateway",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "clusterIP": "None",
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "gateway"
+        },
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "redis",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "redis"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "redis",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "args": [
+                  "redis-server",
+                  "--save",
+                  "",
+                  "--appendonly",
+                  "no",
+                  "--maxmemory",
+                  "256mb",
+                  "--maxmemory-policy",
+                  "noeviction"
+                ],
+                "image": "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d",
+                "name": "redis",
+                "ports": [
+                  {
+                    "containerPort": 6379
+                  }
+                ],
+                "readinessProbe": {
+                  "exec": {
+                    "command": [
+                      "redis-cli",
+                      "ping"
+                    ]
+                  },
+                  "periodSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "384Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                }
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "cpu"
+            },
+            "terminationGracePeriodSeconds": 60
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "gateway",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "podManagementPolicy": "OrderedReady",
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "gateway"
+          }
+        },
+        "serviceName": "gateway",
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "gateway",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": true,
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "POD_UID",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "POD_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.name"
+                      }
+                    }
+                  },
+                  {
+                    "name": "BACKEND_DISCOVERY",
+                    "value": "endpointslices"
+                  },
+                  {
+                    "name": "BACKEND_DISCOVERY_NAMESPACE",
+                    "value": "${SESSION_NAMESPACE}"
+                  },
+                  {
+                    "name": "BACKEND_DISCOVERY_SERVICE",
+                    "value": "vllm"
+                  },
+                  {
+                    "name": "BACKEND_DISCOVERY_INTERVAL",
+                    "value": "250ms"
+                  },
+                  {
+                    "name": "TENANT_CONFIG_PATH",
+                    "value": "/config/tenants.json"
+                  },
+                  {
+                    "name": "CACHE_SALT_SECRET_FILE",
+                    "value": "/config/cache-salt.secret"
+                  },
+                  {
+                    "name": "REDIS_ADDR",
+                    "value": "redis:6379"
+                  },
+                  {
+                    "name": "ADMISSION_NAMESPACE",
+                    "value": "${SESSION_NAMESPACE}"
+                  },
+                  {
+                    "name": "GATEWAY_TOTAL_TIMEOUT",
+                    "value": "30s"
+                  },
+                  {
+                    "name": "GATEWAY_SHUTDOWN_GRACE",
+                    "value": "35s"
+                  },
+                  {
+                    "name": "GATEWAY_SHUTDOWN_HARD_STOP",
+                    "value": "10s"
+                  },
+                  {
+                    "name": "ADMISSION_LEASE",
+                    "value": "90s"
+                  },
+                  {
+                    "name": "ADMISSION_CAPACITY_MODE",
+                    "value": "dynamic"
+                  },
+                  {
+                    "name": "ADMISSION_RUNNING",
+                    "value": "4"
+                  },
+                  {
+                    "name": "ADMISSION_WAITING",
+                    "value": "1"
+                  },
+                  {
+                    "name": "ADMISSION_REPORT_TTL",
+                    "value": "8s"
+                  },
+                  {
+                    "name": "ADMISSION_HOLD_DOWN",
+                    "value": "2s"
+                  },
+                  {
+                    "name": "GATEWAY_MEASUREMENT_PATH",
+                    "value": "/capture-data/gateway.jsonl"
+                  },
+                  {
+                    "name": "GATEWAY_ROUTING_POLICY",
+                    "value": "round-robin"
+                  },
+                  {
+                    "name": "OTEL_SDK_DISABLED",
+                    "value": "true"
+                  },
+                  {
+                    "name": "ADMISSION_GATEWAY_ID",
+                    "value": "$(POD_NAME)"
+                  }
+                ],
+                "image": "${REVIEWED_GATEWAY_IMAGE}",
+                "lifecycle": {
+                  "preStop": {
+                    "sleep": {
+                      "seconds": 3
+                    }
+                  }
+                },
+                "name": "gateway",
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 1,
+                  "httpGet": {
+                    "path": "/readyz",
+                    "port": 8080
+                  },
+                  "periodSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  },
+                  "requests": {
+                    "cpu": "250m",
+                    "memory": "256Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  },
+                  "readOnlyRootFilesystem": true
+                },
+                "startupProbe": {
+                  "failureThreshold": 60,
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "periodSeconds": 1
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/capture-data",
+                    "name": "capture"
+                  }
+                ]
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "cpu"
+            },
+            "securityContext": {
+              "fsGroup": 65532,
+              "runAsNonRoot": true,
+              "runAsUser": 65532
+            },
+            "serviceAccountName": "gateway",
+            "terminationGracePeriodSeconds": 60,
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "gateway-config"
+                }
+              },
+              {
+                "emptyDir": {
+                  "sizeLimit": "1Gi"
+                },
+                "name": "capture"
+              }
+            ]
+          }
+        },
+        "updateStrategy": {
+          "type": "OnDelete"
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "vllm",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "podManagementPolicy": "OrderedReady",
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app": "vllm"
+          }
+        },
+        "serviceName": "vllm",
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "vllm",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "affinity": {
+              "podAntiAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": [
+                  {
+                    "labelSelector": {
+                      "matchLabels": {
+                        "app": "vllm"
+                      }
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                ]
+              }
+            },
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "args": [
+                  "--model",
+                  "Qwen/Qwen2.5-7B-Instruct",
+                  "--revision",
+                  "a09a35458c702b33eeacc393d103063234e8bc28",
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8000",
+                  "--max-model-len",
+                  "8192",
+                  "--shutdown-timeout",
+                  "35"
+                ],
+                "command": [
+                  "python3",
+                  "/capture-code/capture_runtime.py"
+                ],
+                "env": [
+                  {
+                    "name": "POD_UID",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.uid"
+                      }
+                    }
+                  },
+                  {
+                    "name": "POD_NAME",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.name"
+                      }
+                    }
+                  },
+                  {
+                    "name": "VLLM_WORKER_MULTIPROC_METHOD",
+                    "value": "spawn"
+                  },
+                  {
+                    "name": "CAPTURE_ROOT",
+                    "value": "/capture-data/$(POD_UID)"
+                  }
+                ],
+                "image": "docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b",
+                "name": "vllm",
+                "ports": [
+                  {
+                    "containerPort": 8000,
+                    "name": "http"
+                  },
+                  {
+                    "containerPort": 9101,
+                    "name": "capture"
+                  }
+                ],
+                "readinessProbe": {
+                  "failureThreshold": 1,
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "periodSeconds": 1,
+                  "timeoutSeconds": 1
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "4",
+                    "memory": "12Gi",
+                    "nvidia.com/gpu": "1"
+                  },
+                  "requests": {
+                    "cpu": "2",
+                    "memory": "8Gi",
+                    "nvidia.com/gpu": "1"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "startupProbe": {
+                  "failureThreshold": 1800,
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8000
+                  },
+                  "periodSeconds": 1,
+                  "timeoutSeconds": 1
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/capture-code",
+                    "name": "runtime",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/capture-data",
+                    "name": "capture"
+                  },
+                  {
+                    "mountPath": "/dev/shm",
+                    "name": "shm"
+                  },
+                  {
+                    "mountPath": "/root/.cache/huggingface",
+                    "name": "model"
+                  }
+                ]
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "gpu"
+            },
+            "terminationGracePeriodSeconds": 45,
+            "tolerations": [
+              {
+                "effect": "NoSchedule",
+                "key": "nvidia.com/gpu",
+                "operator": "Equal",
+                "value": "true"
+              }
+            ],
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "runtime-capture-f7a91f1ce53a"
+                },
+                "name": "runtime"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/lib/mti-m5/${SESSION_NAMESPACE}",
+                  "type": "DirectoryOrCreate"
+                },
+                "name": "capture"
+              },
+              {
+                "emptyDir": {
+                  "medium": "Memory",
+                  "sizeLimit": "1Gi"
+                },
+                "name": "shm"
+              },
+              {
+                "hostPath": {
+                  "path": "/var/cache/mti-m5/models",
+                  "type": "DirectoryOrCreate"
+                },
+                "name": "model"
+              }
+            ]
+          }
+        },
+        "updateStrategy": {
+          "type": "OnDelete"
+        }
+      }
+    },
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "gateway",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "minAvailable": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "gateway"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "vllm",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "minAvailable": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "vllm"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "DaemonSet",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "nvidia-device-plugin",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "nvidia-device-plugin"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "nvidia-device-plugin",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "FAIL_ON_INIT_ERROR",
+                    "value": "true"
+                  }
+                ],
+                "image": "nvcr.io/nvidia/k8s-device-plugin:v0.17.1@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5",
+                "name": "plugin",
+                "resources": {
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "32Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/var/lib/kubelet/device-plugins",
+                    "name": "plugins"
+                  }
+                ]
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "gpu"
+            },
+            "tolerations": [
+              {
+                "effect": "NoSchedule",
+                "key": "nvidia.com/gpu",
+                "operator": "Equal",
+                "value": "true"
+              }
+            ],
+            "volumes": [
+              {
+                "hostPath": {
+                  "path": "/var/lib/kubelet/device-plugins",
+                  "type": "Directory"
+                },
+                "name": "plugins"
+              }
+            ]
+          }
+        },
+        "updateStrategy": {
+          "rollingUpdate": {
+            "maxSurge": 0,
+            "maxUnavailable": 1
+          },
+          "type": "RollingUpdate"
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "streaming-ingress",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "streaming-ingress"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "streaming-ingress",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "command": [
+                  "nginx",
+                  "-g",
+                  "daemon off;"
+                ],
+                "image": "nginx:1.28.0-alpine@sha256:30f1c0d78e0ad60901648be663a710bdadf19e4c10ac6782c235200619158284",
+                "name": "nginx",
+                "ports": [
+                  {
+                    "containerPort": 8443
+                  }
+                ],
+                "readinessProbe": {
+                  "periodSeconds": 1,
+                  "tcpSocket": {
+                    "port": 8443
+                  }
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "128Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "32Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  },
+                  "readOnlyRootFilesystem": true
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/etc/nginx/nginx.conf",
+                    "name": "config",
+                    "readOnly": true,
+                    "subPath": "nginx.conf"
+                  },
+                  {
+                    "mountPath": "/tls",
+                    "name": "tls",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/tmp",
+                    "name": "tmp"
+                  }
+                ]
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "cpu"
+            },
+            "securityContext": {
+              "fsGroup": 101,
+              "runAsNonRoot": true,
+              "runAsUser": 101
+            },
+            "terminationGracePeriodSeconds": 60,
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "streaming-ingress"
+                },
+                "name": "config"
+              },
+              {
+                "name": "tls",
+                "secret": {
+                  "secretName": "reviewed-gateway-tls"
+                }
+              },
+              {
+                "emptyDir": {},
+                "name": "tmp"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "annotations": {
+          "service.beta.kubernetes.io/aws-load-balancer-connection-idle-timeout": "120",
+          "service.beta.kubernetes.io/aws-load-balancer-type": "nlb"
+        },
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "streaming-ingress",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 443,
+            "targetPort": 8443
+          }
+        ],
+        "selector": {
+          "app": "streaming-ingress"
+        },
+        "type": "LoadBalancer"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "telemetry",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 9090,
+            "targetPort": 9090
+          }
+        ],
+        "selector": {
+          "app": "telemetry"
+        },
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "m5-session": "${SESSION_NAMESPACE}"
+        },
+        "name": "telemetry",
+        "namespace": "${SESSION_NAMESPACE}"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "telemetry"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "telemetry",
+              "m5-session": "${SESSION_NAMESPACE}"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "containers": [
+              {
+                "args": [
+                  "--config.file=/etc/prometheus/prometheus.yml",
+                  "--storage.tsdb.path=/data",
+                  "--storage.tsdb.retention.time=4h",
+                  "--storage.tsdb.retention.size=512MB"
+                ],
+                "image": "prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7",
+                "name": "prometheus",
+                "ports": [
+                  {
+                    "containerPort": 9090
+                  }
+                ],
+                "resources": {
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "512Mi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/etc/prometheus",
+                    "name": "config",
+                    "readOnly": true
+                  },
+                  {
+                    "mountPath": "/data",
+                    "name": "data"
+                  }
+                ]
+              }
+            ],
+            "nodeSelector": {
+              "m5-role": "cpu"
+            },
+            "securityContext": {
+              "fsGroup": 65534,
+              "runAsNonRoot": true,
+              "runAsUser": 65534
+            },
+            "terminationGracePeriodSeconds": 60,
+            "volumes": [
+              {
+                "configMap": {
+                  "name": "telemetry"
+                },
+                "name": "config"
+              },
+              {
+                "emptyDir": {
+                  "sizeLimit": "1Gi"
+                },
+                "name": "data"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "kind": "List"
+}

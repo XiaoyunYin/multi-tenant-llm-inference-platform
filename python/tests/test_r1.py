@@ -8,6 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from environment_requirements import require_history
+
 from inference_platform.r1_agent import Host
 from inference_platform.r1_analysis import candidate, eligible, noise, percentile, warm_rates
 from inference_platform.r1_fake import Fake
@@ -24,14 +26,67 @@ from inference_platform.r1_manifest import (
 from inference_platform.r1_metrics import delta, parse
 from inference_platform.r1_reset import PreparationFailed, Reset
 from inference_platform.r1_session import RealClock, Session
-from inference_platform.r1_spec import digest, encoded, verify_spec
+from inference_platform.r1_spec import SPEC_COMMIT, digest, encoded, verify_spec
 from inference_platform.r1_transport import HTTP, private_url
 from inference_platform.stage_c_tokenizer import pinned_tokenizer
+
+
+class LauncherCommandTests(unittest.TestCase):
+    def test_backend_command_matches_closed_r1_launcher(self):
+        cache = str(Path(tempfile.gettempdir()).resolve() / "r1-weights")
+        self.assertEqual(
+            backend_command(cache),
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--name",
+                "r1-vllm",
+                "--gpus",
+                "all",
+                "--ipc=host",
+                "--publish",
+                "8000:8000",
+                "--publish",
+                "5557:5557",
+                "--volume",
+                f"{cache}:/root/.cache/huggingface",
+                "--env",
+                "VLLM_SERVER_DEV_MODE=1",
+                "docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b",
+                "--model",
+                "Qwen/Qwen2.5-7B-Instruct",
+                "--revision",
+                "a09a35458c702b33eeacc393d103063234e8bc28",
+                "--dtype",
+                "bfloat16",
+                "--max-model-len",
+                "8192",
+                "--block-size",
+                "16",
+                "--max-num-seqs",
+                "16",
+                "--max-num-queued-reqs",
+                "32",
+                "--gpu-memory-utilization",
+                "0.90",
+                "--enable-prefix-caching",
+                "--kv-events-config",
+                '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:5557","topic":"kv-events"}',
+                "--generation-config",
+                "vllm",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+            ],
+        )
 
 
 class ManifestTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        require_history(Path(__file__).resolve().parents[2], SPEC_COMMIT)
         cls.directory = tempfile.TemporaryDirectory()
         cls.path = Path(cls.directory.name)
         cls.manifest = build(cls.path, "offline-r1-rehearsal")

@@ -1,0 +1,1341 @@
+{
+  "schema": "package-a-cpu-test-weights-r350-v1",
+  "basis": "R349 complete Linux module durations without module errors; R350 Windows module timings x2 where missing/shortened; named platform skips remain unmeasured Linux cases; Round 370 real pinned-Linux module durations for four new Python modules, ceil to 1s; collector weight/isolation unchanged; Round371 real pinned-Linux measurements for the descriptive client and thin operator, ceil to 1s",
+  "ceiling_margin": 1.5,
+  "rounding": "weight ceil to 1 s; shard ceiling ceil to 60 s",
+  "shard_test_ceilings_s": [
+    3660,
+    3000,
+    3000
+  ],
+  "shard_weight_s": [
+    2436,
+    1968,
+    1965
+  ],
+  "assignment": [
+    [
+      "test_inf037b_collectors.py"
+    ],
+    [
+      "test_admission_process_integration.py",
+      "test_build_inf037b_gate_a_fixture.py",
+      "test_calibration.py",
+      "test_cpu_benchmark.py",
+      "test_eks_package_a.py",
+      "test_failure_taxonomy_integration.py",
+      "test_gateway_integration.py",
+      "test_host_disk.py",
+      "test_inf037b_4e_inputs.py",
+      "test_inf037b_capture_inventory.py",
+      "test_inf037b_command.py",
+      "test_inf037b_composition.py",
+      "test_inf037b_eks_campaign.py",
+      "test_inf037b_eks_cluster_checks.py",
+      "test_inf037b_eks_commands.py",
+      "test_inf037b_eks_execution.py",
+      "test_inf037b_eks_host.py",
+      "test_inf037b_eks_host_bindings.py",
+      "test_inf037b_eks_r487.py",
+      "test_inf037b_eks_setup.py",
+      "test_inf037b_eks_terminal.py",
+      "test_inf037b_fitness.py",
+      "test_inf037b_gate_a_socket.py",
+      "test_inf037b_lifecycle.py",
+      "test_inf037b_lifecycle_recovery.py",
+      "test_inf037b_observations.py",
+      "test_inf037b_placement.py",
+      "test_inf037b_preparation.py",
+      "test_inf037b_preparation_adapter.py",
+      "test_inf037b_probe.py",
+      "test_inf037b_resolver.py",
+      "test_inf037b_resources.py",
+      "test_inf037b_row5_capture.py",
+      "test_inf037b_row5_replay.py",
+      "test_inf037b_setup.py",
+      "test_inf037b_terminal.py",
+      "test_kind_rollout.py",
+      "test_kv_event_capture.py",
+      "test_l4_compat.py",
+      "test_m5_descriptive.py",
+      "test_m5_infra_safety.py",
+      "test_package.py",
+      "test_package_a_gate_a_operator.py",
+      "test_package_a_kind.py",
+      "test_package_a_sealed.py",
+      "test_r1_bootstrap_health.py",
+      "test_r1_calibration_idle.py",
+      "test_r1_calibration_rows.py",
+      "test_r1_cloud.py",
+      "test_r1_dispatch.py",
+      "test_r1_export.py",
+      "test_r1_fixture_target.py",
+      "test_r1_multizone_approval.py",
+      "test_r1_operator_shell.py",
+      "test_r1_paid_lifecycle.py",
+      "test_r1_recovery.py",
+      "test_records.py",
+      "test_rehearse_eks_package_a.py",
+      "test_remote_source_fitness.py",
+      "test_runtime_observers.py",
+      "test_schema_examples.py",
+      "test_stage_c.py",
+      "test_stage_c_bytecode.py",
+      "test_stage_c_checkpoint.py",
+      "test_stage_c_container.py",
+      "test_stage_c_digest.py",
+      "test_stage_c_fitness.py",
+      "test_stage_c_observer.py",
+      "test_stage_c_observer_review_fixes.py",
+      "test_stage_c_readiness.py",
+      "test_stage_c_readiness_wait.py",
+      "test_stage_c_registered.py",
+      "test_stage_c_server_recovery.py",
+      "test_stage_c_tokenizer.py",
+      "test_terraform_apply_watchdog.py"
+    ],
+    [
+      "test_admission_validator.py",
+      "test_archive_transfer.py",
+      "test_build_inf037b_gate_a_packet.py",
+      "test_decision_export.py",
+      "test_evidence_sanitize.py",
+      "test_fake_backend.py",
+      "test_inf037b_bounded.py",
+      "test_inf037b_capture.py",
+      "test_inf037b_controller.py",
+      "test_inf037b_core.py",
+      "test_inf037b_eks_cluster.py",
+      "test_inf037b_eks_fixture.py",
+      "test_inf037b_eks_observations.py",
+      "test_inf037b_eks_owner_registry.py",
+      "test_inf037b_eks_packet.py",
+      "test_inf037b_eks_placement.py",
+      "test_inf037b_eks_probe.py",
+      "test_inf037b_eks_provider.py",
+      "test_inf037b_eks_provider_client.py",
+      "test_inf037b_eks_stores.py",
+      "test_inf037b_eks_supervisor.py",
+      "test_inf037b_engine.py",
+      "test_inf037b_export_runtime.py",
+      "test_inf037b_gate_a.py",
+      "test_inf037b_gate_a_spool.py",
+      "test_inf037b_integration.py",
+      "test_inf037b_live.py",
+      "test_inf037b_maximum.py",
+      "test_inf037b_ports.py",
+      "test_inf037b_ports_git.py",
+      "test_inf037b_row5.py",
+      "test_inf037b_row5_diagnostic.py",
+      "test_inf037b_row5_kind.py",
+      "test_inf037b_row5_live.py",
+      "test_inf037b_row5_sequence.py",
+      "test_inf037b_sanitization_regressions.py",
+      "test_inf037b_startup.py",
+      "test_inf037b_transfer.py",
+      "test_kv_publisher_probe.py",
+      "test_kv_zmq_transport.py",
+      "test_l4_revision.py",
+      "test_m5_descriptive_operator.py",
+      "test_observer_decode_source_stop.py",
+      "test_package_a_capture.py",
+      "test_package_a_cloud.py",
+      "test_package_a_cpu_validation.py",
+      "test_package_a_gate_a_host.py",
+      "test_package_a_kind_readiness.py",
+      "test_package_a_round237.py",
+      "test_package_a_round238.py",
+      "test_package_a_workload.py",
+      "test_r1.py",
+      "test_r1_bundle.py",
+      "test_r1_capacity_probe_recovery.py",
+      "test_r1_cost_estimates.py",
+      "test_r1_generator_probe.py",
+      "test_r1_lifecycle.py",
+      "test_r1_private_identifier_scan.py",
+      "test_r1_review_plan.py",
+      "test_r1_upload.py",
+      "test_rehearsal_disk.py",
+      "test_round58_bounds.py",
+      "test_routine_prune.py",
+      "test_stage_c_admission.py",
+      "test_stage_c_capture_rehearsal.py",
+      "test_stage_c_finalize.py",
+      "test_stage_c_preflight.py",
+      "test_stage_c_protocol.py",
+      "test_stage_c_resources.py",
+      "test_stage_c_rewarm.py",
+      "test_stage_c_session.py",
+      "test_stage_c_sizing.py",
+      "test_stage_c_transport.py",
+      "test_time_budget.py",
+      "test_workload.py"
+    ]
+  ],
+  "modules": {
+    "test_admission_process_integration.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_admission_process_integration",
+      "measured_tests": {
+        "run": 0,
+        "passed": 0,
+        "skipped": 1,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_admission_validator.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.1582804859999669,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_archive_transfer.py": {
+      "weight_s": 14,
+      "measured_duration_s": 13.13815704200033,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_build_inf037b_gate_a_fixture.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.007428338999943662,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_build_inf037b_gate_a_packet.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.1545054779999191,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_calibration.py": {
+      "weight_s": 2,
+      "measured_duration_s": 0.7339999999967404,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_calibration",
+      "measured_tests": {
+        "run": 4,
+        "passed": 4,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_cpu_benchmark.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0004169759999967937,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_decision_export.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.058318067000072915,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_eks_package_a.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.006072193000363768,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_evidence_sanitize.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.00018299499970453326,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_failure_taxonomy_integration.py": {
+      "weight_s": 52,
+      "measured_duration_s": 25.906999999991967,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_failure_taxonomy_integration",
+      "measured_tests": {
+        "run": 1,
+        "passed": 1,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_fake_backend.py": {
+      "weight_s": 3,
+      "measured_duration_s": 1.4840000000112923,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_fake_backend",
+      "measured_tests": {
+        "run": 17,
+        "passed": 17,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_gateway_integration.py": {
+      "weight_s": 71,
+      "measured_duration_s": 35.01599999998871,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_gateway_integration",
+      "measured_tests": {
+        "run": 8,
+        "passed": 8,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_host_disk.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.028882598000109283,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_4e_inputs.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.6523025950000374,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_bounded.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.3318986340000265,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_capture.py": {
+      "weight_s": 33,
+      "measured_duration_s": 32.703123485000106,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_capture_inventory.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.0813681439999527,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_collectors.py": {
+      "weight_s": 2436,
+      "measured_duration_s": 2435.808995763,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-0.log"
+    },
+    "test_inf037b_command.py": {
+      "weight_s": 117,
+      "measured_duration_s": 116.81505155299965,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_composition.py": {
+      "weight_s": 8,
+      "measured_duration_s": 7.340694342000006,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_controller.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.331351595000342,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_core.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.0895650930001466,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_campaign.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.44719182399967394,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_cluster.py": {
+      "weight_s": 45,
+      "measured_duration_s": 44.566990671999974,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_cluster_checks.py": {
+      "weight_s": 39,
+      "measured_duration_s": 38.485897918999854,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_commands.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.753996730000381,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_execution.py": {
+      "weight_s": 12,
+      "measured_duration_s": 11.599019204999877,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_fixture.py": {
+      "weight_s": 7,
+      "measured_duration_s": 6.151607736000187,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_host.py": {
+      "weight_s": 10,
+      "measured_duration_s": 9.999640708999777,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_observations.py": {
+      "weight_s": 10,
+      "measured_duration_s": 9.460613542999909,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_packet.py": {
+      "weight_s": 21,
+      "measured_duration_s": 20.071582690000014,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_placement.py": {
+      "weight_s": 28,
+      "measured_duration_s": 27.947574008000174,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_probe.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.7294085049998102,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_provider.py": {
+      "weight_s": 8,
+      "measured_duration_s": 7.223051145000227,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_r487.py": {
+      "weight_s": 13,
+      "measured_duration_s": 12.7244887869997,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_setup.py": {
+      "weight_s": 8,
+      "measured_duration_s": 7.005278398999508,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_stores.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.303552721999949,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_supervisor.py": {
+      "weight_s": 5,
+      "measured_duration_s": 4.115305573000114,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_eks_terminal.py": {
+      "weight_s": 9,
+      "measured_duration_s": 8.24361711399979,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_engine.py": {
+      "weight_s": 61,
+      "measured_duration_s": 60.68631277300028,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_export_runtime.py": {
+      "weight_s": 7,
+      "measured_duration_s": 6.666710319000231,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_fitness.py": {
+      "weight_s": 263,
+      "measured_duration_s": 262.01655845000005,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_gate_a.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.0927998259999185,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_gate_a_socket.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.001533521999590448,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_gate_a_spool.py": {
+      "weight_s": 44,
+      "measured_duration_s": 43.49161327499996,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_integration.py": {
+      "weight_s": 101,
+      "measured_duration_s": 100.06943483499981,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_lifecycle.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.551110504999997,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_lifecycle_recovery.py": {
+      "weight_s": 267,
+      "measured_duration_s": 266.76590013700024,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_live.py": {
+      "weight_s": 8,
+      "measured_duration_s": 3.5780000000086147,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_inf037b_live",
+      "measured_tests": {
+        "run": 16,
+        "passed": 14,
+        "skipped": 2,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_inf037b_maximum.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.06427116200029559,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_observations.py": {
+      "weight_s": 53,
+      "measured_duration_s": 52.659518039999966,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_placement.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.17253036500005692,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_ports.py": {
+      "weight_s": 127,
+      "measured_duration_s": 126.98109169099916,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_ports_git.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.013602528999854258,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_preparation.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.099178321999716,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_preparation_adapter.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.9838688340000772,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_probe.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.8330681749994255,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_resolver.py": {
+      "weight_s": 20,
+      "measured_duration_s": 19.95315702500011,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_resources.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.2720443359994533,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_row5.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.6345321769999828,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_row5_capture.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.0237168499998006,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_row5_diagnostic.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.20551558099987233,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_row5_kind.py": {
+      "weight_s": 145,
+      "measured_duration_s": 144.02745132399923,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_row5_live.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.0057669740003803,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_row5_replay.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.002157926999643678,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_row5_sequence.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0353208739998081,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_sanitization_regressions.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.0679599300001428,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_setup.py": {
+      "weight_s": 140,
+      "measured_duration_s": 139.0336168240001,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_startup.py": {
+      "weight_s": 453,
+      "measured_duration_s": 452.41954751400044,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_inf037b_terminal.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.0998896330002026,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_transfer.py": {
+      "weight_s": 164,
+      "measured_duration_s": 163.6200403010007,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_kind_rollout.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.000682457000038994,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_kv_event_capture.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.1127871489998142,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_kv_publisher_probe.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0028532159999485884,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_kv_zmq_transport.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.01762085900009,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_l4_compat.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.6313242349997381,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_l4_revision.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.7314102330001333,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_m5_infra_safety.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.015095633000328235,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_observer_decode_source_stop.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.01946242699978029,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package.py": {
+      "weight_s": 1,
+      "measured_duration_s": 5.929000008109142e-05,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_capture.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.8060272960001384,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package_a_cloud.py": {
+      "weight_s": 12,
+      "measured_duration_s": 11.264594366999972,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_cpu_validation.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.974772350999956,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package_a_gate_a_host.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.1256080369998926,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_gate_a_operator.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.13179544699960388,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package_a_kind.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.8420671190001485,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_kind_readiness.py": {
+      "weight_s": 6,
+      "measured_duration_s": 5.061242785000104,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package_a_round237.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.402730856999824,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_round238.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.20413888300026883,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_package_a_sealed.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0019719850001820305,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_package_a_workload.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.39100000000325963,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_package_a_workload",
+      "measured_tests": {
+        "run": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_r1.py": {
+      "weight_s": 16,
+      "measured_duration_s": 15.530748455999856,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_bootstrap_health.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.016901224000321236,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_bundle.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.00812587300015366,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_calibration_idle.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.7154919290005637,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_calibration_rows.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0008420700000897341,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_capacity_probe_recovery.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.22692020799968304,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_cloud.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.057975206000264734,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_cost_estimates.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.000973195000369742,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_dispatch.py": {
+      "weight_s": 25,
+      "measured_duration_s": 24.52691901099979,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_export.py": {
+      "weight_s": 7,
+      "measured_duration_s": 6.109877232000144,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_fixture_target.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.554063194000264,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_generator_probe.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.00014879399986966746,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_lifecycle.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.2662441630000103,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_multizone_approval.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.2626403719996233,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_operator_shell.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.3485118320004403,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_paid_lifecycle.py": {
+      "weight_s": 2,
+      "measured_duration_s": 1.6373788470000363,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_private_identifier_scan.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.25,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_r1_private_identifier_scan",
+      "measured_tests": {
+        "run": 3,
+        "passed": 3,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_r1_recovery.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.10266052800034231,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_r1_review_plan.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.027105966999897646,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_r1_upload.py": {
+      "weight_s": 7,
+      "measured_duration_s": 6.616823256999851,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_records.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0012050240002281498,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_rehearsal_disk.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.1221424469995327,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_rehearse_eks_package_a.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.050682374000189157,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_remote_source_fitness.py": {
+      "weight_s": 5,
+      "measured_duration_s": 4.818118961999971,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_round58_bounds.py": {
+      "weight_s": 3,
+      "measured_duration_s": 1.4689999999973224,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_round58_bounds",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_runtime_observers.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.917190412999844,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_schema_examples.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.001578919000166934,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c.py": {
+      "weight_s": 7,
+      "measured_duration_s": 3.2339999999967404,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c",
+      "measured_tests": {
+        "run": 3,
+        "passed": 3,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_admission.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0023049319997880957,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_bytecode.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.3724775630007571,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_stage_c_capture_rehearsal.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.003643909999937023,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_checkpoint.py": {
+      "weight_s": 15,
+      "measured_duration_s": 14.77699795799981,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-2.log"
+    },
+    "test_stage_c_container.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.44141761200035035,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_digest.py": {
+      "weight_s": 8,
+      "measured_duration_s": 3.875,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_digest",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_finalize.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.5259832279998591,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_fitness.py": {
+      "weight_s": 676,
+      "measured_duration_s": 337.8130000000092,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_fitness",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_observer.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.7370030060001227,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_observer_review_fixes.py": {
+      "weight_s": 3,
+      "measured_duration_s": 1.264999999999418,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_observer_review_fixes",
+      "measured_tests": {
+        "run": 27,
+        "passed": 15,
+        "skipped": 13,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_preflight.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0003350549995957408,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_protocol.py": {
+      "weight_s": 2,
+      "measured_duration_s": 0.7819999999919673,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_protocol",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_readiness.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.20300000000861473,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_readiness",
+      "measured_tests": {
+        "run": 5,
+        "passed": 5,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_readiness_wait.py": {
+      "weight_s": 2,
+      "measured_duration_s": 0.875,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_readiness_wait",
+      "measured_tests": {
+        "run": 5,
+        "passed": 5,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_registered.py": {
+      "weight_s": 39,
+      "measured_duration_s": 38.36889161099998,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_resources.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.3279999999940628,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_resources",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_rewarm.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.0912746559997686,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_stage_c_server_recovery.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_server_recovery",
+      "measured_tests": {
+        "run": 1,
+        "passed": 0,
+        "skipped": 1,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_session.py": {
+      "weight_s": 538,
+      "measured_duration_s": 268.9689999999973,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_session",
+      "measured_tests": {
+        "run": 9,
+        "passed": 9,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_sizing.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.0,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_sizing",
+      "measured_tests": {
+        "run": 2,
+        "passed": 2,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_tokenizer.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.3120000000053551,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_tokenizer",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_stage_c_transport.py": {
+      "weight_s": 9,
+      "measured_duration_s": 4.26600000000326,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_stage_c_transport",
+      "measured_tests": {
+        "run": 11,
+        "passed": 11,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_terraform_apply_watchdog.py": {
+      "weight_s": 6,
+      "measured_duration_s": 2.5469999999913853,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_terraform_apply_watchdog",
+      "measured_tests": {
+        "run": 4,
+        "passed": 4,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_time_budget.py": {
+      "weight_s": 2,
+      "measured_duration_s": 0.5470000000059372,
+      "multiplier": 2,
+      "source": "R350 laptop-timings.json: test_time_budget",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      },
+      "limitation": "Windows timing; platform/dependency skips are explicit, not Linux passes"
+    },
+    "test_workload.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.005003074999876844,
+      "multiplier": 1,
+      "source": "R349 archive bb8dcfa24ca8ee74c9e33c453ad580f9d3e85d03851202608637fd2e90c44baf: results/runner/cpu-shard-1.log"
+    },
+    "test_inf037b_eks_host_bindings.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.579107299000043,
+      "multiplier": 1,
+      "measured_tests": {
+        "errors": 0,
+        "failures": 0,
+        "passed": 6,
+        "run": 6,
+        "skipped": 0
+      },
+      "source": "Round 370 source 230e11b29517ae82f8ef10c7e7f047f9f373e6d3 archive 93ce2078f7b4c4e828564e0fd4b51f703736266ecee5e78764221d82b4b3a909: results/runner/routine/linux-modules.log (log SHA256 c641adc2cdd68a008ec5ae27845bbf622a8bd62549eec01a8e5fdcb418f2494e)"
+    },
+    "test_inf037b_eks_owner_registry.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.44699703700007376,
+      "multiplier": 1,
+      "measured_tests": {
+        "errors": 0,
+        "failures": 0,
+        "passed": 3,
+        "run": 3,
+        "skipped": 0
+      },
+      "source": "Round 370 source 230e11b29517ae82f8ef10c7e7f047f9f373e6d3 archive 93ce2078f7b4c4e828564e0fd4b51f703736266ecee5e78764221d82b4b3a909: results/runner/routine/linux-modules.log (log SHA256 c641adc2cdd68a008ec5ae27845bbf622a8bd62549eec01a8e5fdcb418f2494e)"
+    },
+    "test_inf037b_eks_provider_client.py": {
+      "weight_s": 3,
+      "measured_duration_s": 2.5500137080000513,
+      "multiplier": 1,
+      "measured_tests": {
+        "errors": 0,
+        "failures": 0,
+        "passed": 4,
+        "run": 4,
+        "skipped": 0
+      },
+      "source": "Round 370 source 230e11b29517ae82f8ef10c7e7f047f9f373e6d3 archive 93ce2078f7b4c4e828564e0fd4b51f703736266ecee5e78764221d82b4b3a909: results/runner/routine/linux-modules.log (log SHA256 c641adc2cdd68a008ec5ae27845bbf622a8bd62549eec01a8e5fdcb418f2494e)"
+    },
+    "test_routine_prune.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.027560870999877807,
+      "multiplier": 1,
+      "measured_tests": {
+        "errors": 0,
+        "failures": 0,
+        "passed": 3,
+        "run": 3,
+        "skipped": 0
+      },
+      "source": "Round 370 source 230e11b29517ae82f8ef10c7e7f047f9f373e6d3 archive 93ce2078f7b4c4e828564e0fd4b51f703736266ecee5e78764221d82b4b3a909: results/runner/routine/linux-modules.log (log SHA256 c641adc2cdd68a008ec5ae27845bbf622a8bd62549eec01a8e5fdcb418f2494e)"
+    },
+    "test_m5_descriptive.py": {
+      "weight_s": 4,
+      "measured_duration_s": 3.2999498419999327,
+      "multiplier": 1,
+      "source": "Round371 focused repro 10bfe25 pinned Linux linux-modules.log",
+      "measured_tests": {
+        "run": 6,
+        "passed": 6,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "test_m5_descriptive_operator.py": {
+      "weight_s": 1,
+      "measured_duration_s": 0.08047326900009466,
+      "multiplier": 1,
+      "source": "Round371 focused repro 10bfe25 pinned Linux linux-modules.log",
+      "measured_tests": {
+        "run": 4,
+        "passed": 4,
+        "skipped": 0,
+        "failures": 0,
+        "errors": 0
+      }
+    }
+  },
+  "round370_measurement": {
+    "source_commit": "230e11b29517ae82f8ef10c7e7f047f9f373e6d3",
+    "archive_sha256": "93ce2078f7b4c4e828564e0fd4b51f703736266ecee5e78764221d82b4b3a909",
+    "log_member": "results/runner/routine/linux-modules.log",
+    "log_sha256": "c641adc2cdd68a008ec5ae27845bbf622a8bd62549eec01a8e5fdcb418f2494e",
+    "instance_type": "m6i.2xlarge",
+    "python_image": "python:3.12.7-slim-bookworm@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d",
+    "added_modules": [
+      "test_inf037b_eks_host_bindings.py",
+      "test_inf037b_eks_owner_registry.py",
+      "test_inf037b_eks_provider_client.py",
+      "test_routine_prune.py"
+    ]
+  },
+  "round_371_additions": {
+    "source_commit": "10bfe255a4f74f8ad1e76f45be6ed566c5c8921a",
+    "archive_sha256": "6fbb5ed2e9b606a3abb260185bce2395ebe6294a541fd2a26c1a8d3eefe06b47",
+    "log_member": "results/runner/routine/linux-modules.log",
+    "added_modules": [
+      "test_m5_descriptive.py",
+      "test_m5_descriptive_operator.py"
+    ],
+    "limitation": "The first baseline measured six client tests and four operator tests; subsequent tests are covered by the final whole-module AWS run."
+  }
+}

@@ -1,0 +1,3 @@
+{"time_unix_ns":1230000000,"msg":"SIGTERM received","signal":15,"active":2}
+non-JSON container startup line
+{"time_unix_ns":11230000000,"msg":"last stream drained","active":0}

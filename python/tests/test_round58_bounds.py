@@ -17,6 +17,49 @@ from inference_platform.stage_c_checkpoint import seal_run
 
 
 class Round58BoundsTest(unittest.TestCase):
+    def test_idle_disk_connections_reopen_with_rows_and_private_index_tables_intact(self):
+        rows = [DiskList([{"n": n}]) for n in range(96)]
+        paths = [row.path for row in rows]
+        try:
+            for n, row in enumerate(rows):
+                row.db.executescript("create table ids(n integer primary key);")
+                row.db.executemany("insert into ids values (?)", [(n,)])
+            for n, row in reversed(list(enumerate(rows))):
+                self.assertEqual(row[0], {"n": n})
+                self.assertEqual(row.db.execute("select n from ids").fetchone(), (n,))
+            rows[0][0] = {"n": -1}
+            rows[0].append({"n": 96})
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "rows.json"
+                write_json(path, rows)
+                expected = [[{"n": -1}, {"n": 96}], *[[{"n": n}] for n in range(1, 96)]]
+                self.assertEqual(
+                    path.read_text(), json.dumps(expected, indent=2, sort_keys=True) + "\n"
+                )
+        finally:
+            for row in rows:
+                row.close()
+        self.assertTrue(all(not path.exists() for path in paths))
+
+    def test_streaming_reader_survives_pressure_from_other_disk_lists(self):
+        rows = DiskList(range(10))
+        iterator = iter(rows)
+        self.assertEqual(next(iterator), 0)
+        others = []
+        try:
+            for n in range(96):
+                others.append(DiskList([n]))
+            self.assertEqual(list(iterator), list(range(1, 10)))
+            self.assertEqual(list(reversed(rows)), list(reversed(range(10))))
+            rows.db.execute("create table ids(n integer primary key)")
+            rows.db.executemany("insert into ids values (?)", ((row[0],) for row in others))
+            self.assertEqual(rows.db.execute("select count(*) from ids").fetchone(), (96,))
+        finally:
+            iterator.close()
+            for row in others:
+                row.close()
+            rows.close()
+
     def test_disk_volume_dump_and_reversal_have_bounded_python_memory(self):
         with tempfile.TemporaryDirectory() as directory:
             tracemalloc.start()

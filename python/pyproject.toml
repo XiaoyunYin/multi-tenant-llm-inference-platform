@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Client and workload tooling for the multi-tenant LLM inference platform"
 readme = "README.md"
 requires-python = "==3.12.*"
-dependencies = []
+dependencies = [
+    "boto3==1.43.123",
+]
 
 [dependency-groups]
 dev = [

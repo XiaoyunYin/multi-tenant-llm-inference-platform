@@ -44,3 +44,7 @@ Thumbs.db
 # Experiment outputs are registered deliberately, not accidentally
 experiments/**/raw/
 experiments/**/artifacts/
+
+# Private agent settings (never exported as source).
+.claude/
+.codex/

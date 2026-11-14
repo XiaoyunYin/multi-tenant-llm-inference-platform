@@ -53,10 +53,13 @@ func TestGatewayMapsAdmissionDenialsWithoutContactingUpstream(t *testing.T) {
 		name     string
 		decision admission.Decision
 		code     string
+		status   int
+		retry    string
 	}{
-		{name: "rate", decision: admission.TenantRateLimited, code: "tenant_rate_limit"},
-		{name: "concurrency", decision: admission.TenantConcurrencyLimited, code: "tenant_concurrency_limit"},
-		{name: "global", decision: admission.SystemCapacityLimited, code: "system_capacity"},
+		{name: "rate", decision: admission.TenantRateLimited, code: "tenant_rate_limit", status: 429, retry: "2"},
+		{name: "concurrency", decision: admission.TenantConcurrencyLimited, code: "tenant_concurrency_limit", status: 429, retry: "2"},
+		{name: "global", decision: admission.SystemCapacityLimited, code: "system_capacity", status: 429, retry: "2"},
+		{name: "reports_expired", decision: admission.CapacityReportsExpired, code: "capacity_reports_expired", status: 503},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -71,7 +74,7 @@ func TestGatewayMapsAdmissionDenialsWithoutContactingUpstream(t *testing.T) {
 			response := requestGateway(t, server.Client(), server.URL)
 			body, _ := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != http.StatusTooManyRequests || !containsBytes(body, testCase.code) || response.Header.Get("Retry-After") != "2" {
+			if response.StatusCode != testCase.status || !containsBytes(body, testCase.code) || response.Header.Get("Retry-After") != testCase.retry {
 				t.Fatalf("denial mismatch: status=%d retry=%q body=%s", response.StatusCode, response.Header.Get("Retry-After"), body)
 			}
 			if contacts.Load() != 0 {
@@ -84,6 +87,9 @@ func TestGatewayMapsAdmissionDenialsWithoutContactingUpstream(t *testing.T) {
 			snapshot := gateway.Metrics()
 			if snapshot.Rejected != 1 {
 				t.Fatalf("denial metric missing: %+v", snapshot)
+			}
+			if testCase.decision == admission.CapacityReportsExpired && snapshot.CapacityReportsExpired != 1 {
+				t.Fatalf("expired reports counter missing: %+v", snapshot)
 			}
 		})
 	}

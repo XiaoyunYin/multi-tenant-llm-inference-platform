@@ -4,6 +4,7 @@ import hashlib
 import json
 import random
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,8 @@ from unittest.mock import patch
 from deflate_structure import blocks
 from remainder_fixtures import fixture
 
+from inference_platform import failure_taxonomy
+from inference_platform.calibration import _recorder_error_body_code
 from inference_platform.stage_c_checkpoint import seal_run
 from inference_platform.stage_c_digest import measurement_digest, seal_digest
 from inference_platform.stage_c_registered import (
@@ -95,7 +98,7 @@ class RegisteredDigestTest(unittest.TestCase):
         self.assertLessEqual(max(actual.values()), 15)
         self.assertEqual(sum(1 << (15 - size) for size in actual.values()), 1 << 15)
 
-    def test_gateway_enum_exact_set_from_all_producer_paths(self):
+    def test_gateway_fixed_and_dynamic_terminal_codes_are_explicit(self):
         root = Path(__file__).resolve().parents[2]
         files = sorted(
             path
@@ -134,7 +137,14 @@ class RegisteredDigestTest(unittest.TestCase):
         codes.update(map(json.loads, branches))
         self.assertEqual(
             set(map(json.loads, decision_returns)),
-            {"allowed", "tenant_rate_limit", "tenant_concurrency_limit", "system_capacity", ""},
+            {
+                "allowed",
+                "tenant_rate_limit",
+                "tenant_concurrency_limit",
+                "system_capacity",
+                "capacity_reports_expired",
+                "",
+            },
         )
         self.assertRegex(
             handler,
@@ -144,10 +154,91 @@ class RegisteredDigestTest(unittest.TestCase):
         codes.update(
             json.loads(value)
             for value in decision_returns
-            if json.loads(value) not in ("allowed", "")
+            if json.loads(value) not in ("allowed", "capacity_reports_expired", "")
         )
-        self.assertEqual(len(constructors), 39)
-        self.assertEqual(codes, set(GATEWAY_CODES))
+        # Discovery and expiry outcomes are outside the fixed static Stage C
+        # path; its emitted terminal vocabulary must remain registration-bound.
+        # The three slice 3a additions are also included in the producer scan.
+        self.assertEqual(len(constructors), 42)
+        self.assertEqual(
+            codes - {"discovery_unknown", "capacity_reports_expired"},
+            set(GATEWAY_CODES),
+        )
+        unavailable = re.search(
+            r"func postAdmissionUnavailableCode\([^)]*\) string \{(.*?)\n\}",
+            handler,
+            flags=re.S,
+        )
+        self.assertIsNotNone(unavailable)
+        self.assertEqual(
+            set(re.findall(r'return "([^"]+)"', unavailable[1])),
+            {
+                "no_healthy_backend",
+                "discovery_unknown_after_admit",
+                "backend_membership_changed_after_admit",
+            },
+        )
+
+    def test_static_health_flip_row_is_accepted_by_stage_c_encoder(self):
+        root = Path(__file__).resolve().parents[2]
+        completed = subprocess.run(
+            [
+                "go",
+                "test",
+                "./internal/gateway",
+                "-run",
+                "^TestFixedModeStaticHealthFlipProducesStageCRow$",
+                "-count=1",
+                "-v",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        status_match = re.search(r"R224_STAGEC_STATUS=(\d+)", completed.stdout)
+        body_match = re.search(r"R224_STAGEC_BODY=([^\r\n]+)", completed.stdout)
+        terminal_match = re.search(r"R224_STAGEC_TERMINAL=(\{[^\r\n]+\})", completed.stdout)
+        self.assertIsNotNone(status_match, completed.stdout)
+        self.assertIsNotNone(body_match, completed.stdout)
+        self.assertIsNotNone(terminal_match, completed.stdout)
+        body = json.loads(body_match[1])
+        terminal = json.loads(terminal_match[1])
+        self.assertEqual(terminal.get("msg"), "request terminal")
+        record = {
+            "gateway_request_id": terminal["request_id"],
+            "http_status": int(status_match[1]),
+            "error_body_code": _recorder_error_body_code(body),
+            "outcome": "rejected",
+            "dispatch_offset_ns": 0,
+        }
+        run = {"concurrency": 1, "records": [record]}
+        with tempfile.TemporaryDirectory() as directory:
+            gateway_log = Path(directory) / "gateway.log"
+            gateway_log.write_text(json.dumps(terminal) + "\n", encoding="utf-8")
+            failure_taxonomy.add_failure_splits(run, gateway_log)
+        self.assertEqual(run["unmatched_dispatched_request_count"], 0)
+        joined = run["failure_split"][0]
+        row = (
+            joined["http_status"],
+            joined["gateway_terminal_code"],
+            joined["class"],
+            joined["client_error_body_code"],
+            joined["upstream_error_body_code"],
+        )
+        book, ids = failure_codebook([row])
+        decoded = decode_failures(book)[ids[0]]
+        expected = (
+            503,
+            "no_healthy_backend",
+            "gateway_no_healthy_backend",
+            "no_healthy_backend",
+            0,
+        )
+        self.assertEqual(decoded, expected)
+        self.assertEqual(decoded[3], "no_healthy_backend")
 
     def test_median_has_no_request_sample_minimum(self):
         for n in (1, 2, 29, 30, 40):

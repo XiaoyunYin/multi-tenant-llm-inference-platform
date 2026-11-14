@@ -1,0 +1,218 @@
+{
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_instance.receiver",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "receiver",
+          "provider_config_key": "aws",
+          "expressions": {
+            "ami": {
+              "references": [
+                "var.ami"
+              ]
+            },
+            "associate_public_ip_address": {
+              "constant_value": false
+            },
+            "iam_instance_profile": {
+              "references": [
+                "aws_iam_instance_profile.host[\"receiver\"].name",
+                "aws_iam_instance_profile.host[\"receiver\"]",
+                "aws_iam_instance_profile.host"
+              ]
+            },
+            "instance_initiated_shutdown_behavior": {
+              "constant_value": "terminate"
+            },
+            "instance_type": {
+              "constant_value": "c6i.2xlarge"
+            },
+            "metadata_options": [
+              {
+                "http_tokens": {
+                  "constant_value": "required"
+                }
+              }
+            ],
+            "root_block_device": [
+              {
+                "delete_on_termination": {
+                  "constant_value": true
+                },
+                "encrypted": {
+                  "constant_value": true
+                },
+                "iops": {
+                  "constant_value": 3000
+                },
+                "throughput": {
+                  "constant_value": 125
+                },
+                "volume_size": {
+                  "references": [
+                    "var.root_gib"
+                  ]
+                },
+                "volume_type": {
+                  "constant_value": "gp3"
+                }
+              }
+            ],
+            "subnet_id": {
+              "references": [
+                "aws_subnet.gate_a.id",
+                "aws_subnet.gate_a"
+              ]
+            },
+            "tags": {
+              "references": [
+                "local.tags"
+              ]
+            },
+            "timeouts": {
+              "create": {
+                "constant_value": "10m"
+              }
+            },
+            "user_data": {
+              "references": [
+                "path.module",
+                "var.host_timer_seconds",
+                "aws_ebs_volume.recovery.id",
+                "aws_ebs_volume.recovery"
+              ]
+            },
+            "user_data_replace_on_change": {
+              "constant_value": true
+            },
+            "volume_tags": {
+              "references": [
+                "local.tags"
+              ]
+            },
+            "vpc_security_group_ids": {
+              "references": [
+                "aws_security_group.receiver.id",
+                "aws_security_group.receiver"
+              ]
+            }
+          },
+          "schema_version": 2,
+          "depends_on": [
+            "aws_iam_role_policy_attachment.ssm",
+            "aws_vpc_endpoint.ssm",
+            "aws_vpc_endpoint.s3",
+            "aws_route_table_association.gate_a"
+          ]
+        },
+        {
+          "address": "aws_instance.sender",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "sender",
+          "provider_config_key": "aws",
+          "expressions": {
+            "ami": {
+              "references": [
+                "var.ami"
+              ]
+            },
+            "associate_public_ip_address": {
+              "constant_value": false
+            },
+            "iam_instance_profile": {
+              "references": [
+                "aws_iam_instance_profile.host[\"sender\"].name",
+                "aws_iam_instance_profile.host[\"sender\"]",
+                "aws_iam_instance_profile.host"
+              ]
+            },
+            "instance_initiated_shutdown_behavior": {
+              "constant_value": "terminate"
+            },
+            "instance_type": {
+              "constant_value": "c6i.2xlarge"
+            },
+            "metadata_options": [
+              {
+                "http_tokens": {
+                  "constant_value": "required"
+                }
+              }
+            ],
+            "root_block_device": [
+              {
+                "delete_on_termination": {
+                  "constant_value": true
+                },
+                "encrypted": {
+                  "constant_value": true
+                },
+                "iops": {
+                  "constant_value": 3000
+                },
+                "throughput": {
+                  "constant_value": 125
+                },
+                "volume_size": {
+                  "references": [
+                    "var.root_gib"
+                  ]
+                },
+                "volume_type": {
+                  "constant_value": "gp3"
+                }
+              }
+            ],
+            "subnet_id": {
+              "references": [
+                "aws_subnet.gate_a.id",
+                "aws_subnet.gate_a"
+              ]
+            },
+            "tags": {
+              "references": [
+                "local.tags"
+              ]
+            },
+            "timeouts": {
+              "create": {
+                "constant_value": "10m"
+              }
+            },
+            "user_data": {
+              "references": [
+                "path.module",
+                "var.host_timer_seconds"
+              ]
+            },
+            "user_data_replace_on_change": {
+              "constant_value": true
+            },
+            "volume_tags": {
+              "references": [
+                "local.tags"
+              ]
+            },
+            "vpc_security_group_ids": {
+              "references": [
+                "aws_security_group.hosts.id",
+                "aws_security_group.hosts"
+              ]
+            }
+          },
+          "schema_version": 2,
+          "depends_on": [
+            "aws_iam_role_policy_attachment.ssm",
+            "aws_vpc_endpoint.ssm",
+            "aws_vpc_endpoint.s3",
+            "aws_route_table_association.gate_a"
+          ]
+        }
+      ]
+    }
+  }
+}

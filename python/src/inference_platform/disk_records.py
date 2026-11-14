@@ -5,8 +5,133 @@ import os
 import sqlite3
 import tempfile
 import threading
+import weakref
+from collections import OrderedDict
 from itertools import chain
 from pathlib import Path
+
+_CONNECTION_LIMIT = 32
+_CONNECTION_LOCK = threading.RLock()
+_CONNECTIONS = OrderedDict()
+
+
+class _Cursor:
+    """Keep an iterated query's connection out of the idle eviction set."""
+
+    def __init__(self, owner, cursor):
+        self.owner, self.cursor = owner, cursor
+        self.rowcount = cursor.rowcount
+        if cursor.description is None:
+            cursor.close()
+            self.cursor = None
+        else:
+            owner.readers += 1
+
+    def close(self):
+        with _CONNECTION_LOCK:
+            if self.cursor is not None:
+                try:
+                    self.cursor.close()
+                finally:
+                    self.cursor = None
+                    self.owner.readers -= 1
+
+    def fetchone(self):
+        with _CONNECTION_LOCK:
+            if self.cursor is None:
+                return None
+            row = self.cursor.fetchone()
+            if row is None:
+                self.close()
+            return row
+
+    def fetchall(self):
+        with _CONNECTION_LOCK:
+            try:
+                return self.cursor.fetchall() if self.cursor is not None else []
+            finally:
+                self.close()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.fetchone()
+        if row is None:
+            raise StopIteration
+        return row
+
+    def __del__(self):
+        self.close()
+
+
+class _Database:
+    """A private database with a bounded, process-wide cache of open connections.
+
+    Idle eviction commits the private rows before closing. Reopening keeps each
+    list's SQL namespace, including callers' auxiliary index tables. Active query
+    cursors hold a lease until exhausted or closed, so eviction cannot invalidate
+    a streaming reader. Backing files live until their owning DiskList closes.
+    """
+
+    def __init__(self, path):
+        self.path, self.connection = path, None
+        self.readers, self.closed = 0, False
+
+    def _disconnect(self, *, preserve):
+        if self.connection is not None:
+            try:
+                if preserve:
+                    self.connection.commit()
+            finally:
+                self.connection.close()
+                self.connection = None
+                _CONNECTIONS.pop(id(self), None)
+
+    def _connection(self):
+        if self.closed:
+            raise sqlite3.ProgrammingError("DiskList database is closed")
+        if self.connection is None:
+            while len(_CONNECTIONS) >= _CONNECTION_LIMIT:
+                for key, reference in list(_CONNECTIONS.items()):
+                    database = reference()
+                    if database is None:
+                        _CONNECTIONS.pop(key)
+                        break
+                    if not database.readers:
+                        database._disconnect(preserve=True)
+                        break
+                else:
+                    raise RuntimeError("DiskList connection bound: all connections have readers")
+            self.connection = sqlite3.connect(self.path, check_same_thread=False)
+            self.connection.execute("pragma cache_size=-4096")
+            self.connection.execute("pragma temp_store=FILE")
+            _CONNECTIONS[id(self)] = weakref.ref(self)
+        _CONNECTIONS.move_to_end(id(self))
+        return self.connection
+
+    def _statement(self, method, args):
+        with _CONNECTION_LOCK:
+            connection = self._connection()
+            self.readers += 1
+            try:
+                return _Cursor(self, getattr(connection, method)(*args))
+            finally:
+                self.readers -= 1
+
+    def execute(self, *args):
+        return self._statement("execute", args)
+
+    def executemany(self, *args):
+        return self._statement("executemany", args)
+
+    def executescript(self, *args):
+        return self._statement("executescript", args)
+
+    def close(self):
+        with _CONNECTION_LOCK:
+            self._disconnect(preserve=False)
+            self.closed = True
 
 
 class DiskList(list):
@@ -21,9 +146,7 @@ class DiskList(list):
         fd, name = tempfile.mkstemp(prefix="inf011-records-", suffix=".sqlite")
         os.close(fd)
         self.path = Path(name)
-        self.db = sqlite3.connect(name, check_same_thread=False)
-        self.db.execute("pragma cache_size=-4096")
-        self.db.execute("pragma temp_store=FILE")
+        self.db = _Database(name)
         self.db.execute("create table rows (n integer primary key, value text not null)")
         self.lock = threading.RLock()
         self.count = 0

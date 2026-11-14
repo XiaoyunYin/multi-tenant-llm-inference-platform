@@ -223,6 +223,10 @@ class _ObservationStore:
         self._prefix_hits = 0
         self._preemptions = 0
 
+    def close(self) -> None:
+        with self._condition:
+            self._kv_events.close()
+
     def start(self, request_id: str) -> bool:
         with self._condition:
             if request_id in self._requests:
@@ -1038,6 +1042,7 @@ class FakeBackend:
             self._thread.join(timeout=2.0)
         if self.running:
             raise RuntimeError("fake backend server thread did not stop")
+        self._server.observations.close()
 
     def __enter__(self) -> FakeBackend:
         return self.start()

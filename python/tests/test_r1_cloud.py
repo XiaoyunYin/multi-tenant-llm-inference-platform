@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from environment_requirements import require_history
+
 from inference_platform.r1_agent import Host
 from inference_platform.r1_spec import SPEC_COMMIT, verify_spec
 
@@ -133,6 +135,7 @@ class CloudTests(unittest.TestCase):
     def test_host_spec_artifact_checks_identical_registered_bytes_without_git(self):
         import subprocess
 
+        require_history(ROOT, SPEC_COMMIT)
         accepted = subprocess.check_output(
             ["git", "show", SPEC_COMMIT + ":docs/R1_PRE_REGISTRATION.md"], cwd=ROOT
         )

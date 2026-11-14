@@ -1,8 +1,10 @@
+import gc
 import hashlib
 import io
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tarfile
@@ -28,6 +30,39 @@ from inference_platform.stage_c_session import (
     sha,
     verify_sources,
 )
+
+
+def staged_session_environment(staged_sources, repository, inherited):
+    dependencies = [
+        entry
+        for entry in inherited.get("PYTHONPATH", "").split(os.pathsep)
+        if entry and not Path(entry).resolve().is_relative_to(repository.resolve())
+    ]
+    return {
+        **inherited,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": os.pathsep.join([str(staged_sources), *dependencies]),
+    }
+
+
+class SessionEnvironmentTest(unittest.TestCase):
+    def test_staged_sources_replace_repository_paths_and_keep_dependency_site(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository, staged, site = root / "repo", root / "payload/src", root / "locked-site"
+            inherited = {
+                "PYTHONPATH": os.pathsep.join(
+                    str(repository / name)
+                    for name in (".", "scripts", "python/src", "python/tests")
+                )
+                + os.pathsep
+                + str(site),
+                "KEPT": "value",
+            }
+            environment = staged_session_environment(staged, repository, inherited)
+            self.assertEqual(environment["PYTHONPATH"].split(os.pathsep), [str(staged), str(site)])
+            self.assertEqual(environment["KEPT"], "value")
+            self.assertNotEqual(environment["PYTHONPATH"], inherited["PYTHONPATH"])
 
 
 def entrypoint_failure_context(session, artifact, stdout="", stderr=""):
@@ -93,9 +128,7 @@ class SessionEntrypointTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = Path(__file__).resolve().parents[2]
-        cls.directory = tempfile.TemporaryDirectory(
-            prefix="reviewed-stage-c-", dir=cls.root / ".cache"
-        )
+        cls.directory = tempfile.TemporaryDirectory(prefix="reviewed-stage-c-")
         cls.path = Path(cls.directory.name)
         cls.payload = cls.path / "payload"
         cls.manifest = prepare(cls.root, cls.payload, "windows" if os.name == "nt" else "linux")
@@ -193,11 +226,9 @@ class SessionEntrypointTest(unittest.TestCase):
         session = self.path / "rehearsal"
         scratch = self.path / "scratch"
         shutil.copytree(self.payload, scratch)
-        environment = {
-            **os.environ,
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": str(scratch / "sources/python/src"),
-        }
+        environment = staged_session_environment(
+            scratch / "sources/python/src", self.root, os.environ
+        )
         command = [
             sys.executable,
             "-c",
@@ -288,8 +319,35 @@ class SessionEntrypointTest(unittest.TestCase):
             stop_child(child)
             raise OSError("injected stop_child regression")
 
-        with patch("inference_platform.session_stop.stop_child", side_effect=fail_after_reap):
+        original_connect = sqlite3.connect
+        counts = {"open": 0, "peak": 0}
+        lock = threading.Lock()
+
+        class CountedConnection(sqlite3.Connection):
+            def close(self):
+                super().close()
+                if not getattr(self, "counted_closed", False):
+                    self.counted_closed = True
+                    with lock:
+                        counts["open"] -= 1
+
+        def connect(database, *args, **kwargs):
+            if not Path(database).name.startswith("inf011-records-"):
+                return original_connect(database, *args, **kwargs)
+            connection = original_connect(database, *args, factory=CountedConnection, **kwargs)
+            with lock:
+                counts["open"] += 1
+                counts["peak"] = max(counts["peak"], counts["open"])
+            return connection
+
+        with (
+            patch("inference_platform.session_stop.stop_child", side_effect=fail_after_reap),
+            patch("inference_platform.disk_records.sqlite3.connect", side_effect=connect),
+        ):
             code = run_session(args)
+            gc.collect()
+        self.assertLessEqual(counts["peak"], 64, counts)
+        self.assertEqual(counts["open"], 0, counts)
         artifact = json.loads(
             (session / "export/stage-c-artifact.json").read_text(encoding="utf-8")
         )

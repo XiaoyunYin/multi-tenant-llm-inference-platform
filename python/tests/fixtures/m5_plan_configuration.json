@@ -1,0 +1,25 @@
+{
+  "root_module": {
+    "resources": [
+      {
+        "address": "aws_eks_node_group.gpu",
+        "mode": "managed",
+        "type": "aws_eks_node_group",
+        "name": "gpu",
+        "provider_config_key": "aws",
+        "schema_version": 0,
+        "count_expression": {"references": ["local.count"]},
+        "expressions": {
+          "subnet_ids": {
+            "references": [
+              "local.gpu_subnet",
+              "aws_subnet.m5[\"0\"].id",
+              "aws_subnet.m5[\"0\"]",
+              "aws_subnet.m5"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

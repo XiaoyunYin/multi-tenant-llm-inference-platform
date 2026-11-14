@@ -53,7 +53,11 @@ def read_error_body(response, *, deadline, maximum_bytes=8192, timeout=5):
 
 @contextmanager
 def deadline_urlopen(
-    request: urllib.request.Request, *, timeout: float, deadline: float | None = None
+    request: urllib.request.Request,
+    *,
+    timeout: float,
+    deadline: float | None = None,
+    context=None,
 ) -> Iterator[Any]:
     """Bound connect/header waits and interrupt even continuously trickling bodies.
 
@@ -62,7 +66,11 @@ def deadline_urlopen(
     extend the run indefinitely. Shutdown unblocks readers; close happens in
     their owning thread after the read exits.
     """
-    response = urllib.request.urlopen(request, timeout=remaining_seconds(deadline, timeout))
+    response = urllib.request.urlopen(
+        request,
+        timeout=remaining_seconds(deadline, timeout),
+        **({"context": context} if context is not None else {}),
+    )
     timer = None
     try:
         if deadline is not None:

@@ -1,6 +1,7 @@
 import http.client
 import json
 import socket
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -42,6 +43,20 @@ def _request(
 
 
 class FakeBackendTest(unittest.TestCase):
+    def test_close_releases_observation_database_while_wrapper_is_retained(self):
+        retained = []
+        for _ in range(8):
+            with FakeBackend(FakeBackendConfig()) as backend:
+                database = backend._server.observations._kv_events
+                connection, path = database.db, database.path
+            retained.append(backend)
+            self.assertIsNone(database.db)
+            self.assertFalse(path.exists())
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("select 1")
+            backend.close()
+        self.assertEqual(len(retained), 8)
+
     def test_success_stream_has_identity_usage_and_done(self) -> None:
         config = FakeBackendConfig(
             backend_id="fake-a",

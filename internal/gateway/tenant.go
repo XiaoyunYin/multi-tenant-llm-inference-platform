@@ -29,6 +29,7 @@ type TenantSpec struct {
 	RequestRateLimit int64    `json:"request_rate_limit"`
 	RateWindowMS     int64    `json:"request_rate_window_ms"`
 	MaxConcurrent    int64    `json:"max_concurrent"`
+	SetupBackendID   string   `json:"setup_backend_id,omitempty"`
 }
 
 type tenantDocument struct {
@@ -46,6 +47,7 @@ type TenantPolicy struct {
 	RequestRateLimit  int64
 	RequestRateWindow time.Duration
 	MaxConcurrent     int64
+	SetupBackendID    string
 	credentialDigest  [sha256.Size]byte
 	models            map[string]struct{}
 	cacheSalt         string
@@ -147,6 +149,9 @@ func NewTenantRegistry(specs []TenantSpec, cacheSaltSecret CacheSaltSecret) (*Te
 		if spec.MaxRequestBytes <= 0 || spec.MaxOutputTokens <= 0 || spec.RequestRateLimit <= 0 || spec.RateWindowMS <= 0 || spec.MaxConcurrent <= 0 {
 			return nil, fmt.Errorf("tenant %q limits must be positive", spec.TenantID)
 		}
+		if spec.SetupBackendID != "" && !tenantIDPattern.MatchString(spec.SetupBackendID) {
+			return nil, fmt.Errorf("tenant %q has an invalid setup backend", spec.TenantID)
+		}
 		if spec.RateWindowMS > int64((24*time.Hour)/time.Millisecond) {
 			return nil, fmt.Errorf("tenant %q request rate window must not exceed 24 hours", spec.TenantID)
 		}
@@ -155,7 +160,8 @@ func NewTenantRegistry(specs []TenantSpec, cacheSaltSecret CacheSaltSecret) (*Te
 			MaxOutputTokens: spec.MaxOutputTokens, RequestRateLimit: spec.RequestRateLimit,
 			RequestRateWindow: time.Duration(spec.RateWindowMS) * time.Millisecond,
 			MaxConcurrent:     spec.MaxConcurrent, credentialDigest: digest, models: models,
-			cacheSalt: deriveCacheSalt(cacheSaltSecret, spec.TenantID),
+			SetupBackendID: spec.SetupBackendID,
+			cacheSalt:      deriveCacheSalt(cacheSaltSecret, spec.TenantID),
 		}
 		registry.byCredential[digest] = policy
 	}

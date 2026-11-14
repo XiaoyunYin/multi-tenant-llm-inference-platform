@@ -1,0 +1,108 @@
+{
+  "schema": "inf037b-setup-controls-v1",
+  "payloads_sha256": "d2ee104137a4e9ad66a2479e7a0f420acfa134a97770a658154b00cad8f52c50",
+  "payloads": {
+    "ingress-gateway0-0": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. ingress-gateway0-0"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    },
+    "ingress-gateway0-1": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. ingress-gateway0-1"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    },
+    "cancel-gateway0": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. cancel-gateway0"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    },
+    "ingress-gateway1-0": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. ingress-gateway1-0"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    },
+    "ingress-gateway1-1": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. ingress-gateway1-1"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    },
+    "cancel-gateway1": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Count upwards, one number at a time. cancel-gateway1"
+        }
+      ],
+      "stream": true,
+      "temperature": 0,
+      "max_tokens": 64
+    }
+  },
+  "tenants": [
+    {
+      "tenant_id": "setup-control-0",
+      "credential_sha256": "CONTROL_SLOT0_CREDENTIAL_SHA256",
+      "models": [
+        "Qwen/Qwen2.5-7B-Instruct"
+      ],
+      "max_request_bytes": 4096,
+      "max_output_tokens": 64,
+      "request_rate_limit": 20,
+      "request_rate_window_ms": 60000,
+      "max_concurrent": 2,
+      "setup_backend_id": "vllm-0"
+    },
+    {
+      "tenant_id": "setup-control-1",
+      "credential_sha256": "CONTROL_SLOT1_CREDENTIAL_SHA256",
+      "models": [
+        "Qwen/Qwen2.5-7B-Instruct"
+      ],
+      "max_request_bytes": 4096,
+      "max_output_tokens": 64,
+      "request_rate_limit": 20,
+      "request_rate_window_ms": 60000,
+      "max_concurrent": 2,
+      "setup_backend_id": "vllm-1"
+    }
+  ],
+  "upstream_ignore_eos": true,
+  "trace_tenant_max_output_tokens": 1
+}

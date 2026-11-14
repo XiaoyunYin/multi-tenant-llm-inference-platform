@@ -15,32 +15,36 @@ var routingTokenizeDurationBounds = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 
 var routingLookupDurationBounds = [...]float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1}
 
 type Metrics struct {
-	requests                 atomic.Uint64
-	active                   atomic.Int64
-	completed                atomic.Uint64
-	failed                   atomic.Uint64
-	partial                  atomic.Uint64
-	rejected                 atomic.Uint64
-	cancelled                atomic.Uint64
-	timeouts                 atomic.Uint64
-	tenantRateLimited        atomic.Uint64
-	tenantConcurrencyLimited atomic.Uint64
-	systemCapacityLimited    atomic.Uint64
-	admissionUnavailable     atomic.Uint64
-	releaseFailures          atomic.Uint64
-	terminals                [terminalCauseCount]atomic.Uint64
-	routingDecisions         [len(routingPolicies)][len(fallbackReasons)]atomic.Uint64
-	routingLookupCount       atomic.Uint64
-	routingLookupNanos       atomic.Uint64
-	routingLookupBuckets     [len(routingLookupDurationBounds)]atomic.Uint64
-	routingTokenizeCount     atomic.Uint64
-	routingTokenizeFailures  atomic.Uint64
-	routingTokenizeNanos     atomic.Uint64
-	routingTokenizeBuckets   [len(routingTokenizeDurationBounds)]atomic.Uint64
-	routingTokenizeMu        sync.RWMutex
-	routingTokenizeAttempts  map[string]*atomic.Uint64
-	routingTokenizeBackends  []string
-	backendMetrics           *BackendMetricsCollector
+	requests                   atomic.Uint64
+	active                     atomic.Int64
+	completed                  atomic.Uint64
+	failed                     atomic.Uint64
+	partial                    atomic.Uint64
+	rejected                   atomic.Uint64
+	cancelled                  atomic.Uint64
+	timeouts                   atomic.Uint64
+	tenantRateLimited          atomic.Uint64
+	tenantConcurrencyLimited   atomic.Uint64
+	systemCapacityLimited      atomic.Uint64
+	admissionUnavailable       atomic.Uint64
+	releaseFailures            atomic.Uint64
+	discoveryUnknown           atomic.Uint64
+	discoveryUnknownAfterAdmit atomic.Uint64
+	capacityReportsExpired     atomic.Uint64
+	backendChangedAfterAdmit   atomic.Uint64
+	terminals                  [terminalCauseCount]atomic.Uint64
+	routingDecisions           [len(routingPolicies)][len(fallbackReasons)]atomic.Uint64
+	routingLookupCount         atomic.Uint64
+	routingLookupNanos         atomic.Uint64
+	routingLookupBuckets       [len(routingLookupDurationBounds)]atomic.Uint64
+	routingTokenizeCount       atomic.Uint64
+	routingTokenizeFailures    atomic.Uint64
+	routingTokenizeNanos       atomic.Uint64
+	routingTokenizeBuckets     [len(routingTokenizeDurationBounds)]atomic.Uint64
+	routingTokenizeMu          sync.RWMutex
+	routingTokenizeAttempts    map[string]*atomic.Uint64
+	routingTokenizeBackends    []string
+	backendMetrics             *BackendMetricsCollector
 }
 
 type RoutingDecisionMetric struct {
@@ -55,54 +59,62 @@ type RoutingTokenizeAttemptMetric struct {
 }
 
 type MetricsSnapshot struct {
-	Requests                 uint64
-	Active                   int64
-	Completed                uint64
-	Failed                   uint64
-	Partial                  uint64
-	Rejected                 uint64
-	Cancelled                uint64
-	Timeouts                 uint64
-	TenantRateLimited        uint64
-	TenantConcurrencyLimited uint64
-	SystemCapacityLimited    uint64
-	AdmissionUnavailable     uint64
-	ReleaseFailures          uint64
-	Terminals                map[string]uint64
-	RoutingDecisions         []RoutingDecisionMetric
-	RoutingLookupCount       uint64
-	RoutingLookupSeconds     float64
-	RoutingLookupBuckets     [len(routingLookupDurationBounds)]uint64
-	RoutingTokenizeCount     uint64
-	RoutingTokenizeFailures  uint64
-	RoutingTokenizeSeconds   float64
-	RoutingTokenizeBuckets   [len(routingTokenizeDurationBounds)]uint64
-	RoutingTokenizeAttempts  []RoutingTokenizeAttemptMetric
+	Requests                   uint64
+	Active                     int64
+	Completed                  uint64
+	Failed                     uint64
+	Partial                    uint64
+	Rejected                   uint64
+	Cancelled                  uint64
+	Timeouts                   uint64
+	TenantRateLimited          uint64
+	TenantConcurrencyLimited   uint64
+	SystemCapacityLimited      uint64
+	AdmissionUnavailable       uint64
+	ReleaseFailures            uint64
+	DiscoveryUnknown           uint64
+	DiscoveryUnknownAfterAdmit uint64
+	CapacityReportsExpired     uint64
+	BackendChangedAfterAdmit   uint64
+	Terminals                  map[string]uint64
+	RoutingDecisions           []RoutingDecisionMetric
+	RoutingLookupCount         uint64
+	RoutingLookupSeconds       float64
+	RoutingLookupBuckets       [len(routingLookupDurationBounds)]uint64
+	RoutingTokenizeCount       uint64
+	RoutingTokenizeFailures    uint64
+	RoutingTokenizeSeconds     float64
+	RoutingTokenizeBuckets     [len(routingTokenizeDurationBounds)]uint64
+	RoutingTokenizeAttempts    []RoutingTokenizeAttemptMetric
 }
 
 func (m *Metrics) Snapshot() MetricsSnapshot {
 	snapshot := MetricsSnapshot{
-		Requests:                 m.requests.Load(),
-		Active:                   m.active.Load(),
-		Completed:                m.completed.Load(),
-		Failed:                   m.failed.Load(),
-		Partial:                  m.partial.Load(),
-		Rejected:                 m.rejected.Load(),
-		Cancelled:                m.cancelled.Load(),
-		Timeouts:                 m.timeouts.Load(),
-		TenantRateLimited:        m.tenantRateLimited.Load(),
-		TenantConcurrencyLimited: m.tenantConcurrencyLimited.Load(),
-		SystemCapacityLimited:    m.systemCapacityLimited.Load(),
-		AdmissionUnavailable:     m.admissionUnavailable.Load(),
-		ReleaseFailures:          m.releaseFailures.Load(),
-		RoutingTokenizeCount:     m.routingTokenizeCount.Load(),
-		RoutingTokenizeFailures:  m.routingTokenizeFailures.Load(),
-		RoutingTokenizeSeconds:   float64(m.routingTokenizeNanos.Load()) / float64(time.Second),
-		Terminals:                make(map[string]uint64, terminalCauseCount),
-		RoutingDecisions:         make([]RoutingDecisionMetric, 0, len(routingPolicies)*len(fallbackReasons)),
-		RoutingTokenizeAttempts:  make([]RoutingTokenizeAttemptMetric, 0, len(m.routingTokenizeBackends)),
-		RoutingLookupCount:       m.routingLookupCount.Load(),
-		RoutingLookupSeconds:     float64(m.routingLookupNanos.Load()) / float64(time.Second),
+		Requests:                   m.requests.Load(),
+		Active:                     m.active.Load(),
+		Completed:                  m.completed.Load(),
+		Failed:                     m.failed.Load(),
+		Partial:                    m.partial.Load(),
+		Rejected:                   m.rejected.Load(),
+		Cancelled:                  m.cancelled.Load(),
+		Timeouts:                   m.timeouts.Load(),
+		TenantRateLimited:          m.tenantRateLimited.Load(),
+		TenantConcurrencyLimited:   m.tenantConcurrencyLimited.Load(),
+		SystemCapacityLimited:      m.systemCapacityLimited.Load(),
+		AdmissionUnavailable:       m.admissionUnavailable.Load(),
+		ReleaseFailures:            m.releaseFailures.Load(),
+		DiscoveryUnknown:           m.discoveryUnknown.Load(),
+		DiscoveryUnknownAfterAdmit: m.discoveryUnknownAfterAdmit.Load(),
+		CapacityReportsExpired:     m.capacityReportsExpired.Load(),
+		BackendChangedAfterAdmit:   m.backendChangedAfterAdmit.Load(),
+		RoutingTokenizeCount:       m.routingTokenizeCount.Load(),
+		RoutingTokenizeFailures:    m.routingTokenizeFailures.Load(),
+		RoutingTokenizeSeconds:     float64(m.routingTokenizeNanos.Load()) / float64(time.Second),
+		Terminals:                  make(map[string]uint64, terminalCauseCount),
+		RoutingDecisions:           make([]RoutingDecisionMetric, 0, len(routingPolicies)*len(fallbackReasons)),
+		RoutingTokenizeAttempts:    make([]RoutingTokenizeAttemptMetric, 0, len(m.routingTokenizeBackends)),
+		RoutingLookupCount:         m.routingLookupCount.Load(),
+		RoutingLookupSeconds:       float64(m.routingLookupNanos.Load()) / float64(time.Second),
 	}
 	m.routingTokenizeMu.RLock()
 	for _, backendID := range m.routingTokenizeBackends {
@@ -208,6 +220,8 @@ func (m *Metrics) recordAdmissionDenial(decision admission.Decision) {
 		m.tenantConcurrencyLimited.Add(1)
 	case admission.SystemCapacityLimited:
 		m.systemCapacityLimited.Add(1)
+	case admission.CapacityReportsExpired:
+		m.capacityReportsExpired.Add(1)
 	}
 }
 
@@ -232,6 +246,10 @@ func (m *Metrics) ServeHTTP(response http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(response, "inference_gateway_tenant_rate_limited_total %d\n", snapshot.TenantRateLimited)
 	fmt.Fprintf(response, "inference_gateway_tenant_concurrency_limited_total %d\n", snapshot.TenantConcurrencyLimited)
 	fmt.Fprintf(response, "inference_gateway_system_capacity_limited_total %d\n", snapshot.SystemCapacityLimited)
+	fmt.Fprintf(response, "inference_gateway_discovery_unknown_total %d\n", snapshot.DiscoveryUnknown)
+	fmt.Fprintf(response, "inference_gateway_discovery_unknown_after_admit_total %d\n", snapshot.DiscoveryUnknownAfterAdmit)
+	fmt.Fprintf(response, "inference_gateway_capacity_reports_expired_total %d\n", snapshot.CapacityReportsExpired)
+	fmt.Fprintf(response, "inference_gateway_backend_membership_changed_after_admit_total %d\n", snapshot.BackendChangedAfterAdmit)
 	fmt.Fprintf(response, "inference_gateway_admission_unavailable_total %d\n", snapshot.AdmissionUnavailable)
 	fmt.Fprintf(response, "inference_gateway_release_failures_total %d\n", snapshot.ReleaseFailures)
 	for cause := terminalCause(0); cause < terminalCauseCount; cause++ {
@@ -289,6 +307,9 @@ func writeMetricMetadata(response http.ResponseWriter) {
 		{"inference_gateway_tenant_rate_limited_total", "counter", "Requests denied by tenant rate policy."},
 		{"inference_gateway_tenant_concurrency_limited_total", "counter", "Requests denied by tenant concurrency policy."},
 		{"inference_gateway_system_capacity_limited_total", "counter", "Requests denied by the shared admission bound."},
+		{"inference_gateway_discovery_unknown_total", "counter", "Requests refused before admission because discovery is unknown."},
+		{"inference_gateway_discovery_unknown_after_admit_total", "counter", "Admitted requests refused after discovery becomes unknown; rate remains charged."},
+		{"inference_gateway_capacity_reports_expired_total", "counter", "Requests refused because every shared capacity report has expired."},
 		{"inference_gateway_admission_unavailable_total", "counter", "Requests denied because admission state was unavailable."},
 		{"inference_gateway_release_failures_total", "counter", "Reservation releases that exhausted bounded retries."},
 		{"inference_gateway_terminal_total", "counter", "Request terminals by mutually exclusive cause."},

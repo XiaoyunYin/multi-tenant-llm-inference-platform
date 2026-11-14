@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from .archive_transfer import ARCHIVE_BYTES_PER_SECOND, CHUNK_TIMEOUT_SECONDS
+from .package_a_secrets import owner_only
 from .r1_evidence import restore
 from .r1_manifest import build, tenant_salt
 from .r1_spec import SPEC_COMMIT, encoded
@@ -34,6 +35,40 @@ class ChannelError(OSError):
 
 class BundleOffsetError(ValueError):
     pass
+
+
+def aws_cli_argv(inputs, service, operation, args):
+    """Build the exact argv used by Operator.aws, for safe offline sizing."""
+    return [
+        "aws",
+        "--profile",
+        inputs["aws_profile"],
+        "--region",
+        inputs["region"],
+        service,
+        operation,
+        *[str(value) for value in args],
+        "--output",
+        "json",
+        "--no-cli-pager",
+    ]
+
+
+def ssm_send_command_args(host, parameter_file):
+    if parameter_file is None:
+        raise ValueError("ssm_parameter_file_required")
+    return [
+        "--instance-ids",
+        host,
+        "--document-name",
+        "AWS-RunShellScript",
+        "--parameters",
+        "file://" + str(parameter_file),
+    ]
+
+
+def windows_command_line_length(argv):
+    return len(subprocess.list2cmdline([str(value) for value in argv]))
 
 
 def cloud_init_commands():
@@ -297,24 +332,15 @@ class Operator:
 
     def aws(self, service, operation, args, *, deadline=None):
         result = subprocess.check_output(
-            [
-                "aws",
-                "--profile",
-                self.inputs["aws_profile"],
-                "--region",
-                self.inputs["region"],
-                service,
-                operation,
-                *args,
-                "--output",
-                "json",
-                "--no-cli-pager",
-            ],
+            aws_cli_argv(self.inputs, service, operation, args),
             timeout=max(0.001, min(self.deadline, deadline or self.deadline) - time.time()),
             env={**os.environ, "AWS_CLI_OUTPUT_ENCODING": "utf-8"},
         )
         try:
-            return json.loads(result.decode("utf-8"))
+            output = result.decode("utf-8")
+            if not output.strip():
+                return {}
+            return json.loads(output)
         except (UnicodeDecodeError, json.JSONDecodeError):
             if service == "ssm" and operation == "get-command-invocation":
                 # Selected response only; never save send-command's token parameters.
@@ -336,7 +362,50 @@ class Operator:
                     )
             raise
 
-    def ssm(self, host, commands, *, timeout_s=None):
+    def _write_ssm_parameters(self, parameters):
+        self.runtime.mkdir(parents=True, exist_ok=True)
+        path = self.runtime / f"ssm-parameters-{secrets.token_hex(8)}.json"
+        data = json.dumps(parameters).encode("utf-8")
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            try:
+                owner_only(path)
+                with os.fdopen(descriptor, "wb") as stream:
+                    descriptor = -1
+                    stream.write(data)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except BaseException:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                    descriptor = -1
+                path.unlink(missing_ok=True)
+                raise
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        return path
+
+    def send_ssm_command(self, host, parameters, *, deadline=None, step="ssm.send-command"):
+        parameter_file = self._write_ssm_parameters(parameters)
+        args = ssm_send_command_args(host, parameter_file)
+        self.last_ssm_failure = None
+        try:
+            return self.aws("ssm", "send-command", args, deadline=deadline)
+        except BaseException:
+            failure = {"step": step, "argv_length": None}
+            try:
+                argv = aws_cli_argv(self.inputs, "ssm", "send-command", args)
+            except (KeyError, TypeError):
+                pass
+            else:
+                failure["argv_length"] = windows_command_line_length(argv)
+            self.last_ssm_failure = failure
+            raise
+        finally:
+            parameter_file.unlink(missing_ok=True)
+
+    def ssm(self, host, commands, *, timeout_s=None, step="ssm.send-command"):
         end = min(self.deadline, time.time() + timeout_s) if timeout_s else self.deadline
 
         def aws(service, operation, args):
@@ -344,22 +413,14 @@ class Operator:
                 return self.aws(service, operation, args)
             return self.aws(service, operation, args, deadline=end)
 
-        response = aws(
-            "ssm",
-            "send-command",
-            [
-                "--instance-ids",
-                host,
-                "--document-name",
-                "AWS-RunShellScript",
-                "--parameters",
-                json.dumps(
-                    {
-                        "commands": commands,
-                        "executionTimeout": [str(max(1, int(end - time.time())))],
-                    }
-                ),
-            ],
+        response = self.send_ssm_command(
+            host,
+            {
+                "commands": commands,
+                "executionTimeout": [str(max(1, int(end - time.time())))],
+            },
+            deadline=end,
+            step=step,
         )
         identifier = response["Command"]["CommandId"]
         while time.time() < end:

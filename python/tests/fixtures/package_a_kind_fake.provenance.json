@@ -1,0 +1,17 @@
+{
+  "schema": "package-a-scripted-kind-fake-log-provenance-v1",
+  "source": "python/src/inference_platform/kind_fake.py:19-56",
+  "source_sha256": "f5c0c04bd8595e6933c6ede0232ae7f1f5be4a899e23e0c5fb672fa39077b7b6",
+  "transformation": "Lines preserve the kind_fake JSON field names and message shapes. Timestamp, signal, active counts, and all log text are synthetic; the drain-incomplete scenario changes only the final msg value.",
+  "synthetic_fields": {
+    "/0/time_unix_ns": "synthetic timestamp",
+    "/0/msg": "synthetic kind_fake SIGTERM message",
+    "/0/signal": "synthetic signal value",
+    "/0/active": "synthetic active stream count",
+    "/1": "synthetic non-JSON startup line",
+    "/2/time_unix_ns": "synthetic timestamp",
+    "/2/msg": "synthetic kind_fake drain message, with an explicit failure-mode replacement",
+    "/2/active": "synthetic drained stream count"
+  },
+  "limitations": "These are fixtures, not captured backend logs."
+}

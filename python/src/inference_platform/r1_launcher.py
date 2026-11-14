@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 from .r1_manifest import tenant_salt
-from .r1_spec import GATEWAY_FIXED, IMAGE, MODEL, REVISION, encoded
+from .r1_spec import GATEWAY_FIXED, IMAGE, MODEL, REVISION, encoded, engine_argv
 
 
 def backend_command(cache_path, port=8000):
@@ -36,23 +36,10 @@ def backend_command(cache_path, port=8000):
         MODEL,
         "--revision",
         REVISION,
-        "--dtype",
-        "bfloat16",
-        "--max-model-len",
-        "8192",
-        "--block-size",
-        "16",
-        "--max-num-seqs",
-        "16",
-        "--max-num-queued-reqs",
-        "32",
-        "--gpu-memory-utilization",
-        "0.90",
-        "--enable-prefix-caching",
+        *engine_argv()[:-2],
         "--kv-events-config",
         '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:5557","topic":"kv-events"}',
-        "--generation-config",
-        "vllm",
+        *engine_argv()[-2:],
         "--host",
         "0.0.0.0",
         "--port",

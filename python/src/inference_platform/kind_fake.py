@@ -32,9 +32,20 @@ def main():
         health_ready_delay_ms=1000,
         completion_tokens=STREAM_CHUNKS,
     )
-    backend = FakeBackend(config, host="0.0.0.0", port=8000).start()
+    backend = FakeBackend(config, host="0.0.0.0", port=8000)
+    if backend._server.chat_tokenizer is None:
+        record("tokenizer unavailable", tokenizer_error=backend._server.tokenizer_error)
+        backend._server.server_close()
+        return 1
+    backend.start()
     signal.signal(signal.SIGTERM, terminate)
-    record("fake started", backend_id=config.backend_id, generation=os.environ["POD_UID"])
+    record(
+        "fake started",
+        backend_id=config.backend_id,
+        generation=os.environ["POD_UID"],
+        tokenizer_available=backend._server.chat_tokenizer is not None,
+        tokenizer_error=backend._server.tokenizer_error,
+    )
     stop.wait()
     # Stop health admission while allowing already accepted streams to finish.
     backend._server.config = dataclasses.replace(config, healthy=False)

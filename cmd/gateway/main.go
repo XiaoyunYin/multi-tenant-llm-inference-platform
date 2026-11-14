@@ -126,6 +126,11 @@ func runWithMode(checkConfig bool) int {
 		logger.Error("invalid global admission capacity", "error", err)
 		return 2
 	}
+	dynamicCapacity, gatewayID, err := dynamicCapacityConfiguration()
+	if err != nil {
+		logger.Error("invalid dynamic admission configuration", "error", err)
+		return 2
+	}
 	leaseDuration, err := envDuration("ADMISSION_LEASE", 3*time.Minute)
 	if err != nil {
 		logger.Error("invalid admission lease", "error", err)
@@ -136,7 +141,7 @@ func runWithMode(checkConfig bool) int {
 		logger.Error("invalid admission tombstone TTL", "error", err)
 		return 2
 	}
-	gatewayConfig := gateway.DefaultConfig()
+	gatewayConfig := gatewayConfigForCapacityMode(dynamicCapacity)
 	gatewayConfig.MaxConcurrent, err = envPositiveInt("GATEWAY_MAX_CONCURRENT", gatewayConfig.MaxConcurrent)
 	if err != nil {
 		logger.Error("invalid gateway concurrency", "error", err)
@@ -194,10 +199,16 @@ func runWithMode(checkConfig bool) int {
 			}
 		}
 		coordinator, err = admission.NewRedisCoordinator(redisClient, admission.RedisConfig{
-			Namespace:      envOrDefault("ADMISSION_NAMESPACE", "mti:local:v1"),
-			GlobalCapacity: globalCapacity, LeaseDuration: leaseDuration, TombstoneTTL: tombstoneTTL,
+			MeasurementCapture: os.Getenv("GATEWAY_MEASUREMENT_PATH") != "",
+			Namespace:          envOrDefault("ADMISSION_NAMESPACE", "mti:local:v1"),
+			GlobalCapacity:     globalCapacity, LeaseDuration: leaseDuration, TombstoneTTL: tombstoneTTL,
+			DynamicCapacity: dynamicCapacity,
 		})
 	case "memory-test":
+		if dynamicCapacity != nil {
+			logger.Error("dynamic capacity requires Redis admission")
+			return 2
+		}
 		if os.Getenv("ALLOW_UNSAFE_TEST_ADMISSION") != "true" {
 			logger.Error("memory admission requires ALLOW_UNSAFE_TEST_ADMISSION=true")
 			return 2
@@ -240,6 +251,54 @@ func runWithMode(checkConfig bool) int {
 		return 2
 	}
 	registry.SetHealthLogger(logger)
+	var measurement *gateway.MeasurementRecorder
+	if path := os.Getenv("GATEWAY_MEASUREMENT_PATH"); path != "" && !checkConfig {
+		boot := os.Getenv("POD_UID")
+		if boot == "" {
+			logger.Error("measurement requires POD_UID")
+			return 2
+		}
+		measurement, err = gateway.OpenMeasurementRecorder(path, boot)
+		if err != nil {
+			logger.Error("cannot open measurement capture", "error", err)
+			return 2
+		}
+		registry.SetMeasurementRecorder(measurement)
+		defer measurement.Close()
+		// Record the values actually resolved by this process, including defaults.
+		// This secured raw event is not a gateway admission acknowledgement.
+		if dynamicCapacity != nil && admissionMode == "redis" {
+			measurement.Record("admission_config", map[string]any{
+				"redis_addr":      envOrDefault("REDIS_ADDR", "127.0.0.1:6379"),
+				"namespace":       envOrDefault("ADMISSION_NAMESPACE", "mti:local:v1"),
+				"global_capacity": globalCapacity, "lease_ms": leaseDuration.Milliseconds(),
+				"tombstone_ms": tombstoneTTL.Milliseconds(), "running": dynamicCapacity.Running,
+				"waiting": dynamicCapacity.Waiting, "ttl_ms": dynamicCapacity.ReportTTL.Milliseconds(),
+				"hold_ms": dynamicCapacity.HoldDown.Milliseconds(), "capture": true,
+				"lease_ns": int64(leaseDuration), "tombstone_ns": int64(tombstoneTTL),
+				"ttl_ns": int64(dynamicCapacity.ReportTTL), "hold_ns": int64(dynamicCapacity.HoldDown),
+				"gateway_id": gatewayID,
+			})
+		}
+	}
+	logger.Info("backend health timing", "check_timeout", gateway.HealthCheckTimeout, "report_timeout", gateway.CapacityReportTimeout, "freshness_window", registry.HealthFreshnessWindow())
+	if dynamicCapacity != nil {
+		reporter := coordinator.(*admission.RedisCoordinator)
+		registry.SetCapacityReporter(func(ctx context.Context, n int64, known bool) error {
+			reportCtx, cancel := context.WithTimeout(ctx, gatewayConfig.AdmissionTimeout)
+			defer cancel()
+			err := reporter.ReportHealthy(reportCtx, gatewayID, n, known)
+			fields := map[string]any{"n": n, "report_known": known, "report_success": err == nil}
+			if err != nil {
+				fields["error"] = err.Error()
+			}
+			measurement.Record("report_result", fields)
+			if err != nil {
+				logger.Warn("capacity report unavailable", "error", err)
+			}
+			return err
+		})
+	}
 	if discoveryConfig != nil && !checkConfig {
 		discovery, discoveryErr := gateway.NewInClusterDiscovery(*discoveryConfig, registry, logger)
 		if discoveryErr != nil {
@@ -304,6 +363,7 @@ func runWithMode(checkConfig bool) int {
 		logger.Info("gateway configuration valid", "backends", len(backends))
 		return 0
 	}
+	service.SetMeasurementRecorder(measurement)
 	profiler, _, err := diagnostics.Start(profileAddress)
 	if err != nil {
 		logger.Error("cannot start loopback profiler", "error", err)
@@ -322,17 +382,23 @@ func runWithMode(checkConfig bool) int {
 	}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.ListenAndServe() }()
+	admissionConfiguration := map[string]any{
+		"mode":                        admissionMode,
+		"allow_unsafe_test_admission": os.Getenv("ALLOW_UNSAFE_TEST_ADMISSION") == "true",
+		"global_capacity":             globalCapacity,
+		"gateway_max_concurrent":      gatewayConfig.MaxConcurrent,
+		"tenants":                     tenants.AdmissionLimits(),
+	}
+	if dynamicCapacity != nil {
+		admissionConfiguration["capacity_mode"] = "dynamic"
+		admissionConfiguration["dynamic_capacity"] = dynamicCapacity
+		admissionConfiguration["gateway_id"] = gatewayID
+	}
 	logger.Info("gateway started", "address", address, "backends", len(backends), "pid", os.Getpid(),
 		"routing_policy", router.PolicyName(), "routing_seed", routingSeed,
 		"first_item_timeout_seconds", gatewayConfig.FirstItemTimeout.Seconds(),
 		"total_timeout_seconds", gatewayConfig.TotalTimeout.Seconds(),
-		"admission_configuration", map[string]any{
-			"mode":                        admissionMode,
-			"allow_unsafe_test_admission": os.Getenv("ALLOW_UNSAFE_TEST_ADMISSION") == "true",
-			"global_capacity":             globalCapacity,
-			"gateway_max_concurrent":      gatewayConfig.MaxConcurrent,
-			"tenants":                     tenants.AdmissionLimits(),
-		})
+		"admission_configuration", admissionConfiguration)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -370,6 +436,49 @@ func runWithMode(checkConfig bool) int {
 	}
 	logger.Info("gateway stopped")
 	return 0
+}
+
+func gatewayConfigForCapacityMode(dynamicCapacity *admission.DynamicCapacityConfig) gateway.Config {
+	config := gateway.DefaultConfig()
+	config.FixedModeTerminalCodes = dynamicCapacity == nil
+	return config
+}
+
+func dynamicCapacityConfiguration() (*admission.DynamicCapacityConfig, string, error) {
+	mode := envOrDefault("ADMISSION_CAPACITY_MODE", "fixed")
+	if mode == "fixed" {
+		return nil, "", nil
+	}
+	if mode != "dynamic" {
+		return nil, "", errors.New("ADMISSION_CAPACITY_MODE must be fixed or dynamic")
+	}
+	id := os.Getenv("ADMISSION_GATEWAY_ID")
+	if !admission.ValidGatewayID(id) {
+		return nil, "", errors.New("valid unique ADMISSION_GATEWAY_ID is required")
+	}
+	// No deployment defaults: slice 4 must preregister each input explicitly.
+	for _, key := range []string{"ADMISSION_RUNNING", "ADMISSION_WAITING", "ADMISSION_REPORT_TTL", "ADMISSION_HOLD_DOWN"} {
+		if os.Getenv(key) == "" {
+			return nil, "", fmt.Errorf("%s is required for dynamic capacity", key)
+		}
+	}
+	r, err := envPositiveInt64("ADMISSION_RUNNING", 0)
+	if err != nil {
+		return nil, "", err
+	}
+	w, err := envPositiveInt64("ADMISSION_WAITING", 0)
+	if err != nil {
+		return nil, "", err
+	}
+	ttl, err := envDuration("ADMISSION_REPORT_TTL", 0)
+	if err != nil {
+		return nil, "", err
+	}
+	hold, err := envDuration("ADMISSION_HOLD_DOWN", 0)
+	if err != nil {
+		return nil, "", err
+	}
+	return &admission.DynamicCapacityConfig{Running: r, Waiting: w, ReportTTL: ttl, HoldDown: hold}, id, nil
 }
 
 // Discovery variables have no effect unless explicitly opted in. In particular,

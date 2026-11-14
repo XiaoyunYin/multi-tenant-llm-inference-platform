@@ -11,6 +11,47 @@ MODEL = "Qwen/Qwen2.5-7B-Instruct"
 REVISION = "a09a35458c702b33eeacc393d103063234e8bc28"
 IMAGE = "docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b"
 POLICIES = ("hash", "ll", "rr", "rr", "ll", "hash")
+# Engine behaviour shared by the R1 launcher and M5 EKS renderer.
+ENGINE_FLAGS = {
+    "dtype": "bfloat16",
+    "max_model_len": 8192,
+    "block_size": 16,
+    "max_num_seqs": 16,
+    "max_num_queued_reqs": 32,
+    "gpu_memory_utilization": 0.90,
+    "enable_prefix_caching": True,
+    "generation_config": "vllm",
+}
+
+
+def engine_argv():
+    args = []
+    for name, value in ENGINE_FLAGS.items():
+        args.append("--" + name.replace("_", "-"))
+        if value is not True:
+            args.append(f"{value:.2f}" if name == "gpu_memory_utilization" else str(value))
+    return args
+
+
+def parse_engine_argv(args):
+    """Parse flag/value pairs and bare boolean flags, rejecting duplicates."""
+    if not isinstance(args, list) or any(not isinstance(arg, str) for arg in args):
+        raise ValueError("invalid engine arguments")
+    parsed = {}
+    i = 0
+    while i < len(args):
+        flag = args[i]
+        if not isinstance(flag, str) or not flag.startswith("--") or flag in parsed:
+            raise ValueError("invalid or duplicate engine flag")
+        if i + 1 == len(args) or args[i + 1].startswith("--"):
+            parsed[flag] = True
+            i += 1
+        else:
+            parsed[flag] = args[i + 1]
+            i += 2
+    return parsed
+
+
 FIXED = {
     "schema": "r1-v2.harness.1",
     "spec_commit": SPEC_COMMIT,
@@ -28,7 +69,7 @@ FIXED = {
     "input_tokens": 1024,
     "max_tokens": 1,
     "temperature": 0,
-    "block_size": 16,
+    "block_size": ENGINE_FLAGS["block_size"],
     "reusable_blocks": 63,
     "reset_nominal_s": 60,
     "reset_hard_s": 120,
@@ -55,13 +96,7 @@ FIXED = {
     "rate_factors": [1.05, 1.15, 1.25],
     "waiting_candidates": [1, 2, 4],
     "engine": {
-        "dtype": "bfloat16",
-        "max_model_len": 8192,
-        "max_num_seqs": 16,
-        "max_num_queued_reqs": 32,
-        "gpu_memory_utilization": 0.90,
-        "enable_prefix_caching": True,
-        "generation_config": "vllm",
+        **{key: value for key, value in ENGINE_FLAGS.items() if key != "block_size"},
         "kv_events": {
             "enable_kv_cache_events": True,
             "publisher": "zmq",

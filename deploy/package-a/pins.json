@@ -1,0 +1,41 @@
+{
+  "docker": {
+    "url": "https://download.docker.com/linux/static/stable/x86_64/docker-29.7.2.tgz",
+    "sha256": "803d433f226db4776e1768fd319fc6c6e4935a456acf84fcc0080818b854bc8f",
+    "bytes": 85700518
+  },
+  "go": {
+    "url": "https://go.dev/dl/go1.26.6.linux-amd64.tar.gz",
+    "sha256": "708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89",
+    "bytes": 66890545
+  },
+  "uv": {
+    "url": "https://github.com/astral-sh/uv/releases/download/0.9.5/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "2cf10babba653310606f8b49876cfb679928669e7ddaa1fb41fb00ce73e64f66",
+    "bytes": 21370871
+  },
+  "python": {
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.12.7%2B20241016-x86_64-unknown-linux-gnu-install_only.tar.gz",
+    "sha256": "43576f7db1033dd57b900307f09c2e86f371152ac8a2607133afa51cbfc36064",
+    "bytes": 66940594
+  },
+  "kind": {
+    "url": "https://github.com/kubernetes-sigs/kind/releases/download/v0.30.0/kind-linux-amd64",
+    "sha256": "517ab7fc89ddeed5fa65abf71530d90648d9638ef0c4cde22c2c11f8097b8889",
+    "bytes": 11055553
+  },
+  "kubectl": {
+    "url": "https://dl.k8s.io/release/v1.34.0/bin/linux/amd64/kubectl",
+    "sha256": "cfda68cba5848bc3b6c6135ae2f20ba2c78de20059f68789c090166d6abc3e2c",
+    "bytes": 60559544
+  },
+  "buildx": {
+    "url": "https://github.com/docker/buildx/releases/download/v0.29.1/buildx-v0.29.1.linux-amd64",
+    "sha256": "7d2d7d6d4680aa349614965aaa33ccec43f1a9a21e908a5ce4cb6adfa5ad5141",
+    "bytes": 68251832
+  },
+  "python_image": "python:3.12.7-slim-bookworm@sha256:60d9996b6a8a3689d36db740b49f4327be3be09a21122bd02fb8895abb38b50d",
+  "node_image": "kindest/node:v1.34.0@sha256:7416a61b42b1662ca6ca89f02028ac133a309a2a30ba309614e8ec94d976dc5a",
+  "redis_image": "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d",
+  "gateway_base_image": "alpine:3.22.1@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1"
+}

@@ -100,7 +100,9 @@ class BootstrapHealthTests(unittest.TestCase):
             def aws(service, operation, args, *, deadline):
                 self.assertEqual(deadline, 145)
                 if operation == "send-command":
-                    params = json.loads(args[args.index("--parameters") + 1])
+                    parameter = args[args.index("--parameters") + 1]
+                    self.assertTrue(parameter.startswith("file://"))
+                    params = json.loads(Path(parameter.removeprefix("file://")).read_bytes())
                     self.assertEqual(params["executionTimeout"], ["45"])
                     return {"Command": {"CommandId": "cmd"}}
                 return {"Status": "Pending"}

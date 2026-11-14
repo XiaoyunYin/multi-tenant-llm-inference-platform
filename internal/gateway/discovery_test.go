@@ -61,6 +61,11 @@ func TestEndpointSliceMembershipAndFailSafe(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			payload, status = tc.body, tc.code
 			err := discovery.Poll(context.Background())
+			// This fixture runs no health loop: a nonempty snapshot has no
+			// sampled healthy+ready member, so the narrowed local gate closes.
+			if registry.DiscoveryUnknown() != (err != nil || tc.count > 0) {
+				t.Fatalf("discovery state disagrees with poll: %v", err)
+			}
 			if tc.count > 0 && err != nil {
 				t.Fatal(err)
 			}

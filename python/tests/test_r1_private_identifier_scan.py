@@ -1,7 +1,16 @@
 import hashlib
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from inference_platform.private_identifier_scan import find_identifier_violations
+from inference_platform.private_identifier_scan import (
+    check_staged_repo,
+    find_identifier_violations,
+)
 
 
 class PrivateIdentifierScanTests(unittest.TestCase):
@@ -33,6 +42,48 @@ class PrivateIdentifierScanTests(unittest.TestCase):
             findings,
             ["docs/evidence/status.json:1: IAM account ARN in evidence"],
         )
+
+    def test_staged_tree_refuses_fake_iam_arn_before_commit(self):
+        hook = Path(__file__).resolve().parents[2] / ".githooks/pre-commit"
+        self.assertIn('check_private_identifiers.py" --staged', hook.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "docs/evidence").mkdir(parents=True)
+            (root / "docs/R1_SESSION_INPUTS.json").write_text(
+                json.dumps({"account_id_sha256": "0" * 64}), encoding="utf-8"
+            )
+
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args])
+
+            git("init", "--quiet")
+            git("config", "user.name", "Private scan test")
+            git("config", "user.email", "private-scan-test@example.invalid")
+            git("add", "docs/R1_SESSION_INPUTS.json")
+            git("commit", "--quiet", "-m", "safe scanner input")
+
+            candidate = root / "docs/evidence/fake.json"
+            candidate.write_text(
+                '{"arn":"arn:aws:iam::123456789012:role/fake"}\n', encoding="utf-8"
+            )
+            git("add", "docs/evidence/fake.json")
+            tracked, findings = check_staged_repo(root)
+            self.assertEqual(tracked, 2)
+            self.assertEqual(
+                findings,
+                ["docs/evidence/fake.json:1: IAM account ARN in evidence"],
+            )
+            with patch.object(
+                sys,
+                "argv",
+                ["check_private_identifiers.py", "--root", str(root), "--staged"],
+            ):
+                from scripts.check_private_identifiers import main
+
+                with self.assertRaises(SystemExit) as stopped:
+                    main()
+
+        self.assertEqual(stopped.exception.code, 1)
 
 
 if __name__ == "__main__":
