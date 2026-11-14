@@ -32,6 +32,98 @@ from m5_descriptive_inventory import gpu_states, inventory
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def validate_cleanup_policy(policy, session):
+    """Inspect actual planned/deployed JSON, including overlapping Allow grants."""
+    scoped = {
+        "ec2:TerminateInstances",
+        "ec2:CancelCapacityReservation",
+        "ec2:DeleteLaunchTemplate",
+        "ec2:ReleaseAddress",
+        "ec2:DisassociateRouteTable",
+        "ec2:DeleteRouteTable",
+        "ec2:DeleteSubnet",
+        "ec2:DetachInternetGateway",
+        "ec2:DeleteInternetGateway",
+        "ec2:DeleteVpc",
+    }
+    witnessed = set()
+    for statement in policy["Statement"]:
+        if statement["Effect"] != "Allow":
+            continue
+        actions = statement["Action"]
+        actions = {actions} if isinstance(actions, str) else set(actions)
+        if "*" in actions or any(
+            a.startswith("ec2:") and "*" in a and a != "ec2:Describe*" for a in actions
+        ):
+            raise ValueError("descriptive:cleanup_policy_scope")
+        protected = actions & scoped
+        if not protected:
+            continue
+        terms = statement.get("Condition", {}).get("StringEquals", {})
+        tags = {k: v for k, v in terms.items() if k.startswith("aws:ResourceTag/")}
+        if terms.get("aws:RequestedRegion") != "us-east-1" or len(tags) != 1:
+            raise ValueError("descriptive:cleanup_policy_scope")
+        key, values = next(iter(tags.items()))
+        values = {values} if isinstance(values, str) else set(values)
+        expected = (
+            {session, "dec077-" + session}
+            if key == "aws:ResourceTag/Session"
+            else {session}
+            if key
+            in {
+                "aws:ResourceTag/eks:cluster-name",
+                "aws:ResourceTag/aws:eks:cluster-name",
+            }
+            and protected == {"ec2:TerminateInstances"}
+            else set()
+        )
+        if not values or not values <= expected:
+            raise ValueError("descriptive:cleanup_policy_scope")
+        if "ec2:CancelCapacityReservation" in protected and values != {session}:
+            raise ValueError("descriptive:cleanup_reservation_tag")
+        witnessed.update(protected)
+    if witnessed != scoped:
+        raise ValueError("descriptive:cleanup_policy_actions_missing")
+
+
+def validate_cleanup_resource_tags(plan, session, policy):
+    tagged = {
+        "aws_instance": "ec2:TerminateInstances",
+        "aws_launch_template": "ec2:DeleteLaunchTemplate",
+        "aws_eip": "ec2:ReleaseAddress",
+        "aws_vpc": "ec2:DeleteVpc",
+        "aws_subnet": "ec2:DeleteSubnet",
+        "aws_route_table": "ec2:DeleteRouteTable",
+        "aws_internet_gateway": "ec2:DeleteInternetGateway",
+    }
+    for row in plan["resource_changes"]:
+        if row["type"] not in tagged:
+            continue
+        owner = (
+            "dec077-" + session
+            if row["address"].startswith("module.operator.")
+            else session
+        )
+        if row["change"]["after"].get("tags_all", {}).get("Session") != owner:
+            raise ValueError(
+                "descriptive:cleanup_resource_session_tag:" + row["address"]
+            )
+        if not any(
+            s["Effect"] == "Allow"
+            and tagged[row["type"]] in s["Action"]
+            and owner in ([values] if isinstance(values, str) else values)
+            for s in policy["Statement"]
+            for values in [
+                s.get("Condition", {})
+                .get("StringEquals", {})
+                .get("aws:ResourceTag/Session", [])
+            ]
+        ):
+            raise ValueError(
+                "descriptive:cleanup_resource_policy_mismatch:" + row["address"]
+            )
+
+
 def require_review(text, manifest, digest):
     rounds = list(re.finditer(r"(?m)^## Claude Round [0-9]+[^\n]*$", text))
     if not rounds:
@@ -140,6 +232,7 @@ def arming_witness(sdk, manifest, record):
     ]
     if isinstance(role_policy, str):
         role_policy = json.loads(role_policy)
+    validate_cleanup_policy(role_policy, manifest["session"])
     policy_digest = hashlib.sha256(
         json.dumps(role_policy, sort_keys=True).encode()
     ).hexdigest()
@@ -198,6 +291,32 @@ def arming_witness(sdk, manifest, record):
         != record
     ):
         raise ValueError("descriptive:original_deadline_changed")
+    if "ReservedConcurrentExecutions" in function.get_function_concurrency(
+        FunctionName=name
+    ):
+        raise ValueError("descriptive:backstop_unreserved_required")
+    response = function.invoke(
+        FunctionName=name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(
+            {"arming_probe": True, "original_deadline_epoch": record["deadline_epoch"]}
+        ).encode(),
+    )
+    body = response["Payload"].read(65537)
+    try:
+        invoked = json.loads(body)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError("descriptive:backstop_invocation") from error
+    if (
+        len(body) > 65536
+        or response.get("StatusCode") != 200
+        or response.get("FunctionError")
+        or not isinstance(invoked, dict)
+        or invoked.get("armed") is not True
+        or invoked.get("cleanup_started") is not False
+        or invoked.get("deadline_epoch") != record["deadline_epoch"]
+    ):
+        raise ValueError("descriptive:backstop_invocation")
     return {
         "armed": True,
         "original_deadline_epoch": record["deadline_epoch"],
@@ -211,6 +330,11 @@ def arming_witness(sdk, manifest, record):
             json.dumps(role_policy, sort_keys=True).encode()
         ).hexdigest(),
         "code_sha256_base64": configuration["CodeSha256"],
+        "synchronous_invocation": {
+            "status_code": response["StatusCode"],
+            "response": invoked,
+            "response_sha256": hashlib.sha256(body).hexdigest(),
+        },
     }
 
 

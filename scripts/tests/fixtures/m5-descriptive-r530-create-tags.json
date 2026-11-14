@@ -1,0 +1,126 @@
+{
+  "provenance": "Taggable rows of the real-provider 260aacc zone-us-east-1c create plan; only addresses/types and Session tags retained, session renamed m5-fixture. R1 creates capacity reservations separately with Session=session_id. EKS-managed instance cluster-name tags are service-created and checked as alternatives by the policy.",
+  "resource_changes": [
+    {
+      "address": "module.eks.aws_internet_gateway.m5[0]",
+      "type": "aws_internet_gateway",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_launch_template.gpu[0]",
+      "type": "aws_launch_template",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_route_table.m5[0]",
+      "type": "aws_route_table",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_subnet.m5[\"0\"]",
+      "type": "aws_subnet",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_subnet.m5[\"1\"]",
+      "type": "aws_subnet",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.eks.aws_vpc.m5[0]",
+      "type": "aws_vpc",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.operator.aws_instance.task[0]",
+      "type": "aws_instance",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "dec077-m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.operator.aws_internet_gateway.task[0]",
+      "type": "aws_internet_gateway",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "dec077-m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.operator.aws_route_table.task[0]",
+      "type": "aws_route_table",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "dec077-m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.operator.aws_subnet.task[0]",
+      "type": "aws_subnet",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "dec077-m5-fixture"
+          }
+        }
+      }
+    },
+    {
+      "address": "module.operator.aws_vpc.task[0]",
+      "type": "aws_vpc",
+      "change": {
+        "after": {
+          "tags_all": {
+            "Session": "dec077-m5-fixture"
+          }
+        }
+      }
+    }
+  ]
+}

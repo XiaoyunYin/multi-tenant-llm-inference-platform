@@ -1,5 +1,8 @@
 import copy
+import os
 import unittest
+from contextlib import contextmanager
+from pathlib import Path
 
 from inference_platform.inf037b_archive import IntegrityError, encode, sha
 from inference_platform.inf037b_row5_capture import (
@@ -1228,6 +1231,89 @@ class DiagnosticSnapshotControlTests(unittest.TestCase):
                 diagnostic_snapshot_control(**case)
 
 
+@contextmanager
+def service_account_fixture(account, certificate):
+    """Never replace a mounted credential; clean only files created here."""
+    account = Path(account)
+    paths = (account / "ca.crt", account / "token")
+    if any(os.path.lexists(path) for path in paths):
+        raise RuntimeError("row5_test:service_account_already_present")
+    directories, created = [], []
+    parent = account
+    while not parent.exists():
+        directories.append(parent)
+        parent = parent.parent
+    try:
+        account.mkdir(parents=True, exist_ok=True)
+        for path, data in zip(paths, (certificate, b"fixture"), strict=True):
+            with path.open("xb") as handle:
+                identity = os.fstat(handle.fileno())
+                created.append((path, identity.st_dev, identity.st_ino))
+                handle.write(data)
+        yield account
+    finally:
+        for path, device, inode in reversed(created):
+            try:
+                current = path.lstat()
+            except FileNotFoundError:
+                continue
+            if (current.st_dev, current.st_ino) == (device, inode):
+                path.unlink()
+        for path in directories:
+            try:
+                path.rmdir()
+            except OSError:
+                # A pre-existing/replaced/nonempty directory is not ours to remove.
+                pass
+
+
+class ServiceAccountFixtureTests(unittest.TestCase):
+    def test_removes_its_files_and_new_directories_after_failure(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as folder:
+            account = Path(folder) / "new" / "account"
+            with self.assertRaisesRegex(ValueError, "exchange failed"):
+                with service_account_fixture(account, b"fixture-ca"):
+                    self.assertEqual((account / "ca.crt").read_bytes(), b"fixture-ca")
+                    self.assertEqual((account / "token").read_bytes(), b"fixture")
+                    raise ValueError("exchange failed")
+            self.assertFalse((Path(folder) / "new").exists())
+
+    def test_refuses_either_existing_credential_without_touching_it(self):
+        import tempfile
+
+        for name in ("token", "ca.crt"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as folder:
+                account = Path(folder)
+                (account / name).write_bytes(b"original-credential")
+                with self.assertRaisesRegex(RuntimeError, "service_account_already_present"):
+                    with service_account_fixture(account, b"replacement"):
+                        self.fail("must refuse before entering")
+                self.assertEqual((account / name).read_bytes(), b"original-credential")
+                self.assertEqual({p.name for p in account.iterdir()}, {name})
+
+    def test_concurrent_file_creation_is_not_overwritten_or_cleaned(self):
+        import tempfile
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as folder:
+            account = Path(folder)
+            original = Path.open
+
+            def race(path, *args, **kwargs):
+                if path == account / "token":
+                    with original(path, "wb") as handle:
+                        handle.write(b"concurrent-owner")
+                return original(path, *args, **kwargs)
+
+            with patch.object(Path, "open", race), self.assertRaises(FileExistsError):
+                with service_account_fixture(account, b"fixture-ca"):
+                    self.fail("exclusive creation must refuse")
+            self.assertFalse((account / "ca.crt").exists())
+            self.assertEqual((account / "token").read_bytes(), b"concurrent-owner")
+
+
 class RealGatewayRefusalTests(unittest.TestCase):
     def test_real_gateway_403_produces_provable_local_refusal(self):
         import base64
@@ -1284,9 +1370,7 @@ class RealGatewayRefusalTests(unittest.TestCase):
                 capture_output=True,
             )
             account = Path("/var/run/secrets/kubernetes.io/serviceaccount")
-            account.mkdir(parents=True, exist_ok=True)
-            (account / "ca.crt").write_bytes(cert.read_bytes())
-            (account / "token").write_text("fixture")
+            self.enterContext(service_account_fixture(account, cert.read_bytes()))
 
             class API(BaseHTTPRequestHandler):
                 def log_message(self, *args):

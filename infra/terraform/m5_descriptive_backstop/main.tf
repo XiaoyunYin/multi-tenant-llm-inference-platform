@@ -25,9 +25,15 @@ resource "aws_iam_role_policy" "cleanup" {
     { Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:us-east-1:${var.account}:parameter/${var.session}/deadline" },
     { Effect = "Allow", Action = ["eks:DeleteCluster", "eks:DeleteNodegroup"], Resource = ["arn:aws:eks:us-east-1:${var.account}:cluster/${var.session}", "arn:aws:eks:us-east-1:${var.account}:nodegroup/${var.session}/*"] },
     { Effect = "Allow", Action = ["ecr:DeleteRepository"], Resource = "arn:aws:ecr:us-east-1:${var.account}:repository/${var.session}" },
+    # Terraform default tags cover both roots; R1 tags the reservation at creation.
+    { Effect = "Allow", Action = ["ec2:TerminateInstances", "ec2:DisassociateRouteTable", "ec2:DeleteRouteTable", "ec2:DeleteSubnet", "ec2:DetachInternetGateway", "ec2:DeleteInternetGateway", "ec2:DeleteVpc", "ec2:ReleaseAddress", "ec2:DeleteLaunchTemplate"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1", "aws:ResourceTag/Session" = [var.session, "dec077-${var.session}"] } } },
+    { Effect = "Allow", Action = ["ec2:CancelCapacityReservation"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1", "aws:ResourceTag/Session" = var.session } } },
+    # EKS managed instances carry a cluster-name tag, not necessarily Session.
+    { Effect = "Allow", Action = ["ec2:TerminateInstances"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1", "aws:ResourceTag/eks:cluster-name" = var.session } } },
+    { Effect = "Allow", Action = ["ec2:TerminateInstances"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1", "aws:ResourceTag/aws:eks:cluster-name" = var.session } } },
     # EKS-created ENIs/SGs need not inherit Session. The bound handler derives
     # them solely from VPCs carrying the exact session or operator session tag.
-    { Effect = "Allow", Action = ["ec2:TerminateInstances", "ec2:CancelCapacityReservation", "ec2:DeleteNetworkInterface", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:DeleteSecurityGroup", "ec2:DisassociateRouteTable", "ec2:DeleteRouteTable", "ec2:DeleteSubnet", "ec2:DetachInternetGateway", "ec2:DeleteInternetGateway", "ec2:DeleteVpc", "ec2:ReleaseAddress", "ec2:DeleteLaunchTemplate"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } } },
+    { Effect = "Allow", Action = ["ec2:DeleteNetworkInterface", "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress", "ec2:DeleteSecurityGroup"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "us-east-1" } } },
     { Effect = "Allow", Action = ["iam:ListAttachedRolePolicies", "iam:ListRolePolicies", "iam:DetachRolePolicy", "iam:DeleteRolePolicy", "iam:DeleteRole", "iam:RemoveRoleFromInstanceProfile", "iam:DeleteInstanceProfile"], Resource = ["arn:aws:iam::${var.account}:role/${var.session}-*", "arn:aws:iam::${var.account}:role/dec077-${var.session}-*", "arn:aws:iam::${var.account}:instance-profile/dec077-${var.session}-*"] },
     { Effect = "Allow", Action = ["s3:ListBucketVersions", "s3:DeleteObjectVersion", "s3:DeleteObject", "s3:DeleteBucket"], Resource = ["arn:aws:s3:::${var.state_bucket}", "arn:aws:s3:::${var.state_bucket}/*"] },
     { Effect = "Allow", Action = ["resource-groups:DeleteGroup"], Resource = "arn:aws:resource-groups:us-east-1:${var.account}:group/${var.session}-capacity" },
@@ -40,14 +46,13 @@ resource "aws_cloudwatch_log_group" "cleanup" {
   retention_in_days = 1
 }
 resource "aws_lambda_function" "cleanup" {
-  function_name                  = local.name
-  role                           = aws_iam_role.cleanup.arn
-  runtime                        = "python3.12"
-  handler                        = "m5_descriptive_cleanup.handler"
-  filename                       = var.zip_path
-  source_code_hash               = var.zip_sha256_base64
-  timeout                        = 55
-  reserved_concurrent_executions = 1
+  function_name    = local.name
+  role             = aws_iam_role.cleanup.arn
+  runtime          = "python3.12"
+  handler          = "m5_descriptive_cleanup.handler"
+  filename         = var.zip_path
+  source_code_hash = var.zip_sha256_base64
+  timeout          = 55
   environment { variables = { SESSION = var.session, PARAMETER = "/${var.session}/deadline", STATE_BUCKET = var.state_bucket } }
   depends_on = [aws_iam_role_policy.cleanup, aws_cloudwatch_log_group.cleanup]
 }

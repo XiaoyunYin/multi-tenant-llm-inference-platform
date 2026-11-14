@@ -1,10 +1,12 @@
 import base64
 import copy
 import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +15,14 @@ from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 from botocore.exceptions import ClientError
-from build_m5_descriptive_packet import hourly, startup_bound, validate_lambda_limits
+from build_m5_descriptive_packet import (
+    E10_SHA256,
+    e10_startup_evidence,
+    hourly,
+    source_bundle,
+    startup_bound,
+    validate_lambda_limits,
+)
 
 from inference_platform.m5_descriptive_cluster import ClusterPorts
 from inference_platform.m5_descriptive_operator import phase_deadline, session_timing
@@ -25,6 +34,8 @@ from m5_descriptive_eks import (
     arm,
     arming_witness,
     require_review,
+    validate_cleanup_policy,
+    validate_cleanup_resource_tags,
     verify_packet_files,
     verify_plan,
 )
@@ -42,18 +53,180 @@ from test_m5_infra_safety import plan_fixture
 
 
 class ProviderTests(unittest.TestCase):
-    def test_cleanup_reservation_requires_a_recorded_lambda_concurrency_margin(self):
-        validate_lambda_limits({"UnreservedConcurrentExecutions": 101})
+    def test_source_bundle_relative_destination_is_absolute_for_real_git_clone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, packet = root / "repo", root / "packet"
+            repo.mkdir()
+            packet.mkdir()
+            subprocess.run(
+                ["git", "init", "-b", "main", str(repo)],
+                check=True,
+                capture_output=True,
+            )
+            (repo / "source.txt").write_bytes(b"exact source\n")
+            subprocess.run(
+                ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@users.noreply.github.com",
+                    "commit",
+                    "-m",
+                    "fixture",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            commit = (
+                subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"])
+                .decode()
+                .strip()
+            )
+            relative = Path(os.path.relpath(packet / "source.bundle", Path.cwd()))
+            with (
+                patch("build_m5_descriptive_packet.ROOT", repo),
+                patch("build_m5_descriptive_packet.SCRATCH", root / "scratch"),
+            ):
+                bundle = source_bundle(relative, commit)
+            self.assertEqual(bundle, (packet / "source.bundle").resolve())
+            argv = json.loads(bundle.with_suffix(".command.json").read_bytes())["argv"]
+            self.assertTrue(Path(argv[-2]).is_absolute())
+            restored = root / "restored"
+            subprocess.run(
+                ["git", "clone", str(bundle), str(restored)],
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual((restored / "source.txt").read_bytes(), b"exact source\n")
+            self.assertEqual(
+                subprocess.check_output(
+                    ["git", "-C", str(restored), "rev-parse", "HEAD"]
+                )
+                .decode()
+                .strip(),
+                commit,
+            )
+
+    @staticmethod
+    def cleanup_policy():
+        session = "m5-fixture"
+
+        def grant(actions, key, value):
+            return {
+                "Effect": "Allow",
+                "Action": actions,
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {"aws:RequestedRegion": "us-east-1", key: value}
+                },
+            }
+
+        return {
+            "Statement": [
+                grant(
+                    [
+                        "ec2:TerminateInstances",
+                        "ec2:DeleteLaunchTemplate",
+                        "ec2:ReleaseAddress",
+                        "ec2:DisassociateRouteTable",
+                        "ec2:DeleteRouteTable",
+                        "ec2:DeleteSubnet",
+                        "ec2:DetachInternetGateway",
+                        "ec2:DeleteInternetGateway",
+                        "ec2:DeleteVpc",
+                    ],
+                    "aws:ResourceTag/Session",
+                    [session, "dec077-" + session],
+                ),
+                grant(
+                    ["ec2:CancelCapacityReservation"],
+                    "aws:ResourceTag/Session",
+                    session,
+                ),
+                grant(
+                    ["ec2:TerminateInstances"],
+                    "aws:ResourceTag/eks:cluster-name",
+                    session,
+                ),
+                grant(
+                    ["ec2:TerminateInstances"],
+                    "aws:ResourceTag/aws:eks:cluster-name",
+                    session,
+                ),
+            ]
+        }
+
+    def test_cleanup_policy_matches_real_create_plan_tags_and_refuses_foreign_resources(
+        self,
+    ):
+        root = Path(__file__).resolve().parent
+        plan = json.loads(
+            (root / "fixtures/m5-descriptive-r530-create-tags.json").read_bytes()
+        )
+        policy = self.cleanup_policy()
+        validate_cleanup_resource_tags(plan, "m5-fixture", policy)
+        validate_cleanup_policy(policy, "m5-fixture")
+        # Each taggable resource in the real saved create shape must satisfy
+        # the session predicate, not merely a handler-side selection filter.
+        for row in plan["resource_changes"]:
+            changed = copy.deepcopy(plan)
+            next(
+                r for r in changed["resource_changes"] if r["address"] == row["address"]
+            )["change"]["after"]["tags_all"]["Session"] = "foreign"
+            with (
+                self.subTest(address=row["address"]),
+                self.assertRaisesRegex(ValueError, "cleanup_resource_session_tag"),
+            ):
+                validate_cleanup_resource_tags(changed, "m5-fixture", policy)
+        for index in range(len(policy["Statement"])):
+            bad = copy.deepcopy(policy)
+            bad["Statement"][index]["Condition"]["StringEquals"] = {
+                "aws:RequestedRegion": "us-east-1"
+            }
+            with (
+                self.subTest(statement=index),
+                self.assertRaisesRegex(ValueError, "cleanup_policy_scope"),
+            ):
+                validate_cleanup_policy(bad, "m5-fixture")
+        bad = copy.deepcopy(policy)
+        bad["Statement"].append(
+            {"Effect": "Allow", "Action": ["ec2:TerminateInstances"], "Resource": "*"}
+        )
+        with self.assertRaisesRegex(ValueError, "cleanup_policy_scope"):
+            validate_cleanup_policy(bad, "m5-fixture")
+        bad = copy.deepcopy(policy)
+        bad["Statement"][0]["Condition"]["StringEquals"]["aws:ResourceTag/Session"] = [
+            "m5-fixture"
+        ]
+        with self.assertRaisesRegex(ValueError, "cleanup_resource_policy_mismatch"):
+            validate_cleanup_resource_tags(plan, "m5-fixture", bad)
+
+    def test_cleanup_unreserved_pool_requires_two_and_recorded_function_count(self):
+        validate_lambda_limits({"UnreservedConcurrentExecutions": 2}, 0)
+        validate_lambda_limits({"UnreservedConcurrentExecutions": 10}, 3)
         for value in (
             {},
             {"UnreservedConcurrentExecutions": True},
-            {"UnreservedConcurrentExecutions": 100},
+            {"UnreservedConcurrentExecutions": 1},
         ):
             with (
                 self.subTest(value=value),
                 self.assertRaisesRegex(ValueError, "lambda_cleanup_concurrency"),
             ):
-                validate_lambda_limits(value)
+                validate_lambda_limits(value, 0)
+        for count in (None, True, -1):
+            with (
+                self.subTest(count=count),
+                self.assertRaisesRegex(ValueError, "lambda_cleanup_concurrency_input"),
+            ):
+                validate_lambda_limits({"UnreservedConcurrentExecutions": 10}, count)
 
     def test_produced_host_manifest_covers_the_reused_ports_hard_reads(self):
         import ast
@@ -432,12 +605,16 @@ class ProviderTests(unittest.TestCase):
     def test_phase_cutoffs_preserve_both_retrieval_hops_and_cleanup(self):
         timing = session_timing(700)
         self.assertEqual(timing["one_retrieval_seconds"], 2208)
-        self.assertEqual(timing["rollout_seconds"], 880)
+        self.assertEqual(timing["gateway_rollout_seconds"], 600)
+        self.assertEqual(timing["vllm_rollout_seconds"], 900)
         end = 18000
         self.assertEqual(phase_deadline(end, timing, "load"), 11784)
         self.assertEqual(phase_deadline(end, timing, "export"), 13992)
         self.assertEqual(phase_deadline(end, timing, "retrieve"), 16200)
-        self.assertEqual(session_timing(300)["rollout_seconds"], 600)
+        self.assertEqual(session_timing(640)["remaining_infrastructure_seconds"], 6334)
+        self.assertEqual(session_timing(640)["minimum_workload_seconds"], 4170)
+        with self.assertRaisesRegex(ValueError, "startup_exceeds_replacement_window"):
+            session_timing(721)
 
     def test_capacity_preserves_r1_error_logs_and_the_pinned_cli_for_az_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -538,37 +715,73 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), body)
             self.assertIsNone(host.frozen)
 
-    def test_missing_r1_startup_evidence_is_not_an_invented_measurement(self):
-        with self.assertRaisesRegex(ValueError, "r1_engine_start_durations_missing"):
-            startup_bound(None)
+    def test_round_373_e10_source_pins_actual_events_and_rejects_changed_evidence(self):
+        self.assertEqual(
+            E10_SHA256,
+            "a96b2b654ffd363cc485516b13d1056cb55005e7d83b0b0ea4e21da6a649aaec",
+        )
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "startup.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "engine_start_seconds": [100, 200],
-                        "source": "fixture only",
-                        "source_sha256": "a" * 64,
-                    }
+            root = Path(tmp)
+            archive = root / "fixture.tar"
+            # Portable synthetic archive uses the actual E10 timestamp pair;
+            # no private archive dependency or new public exclusion is needed.
+            rows = [
+                dict(
+                    event=event,
+                    mono_ns=mono,
+                    wall_ns=wall,
+                    boot_id="fixture",
+                    pod_uid="fixture",
+                    restart_count=0,
                 )
-            )
-            self.assertEqual(startup_bound(path)["seconds"], 460)
-            path.write_text(
-                json.dumps({"engine_start_seconds": [], "source": "fixture only"})
-            )
-            with self.assertRaises(ValueError):
-                startup_bound(path)
-            path.write_text(
-                json.dumps(
-                    {
-                        "engine_start_seconds": [True],
-                        "source": "fixture only",
-                        "source_sha256": "a" * 64,
-                    }
+                for event, mono, wall in [
+                    ("process_start", 701429521858, 1793062252347147361),
+                    ("startup", 990940339021, 1793062541857965284),
+                ]
+            ]
+            with tarfile.open(archive, "w") as target:
+                for name, data in [
+                    (
+                        "results/runtime/lifecycle.jsonl",
+                        b"\n".join(json.dumps(x).encode() for x in rows),
+                    ),
+                    (
+                        "results/l4-engine.log",
+                        b"synthetic log; real hash comes from pinned archive",
+                    ),
+                ]:
+                    item = tarfile.TarInfo(name)
+                    item.size = len(data)
+                    target.addfile(item, io.BytesIO(data))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            with (
+                patch("build_m5_descriptive_packet.ROOT", root),
+                patch("build_m5_descriptive_packet.E10_ARCHIVE", "fixture.tar"),
+                patch("build_m5_descriptive_packet.E10_SHA256", digest),
+            ):
+                proof = e10_startup_evidence()
+                self.assertEqual(
+                    proof["source_member"], "results/runtime/lifecycle.jsonl"
                 )
-            )
-            with self.assertRaises(ValueError):
-                startup_bound(path)
+                self.assertAlmostEqual(proof["engine_start_seconds"][0], 289.510817163)
+                self.assertEqual(startup_bound(None)["seconds"], 640)
+                path = root / "startup.json"
+                path.write_text(json.dumps(proof))
+                self.assertEqual(startup_bound(path)["seconds"], 640)
+                for invalid in (
+                    {"engine_start_seconds": []},
+                    {**proof, "engine_start_seconds": [True]},
+                    {**proof, "source_sha256": "a" * 64},
+                ):
+                    path.write_text(json.dumps(invalid))
+                    with (
+                        self.subTest(invalid=invalid),
+                        self.assertRaisesRegex(ValueError, "e10_startup_evidence"),
+                    ):
+                        startup_bound(path)
+                archive.write_bytes(archive.read_bytes() + b"changed")
+                with self.assertRaisesRegex(ValueError, "e10_startup_archive_hash"):
+                    startup_bound(None)
 
     def test_live_hourly_rate_requires_one_positive_matching_rate(self):
         def price(rate):
@@ -717,13 +930,13 @@ class ProviderTests(unittest.TestCase):
                     "Action": [
                         "eks:DeleteCluster",
                         "eks:DeleteNodegroup",
-                        "ec2:TerminateInstances",
                         "ecr:DeleteRepository",
                         "ssm:GetParameter",
                     ],
                 }
             ]
         }
+        deployed["Statement"].extend(self.cleanup_policy()["Statement"])
         clients["iam"].get_role_policy.return_value = {"PolicyDocument": deployed}
         record = {
             "session": "m5-fixture",
@@ -732,6 +945,15 @@ class ProviderTests(unittest.TestCase):
         }
         clients["ssm"].get_parameter.return_value = {
             "Parameter": {"Value": json.dumps(record)}
+        }
+        function.get_function_concurrency.return_value = {}
+        function.invoke.return_value = {
+            "StatusCode": 200,
+            "Payload": io.BytesIO(
+                json.dumps(
+                    {"armed": True, "deadline_epoch": 18100, "cleanup_started": False}
+                ).encode()
+            ),
         }
         return (
             sdk,
@@ -771,6 +993,106 @@ class ProviderTests(unittest.TestCase):
                 self.assertRaises(ValueError),
             ):
                 arming_witness(sdk, manifest, record)
+
+    def test_backstop_sync_invocation_proves_unreserved_execution_and_original_deadline(
+        self,
+    ):
+        sdk, clients, manifest, record = self.witness()
+        value = arming_witness(sdk, manifest, record)
+        self.assertEqual(
+            value["synchronous_invocation"]["response"]["deadline_epoch"], 18100
+        )
+        call = clients["lambda"].invoke.call_args.kwargs
+        self.assertEqual(call["InvocationType"], "RequestResponse")
+        self.assertEqual(json.loads(call["Payload"])["original_deadline_epoch"], 18100)
+        for body, error in [
+            ({"armed": False, "deadline_epoch": 18100, "cleanup_started": True}, None),
+            ({"armed": True, "deadline_epoch": 18101, "cleanup_started": False}, None),
+            (
+                {"armed": True, "deadline_epoch": 18100, "cleanup_started": False},
+                "Unhandled",
+            ),
+        ]:
+            sdk, clients, manifest, record = self.witness()
+            clients["lambda"].invoke.return_value = {
+                "StatusCode": 200,
+                "Payload": io.BytesIO(json.dumps(body).encode()),
+                "FunctionError": error,
+            }
+            with (
+                self.subTest(body=body, error=error),
+                self.assertRaisesRegex(ValueError, "backstop_invocation"),
+            ):
+                arming_witness(sdk, manifest, record)
+        sdk, clients, manifest, record = self.witness()
+        clients["lambda"].get_function_concurrency.return_value = {
+            "ReservedConcurrentExecutions": 1
+        }
+        with self.assertRaisesRegex(ValueError, "backstop_unreserved_required"):
+            arming_witness(sdk, manifest, record)
+        clients["lambda"].invoke.assert_not_called()
+
+    def test_eks_smoke_refuses_when_original_workload_window_will_not_fit(self):
+        import time
+
+        ports = EKSClusterPorts.__new__(EKSClusterPorts)
+        ports.timing = session_timing(640)
+        ports.minimum_workload_seconds = ports.timing["minimum_workload_seconds"]
+        ports.deadline = time.monotonic() + 4169
+        with self.assertRaisesRegex(TimeoutError, "remaining_workload_window"):
+            ports.smoke()
+
+    def test_kind_short_windows_exercise_the_same_workload_budget_guard(self):
+        import time
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("rehearse_m5_descriptive.kind_rollout.Campaign"),
+        ):
+            ports = KindPorts(Path(tmp) / "host")
+            self.assertEqual(ports.minimum_workload_seconds, 821)
+            ports.deadline = time.monotonic() + 820
+            self.assertIs(KindPorts.smoke, EKSClusterPorts.smoke)
+            with self.assertRaisesRegex(TimeoutError, "remaining_workload_window"):
+                ports.smoke()
+
+    def test_production_client_windows_bind_gateway_600_and_vllm_900(self):
+        import time
+
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch("m5_descriptive_remote.kind_rollout.Campaign"),
+        ):
+            ports = EKSClusterPorts(
+                Path(tmp),
+                {
+                    "descriptive": {
+                        "session": "m5-fixture",
+                        "timing": session_timing(640),
+                        "startup_seconds": 640,
+                    },
+                    "deadline_epoch": time.time() + 18000,
+                },
+            )
+            self.assertEqual(ports.startup_seconds, 640)
+            self.assertEqual(ports.rollout_action, 120)
+            self.assertEqual(ports.rollout_durations, {"gateway": 600, "vllm": 900})
+            ports.k = Mock(return_value=json.dumps({"metadata": {"uid": "old"}}))
+            ports.start_task = Mock()
+            for app in ("gateway", "vllm"):
+                with (
+                    self.subTest(app=app),
+                    patch(
+                        "inference_platform.m5_descriptive_cluster.time.sleep",
+                        side_effect=RuntimeError("submitted"),
+                    ),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "submitted"):
+                        ports.rollout(app)
+                self.assertEqual(
+                    ports.start_task.call_args.kwargs["duration"],
+                    ports.rollout_durations[app],
+                )
 
     def test_real_offline_sdk_eks_token_is_sigv4_with_cluster_header(self):
         import boto3

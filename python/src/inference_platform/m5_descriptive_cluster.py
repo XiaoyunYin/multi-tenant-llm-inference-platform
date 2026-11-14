@@ -257,6 +257,8 @@ class ClusterPorts:
         return holder[0]
 
     def smoke(self):
+        if self.deadline - time.monotonic() < self.minimum_workload_seconds:
+            raise TimeoutError("descriptive:remaining_workload_window")
         self.start_task("smoke", "smoke")
         value = self.finish_task("smoke")
         services = json.loads(self.k("get", "services", "-o", "json"))["items"]
@@ -291,10 +293,15 @@ class ClusterPorts:
         before = json.loads(self.k("get", "pod", target, "-o", "json"))
         old_uid = before["metadata"]["uid"]
         label = app + "_rollout"
+        duration = (
+            self.rollout_durations[app]
+            if hasattr(self, "rollout_durations")
+            else self.rollout_duration
+        )
         self.start_task(
             label,
             levels=[4],
-            duration=self.rollout_duration,
+            duration=duration,
             replacement={"target": target, "old_uid": old_uid},
         )
         time.sleep(self.rollout_action)

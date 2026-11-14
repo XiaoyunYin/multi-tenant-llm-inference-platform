@@ -278,22 +278,23 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
     if observer:
         if observer.thread.is_alive() or observer.error or observer.ready_ns is None:
             raise ValueError(observer.error or "descriptive:client_ready_not_observed")
-        rows = [
-            json.loads(line)
-            for item in result
-            for line in (Path(ports.output) / item["client_records"]["path"])
-            .read_text()
-            .splitlines()
-        ]
-        delay = first_serving(rows, observer.ready_ns, 0)
-        if task["replacement"]["target"] == "vllm-0" and delay is None:
-            raise ValueError("descriptive:replacement_serving_not_observed")
-        value["replacement"] = {
-            "ready_monotonic_ns": observer.ready_ns,
-            "first_completed_backend_slot": 0,
-            "first_completed_after_ready_ns": delay,
-            "gateway_identity": "not exposed by client response; no per-gateway serving claim",
-        }
+        value["replacement"] = {"ready_monotonic_ns": observer.ready_ns}
+        if task["replacement"]["target"] == "vllm-0":
+            rows = [
+                json.loads(line)
+                for item in result
+                for line in (Path(ports.output) / item["client_records"]["path"])
+                .read_text()
+                .splitlines()
+            ]
+            delay = first_serving(rows, observer.ready_ns, 0)
+            if delay is None:
+                raise ValueError("descriptive:replacement_serving_not_observed")
+            value["replacement"].update(
+                first_completed_backend_slot=0, first_completed_after_ready_ns=delay
+            )
+        else:
+            value["replacement"]["first_serving"] = "not_applicable: gateway identity not exposed"
     return value
 
 

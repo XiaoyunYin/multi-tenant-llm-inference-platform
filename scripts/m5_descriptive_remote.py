@@ -48,7 +48,13 @@ class EKSClusterPorts(ClusterPorts):
         self.deadline = time.monotonic() + self.work_deadline_epoch - time.time()
         self.startup_seconds = self.binding["startup_seconds"]
         self.warmup_duration, self.load_duration = 120, 600
-        self.rollout_duration, self.rollout_action = self.timing["rollout_seconds"], 120
+        self.rollout_durations = {
+            "gateway": self.timing["gateway_rollout_seconds"],
+            "vllm": self.timing["vllm_rollout_seconds"],
+        }
+        self.rollout_duration = max(self.rollout_durations.values())
+        self.rollout_action = self.timing["rollout_action_seconds"]
+        self.minimum_workload_seconds = self.timing["minimum_workload_seconds"]
         self.corpus = None
         self.model, self.tenant_id = MODEL, "m5-descriptive"
         credential = self.output / "credential.secret"

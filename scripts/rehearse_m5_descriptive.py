@@ -17,7 +17,7 @@ from inference_platform.eks_deployment import NGINX_IMAGE, PROMETHEUS_IMAGE, RED
 from inference_platform.m5_descriptive import resources
 from inference_platform.m5_descriptive_client import pushed_digest
 from inference_platform.m5_descriptive_cluster import ClusterPorts
-from inference_platform.m5_descriptive_operator import execute
+from inference_platform.m5_descriptive_operator import execute, workload_budget
 from inference_platform.package_a_images import save_amd64_archive
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,6 +84,12 @@ class KindPorts(ClusterPorts):
         self.startup_seconds = 180
         self.warmup_duration, self.load_duration = 2, 3
         self.rollout_duration, self.rollout_action = 30, 2
+        self.minimum_workload_seconds = workload_budget(
+            self.warmup_duration,
+            self.load_duration,
+            self.rollout_duration,
+            self.rollout_duration,
+        )
         self.corpus = None
 
     def provision(self):

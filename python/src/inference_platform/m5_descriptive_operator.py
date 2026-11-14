@@ -26,20 +26,38 @@ PHASES = (
 )
 
 
+def workload_budget(warmup_seconds, level_seconds, gateway_seconds, vllm_seconds):
+    """Same measured windows, six bounded drains and smoke in both adapters."""
+    return warmup_seconds + 6 * 120 + 3 * level_seconds + gateway_seconds + vllm_seconds + 30
+
+
 def session_timing(startup_seconds):
     """Reserve both retrieval hops and cleanup inside the original five hours."""
     from .package_a_cloud import transfer_seconds
 
     if type(startup_seconds) is not int or startup_seconds <= 0:
         raise ValueError("descriptive:startup_bound")
+    if 120 + startup_seconds + 60 > 900:
+        raise ValueError("descriptive:startup_exceeds_replacement_window")
     one_hop = transfer_seconds(512 * 1024**2)
+    # Warmup/drain, three measured levels/drains, two rollouts/drains, smoke.
+    workload = workload_budget(120, 600, 600, 900)
     return {
         "session_seconds": 18000,
         "receipt_limit_bytes": 512 * 1024**2,
         "one_retrieval_seconds": one_hop,
         "retrieval_reserve_seconds": 2 * one_hop,
         "cleanup_reserve_seconds": 1800,
-        "rollout_seconds": max(600, 120 + startup_seconds + 60),
+        "gateway_rollout_seconds": 600,
+        "vllm_rollout_seconds": 900,
+        "rollout_action_seconds": 120,
+        "minimum_workload_seconds": workload,
+        "initial_startup_budget_seconds": 2 * startup_seconds,
+        "remaining_infrastructure_seconds": 18000
+        - 2 * one_hop
+        - 1800
+        - workload
+        - 2 * startup_seconds,
     }
 
 

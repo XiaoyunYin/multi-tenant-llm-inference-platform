@@ -5,13 +5,15 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from inference_platform.m5_descriptive_client import (
     client_resources,
     control,
     first_serving,
     pushed_digest,
+    run_task,
 )
 from inference_platform.m5_descriptive_operator import PHASES, execute, file_inventory, load
 
@@ -115,6 +117,45 @@ class OperatorTests(unittest.TestCase):
         ]
         self.assertEqual(first_serving(records, 100, 0), 10)
         self.assertIsNone(first_serving(records, 140, 0))
+
+    def test_gateway_replacement_never_claims_backend_slot_serving_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rows = [{"completion_monotonic_ns": 110, "backend_slot": 0, "outcome": "completed"}]
+            (root / "records.jsonl").write_text(json.dumps(rows[0]) + "\n")
+            ports = SimpleNamespace(output=root, deadline=time.monotonic() + 10, corpus=None)
+            for target in ("gateway-0", "vllm-0"):
+                observer = SimpleNamespace(thread=Mock(), stop=Mock(), error=None, ready_ns=100)
+                observer.thread.is_alive.return_value = False
+                with (
+                    self.subTest(target=target),
+                    patch(
+                        "inference_platform.m5_descriptive_client.load",
+                        return_value=[{"client_records": {"path": "records.jsonl"}}],
+                    ),
+                ):
+                    value = run_task(
+                        {
+                            "kind": "load",
+                            "label": "rollout",
+                            "levels": [4],
+                            "duration": 1,
+                            "replacement": {"target": target, "old_uid": "old"},
+                        },
+                        SimpleNamespace(**vars(ports), namespace="test"),
+                        observer_factory=Mock(return_value=observer),
+                    )["replacement"]
+                self.assertEqual(value["ready_monotonic_ns"], 100)
+                if target == "gateway-0":
+                    self.assertEqual(
+                        value["first_serving"], "not_applicable: gateway identity not exposed"
+                    )
+                    self.assertNotIn("first_completed_backend_slot", value)
+                    self.assertNotIn("first_completed_after_ready_ns", value)
+                else:
+                    self.assertEqual(value["first_completed_backend_slot"], 0)
+                    self.assertEqual(value["first_completed_after_ready_ns"], 10)
+                    self.assertNotIn("first_serving", value)
 
     def test_short_client_controls_are_idempotent_and_hash_bound_on_retrieval(self):
         import base64

@@ -115,6 +115,11 @@ jobs:
         shell: pwsh
         run: ./scripts/bootstrap.ps1
 
+      - name: Prepare isolated service-account fixture directory
+        id: service-account-fixture
+        shell: bash
+        run: sudo -n install -d -o "$(id -u)" -g "$(id -g)" /var/run/secrets/kubernetes.io/serviceaccount
+
       - name: Run available CPU-only checks
         shell: pwsh
         run: ./scripts/check-public.ps1 -PythonTestsOnly -Shard ${{ matrix.shard }} -ShardCount 32

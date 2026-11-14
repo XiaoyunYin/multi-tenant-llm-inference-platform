@@ -11,9 +11,9 @@ import hashlib
 import json
 import math
 import os
-import re
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import zipfile
 from datetime import UTC, datetime
@@ -22,12 +22,20 @@ from pathlib import Path
 from inference_platform.package_a_cloud import transfer_seconds
 from inference_platform.m5_descriptive_operator import session_timing
 from inference_platform.package_a_operator import python_hashes
-from m5_descriptive_eks import verify_plan
+from m5_descriptive_eks import (
+    validate_cleanup_policy,
+    validate_cleanup_resource_tags,
+    verify_plan,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRATCH = Path(
-    r"D:\coding agent files\multi-tenant-llm-inference-platform\codex\r372-work"
+    r"D:\coding agent files\multi-tenant-llm-inference-platform\codex\r373-work"
 )
+E10_ARCHIVE = (
+    "docs/evidence/m5-l4-compatibility-round281/execution-2026-10-26/receipts.tar.gz"
+)
+E10_SHA256 = "a96b2b654ffd363cc485516b13d1056cb55005e7d83b0b0ea4e21da6a649aaec"
 
 
 def sha(path):
@@ -46,12 +54,16 @@ def write(path, value):
     )
 
 
-def validate_lambda_limits(value):
+def validate_lambda_limits(value, function_count):
     unreserved = value.get("UnreservedConcurrentExecutions")
-    if type(unreserved) is not int:
+    if (
+        type(unreserved) is not int
+        or type(function_count) is not int
+        or function_count < 0
+    ):
         raise ValueError("descriptive:lambda_cleanup_concurrency_input")
-    # Reserving one invocation must leave AWS's 100 unreserved executions.
-    if unreserved < 101:
+    # Round 373 D2: unreserved pool, no reservation or quota request.
+    if unreserved < 2:
         raise ValueError("descriptive:lambda_cleanup_concurrency_unavailable")
 
 
@@ -89,8 +101,10 @@ def refresh(directory, profile):
         return value
 
     identity = read("sts", "get_caller_identity")
-    lambda_limits = read("lambda", "get_account_settings")["AccountLimit"]
-    validate_lambda_limits(lambda_limits)
+    lambda_settings = read("lambda", "get_account_settings")
+    lambda_limits = lambda_settings["AccountLimit"]
+    lambda_function_count = lambda_settings["AccountUsage"]["FunctionCount"]
+    validate_lambda_limits(lambda_limits, lambda_function_count)
     session = "m5-desc-r372"
     bucket = (
         session + "-" + hashlib.sha256(identity["Account"].encode()).hexdigest()[:12]
@@ -248,6 +262,7 @@ def refresh(directory, profile):
         "operator_ami": operator,
         "gpu_quota_vcpus": quota,
         "lambda_account_limits": lambda_limits,
+        "lambda_function_count": lambda_function_count,
         "prices": prices,
         "sources": rows,
     }
@@ -277,25 +292,58 @@ def unit_rate(value, name, units, usage=None):
     return rates.pop()
 
 
-def startup_bound(path):
-    if path is None:
-        raise ValueError("descriptive:r1_engine_start_durations_missing")
-    value = json.loads(Path(path).read_bytes())
-    durations = value["engine_start_seconds"]
+def e10_startup_evidence():
+    archive = ROOT / E10_ARCHIVE
+    if sha(archive) != E10_SHA256:
+        raise ValueError("descriptive:e10_startup_archive_hash")
+    member = "results/runtime/lifecycle.jsonl"
+    log = "results/l4-engine.log"
+    with tarfile.open(archive) as source:
+        raw = source.extractfile(member).read()
+        log_hash = hashlib.sha256(source.extractfile(log).read()).hexdigest()
+    events = [json.loads(line) for line in raw.splitlines()]
+    starts = [row for row in events if row.get("event") == "process_start"]
+    ready = [row for row in events if row.get("event") == "startup"]
+    if len(starts) != 1 or len(ready) != 1:
+        raise ValueError("descriptive:e10_startup_events")
+    start, end = starts[0], ready[0]
     if (
-        not durations
-        or not all(
-            type(d) in (int, float) and math.isfinite(d) and d > 0 for d in durations
-        )
-        or not value.get("source")
-        or re.fullmatch(r"[0-9a-f]{64}", str(value.get("source_sha256", ""))) is None
+        start["boot_id"] != end["boot_id"]
+        or start["pod_uid"] != end["pod_uid"]
+        or start["restart_count"] != end["restart_count"]
+        or end["mono_ns"] <= start["mono_ns"]
     ):
-        raise ValueError("descriptive:r1_engine_start_evidence")
+        raise ValueError("descriptive:e10_startup_lineage")
+    return {
+        "authority": "Claude Round 373 D1",
+        "source": E10_ARCHIVE,
+        "source_sha256": E10_SHA256,
+        "source_member": member,
+        "source_member_sha256": hashlib.sha256(raw).hexdigest(),
+        "corroborating_member": log,
+        "corroborating_member_sha256": log_hash,
+        "process_start_wall_ns": start["wall_ns"],
+        "startup_wall_ns": end["wall_ns"],
+        "process_start_mono_ns": start["mono_ns"],
+        "startup_mono_ns": end["mono_ns"],
+        "engine_start_seconds": [(end["mono_ns"] - start["mono_ns"]) / 1e9],
+        "scope": "cold g6.xlarge, pinned vLLM 0.29.0 image and R1 model revision; E10, not aggregate R1 Ready",
+    }
+
+
+def startup_bound(path):
+    expected = e10_startup_evidence()
+    value = json.loads(Path(path).read_bytes()) if path is not None else expected
+    if value != expected:
+        raise ValueError("descriptive:e10_startup_evidence")
+    durations = value["engine_start_seconds"]
     return {
         "seconds": max(300, math.ceil(max(durations) * 2 + 60)),
         "rule": "max(300, ceil(2 * largest recorded engine start + 60))",
         "evidence": value,
-        "evidence_sha256": sha(path),
+        "evidence_sha256": hashlib.sha256(
+            json.dumps(value, sort_keys=True).encode()
+        ).hexdigest(),
     }
 
 
@@ -311,7 +359,45 @@ def forecast(live):
     return hourly_rate, math.ceil((5.5 * hourly_rate + 10) * 1.25 * 100) / 100
 
 
+def source_bundle(destination, commit):
+    """The Git -C working directory must not reinterpret the output path."""
+    destination = Path(destination).resolve()
+    SCRATCH.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="packet-source-", dir=SCRATCH) as tmp:
+        clone = Path(tmp) / "source.git"
+        subprocess.run(
+            [
+                "git",
+                "clone",
+                "--bare",
+                "--no-local",
+                "--depth",
+                "1",
+                "--branch",
+                "main",
+                ROOT.as_uri(),
+                str(clone),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        observed = (
+            subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"])
+            .decode()
+            .strip()
+        )
+        if observed != commit:
+            raise ValueError("descriptive:source_moved")
+        argv = ["git", "-C", str(clone), "bundle", "create", str(destination), "--all"]
+        write(destination.with_suffix(".command.json"), {"argv": argv})
+        result = subprocess.run(argv, capture_output=True)
+        destination.with_suffix(".stderr").write_bytes(result.stderr)
+        result.check_returncode()
+    return destination
+
+
 def prepare(directory, commit, refresh_path, startup_path):
+    directory = directory.resolve()
     current = (
         subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip()
     )
@@ -321,7 +407,9 @@ def prepare(directory, commit, refresh_path, startup_path):
     ):
         raise ValueError("descriptive:committed_clean_code_required")
     live = json.loads(refresh_path.read_bytes())
-    validate_lambda_limits(live.get("lambda_account_limits", {}))
+    validate_lambda_limits(
+        live.get("lambda_account_limits", {}), live.get("lambda_function_count")
+    )
     hourly_rate, forecast_usd = forecast(live)
     prior = json.loads(
         (ROOT / "docs/evidence/m5-package-a/spend-ledger.json").read_bytes()
@@ -455,6 +543,7 @@ def prepare(directory, commit, refresh_path, startup_path):
         for r in backstop["resource_changes"]
         if r["type"] == "aws_iam_role_policy"
     )
+    validate_cleanup_policy(json.loads(policy), session)
     policy_hash = hashlib.sha256(
         json.dumps(json.loads(policy), sort_keys=True).encode()
     ).hexdigest()
@@ -482,53 +571,14 @@ def prepare(directory, commit, refresh_path, startup_path):
             },
         )
         verify_plan(result)
+        validate_cleanup_resource_tags(result, session, json.loads(policy))
         alternatives.append({"zone": first, "directory": target.name})
     write(directory / "plans.json", plans)
     startup = startup_bound(startup_path)
+    write(directory / "startup-evidence.json", startup["evidence"])
     timing = session_timing(startup["seconds"])
-    # Reuse the product's depth-one Git bundle contract, with the scratch bare
-    # clone outside .cache. No tests or container work happens on this machine.
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="packet-source-", dir=SCRATCH) as tmp:
-        clone = Path(tmp) / "source.git"
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "--bare",
-                "--no-local",
-                "--depth",
-                "1",
-                "--branch",
-                "main",
-                ROOT.as_uri(),
-                str(clone),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        observed = (
-            subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"])
-            .decode()
-            .strip()
-        )
-        if observed != commit:
-            raise ValueError("descriptive:source_moved")
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(clone),
-                "bundle",
-                "create",
-                str(directory / "source.bundle"),
-                "--all",
-            ],
-            check=True,
-            capture_output=True,
-        )
+    bundle = source_bundle(directory / "source.bundle", commit)
     pins = json.loads((ROOT / "deploy/package-a/pins.json").read_bytes())
-    bundle = directory / "source.bundle"
     # Root gp3 / IPv4 rates are the accepted Package A basis. The EKS/EC2 rates
     # above come from live products; $10 covers ECR/logs/cleanup/network variance.
     host = {
@@ -564,6 +614,13 @@ def prepare(directory, commit, refresh_path, startup_path):
         "operator_tools": tools,
         "cleanup_zip_sha256_base64": cleanup_hash,
         "cleanup_policy_sha256": policy_hash,
+        "lambda_concurrency": {
+            "reserved": False,
+            "minimum_unreserved": 2,
+            "observed_limits": live["lambda_account_limits"],
+            "observed_function_count": live["lambda_function_count"],
+            "required_witness": "synchronous RequestResponse armed:true at original deadline before GPU capacity",
+        },
         "plans": plans,
         "alternatives": alternatives,
         "host_manifest": host,
