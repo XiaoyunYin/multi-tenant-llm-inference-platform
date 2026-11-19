@@ -13,6 +13,7 @@ import secrets
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path, PurePosixPath
@@ -1177,6 +1178,7 @@ class Ports(Operator):
                 raise
             self.token, self.token_error = None, "recovery_control_token_unavailable"
         self.reconnects = 0
+        self.forward_sessions = 0
         self.started = None
         self.manifest_path = (
             Path(manifest_path) if manifest_path else self.directory / "manifest.json"
@@ -1387,6 +1389,7 @@ class Ports(Operator):
             try:
                 if self.child is None:
                     self.channel, self.child = self.tunnel(self.host)
+                    self.forward_sessions = getattr(self, "forward_sessions", 0) + 1
                     opened = time.time()
                 if self.child.poll() is not None:
                     raise ConnectionError("forward_exited")
@@ -1430,6 +1433,7 @@ class Ports(Operator):
                 data = stream.read(1024**2)
                 if not data:
                     break
+                chunk_started = time.time()
                 try:
                     self.request(
                         f"/upload/{offset}",
@@ -1442,6 +1446,26 @@ class Ports(Operator):
                     observed = json.loads(self.request("/status", end=end)[0])["offset"]
                     if observed != offset + len(data):
                         raise
+                finally:
+                    pending_error = sys.exc_info()[1]
+                    chunk_error = (
+                        None
+                        if pending_error is None
+                        else type(pending_error).__name__ + ":" + str(pending_error)
+                    )
+                    receipt = {
+                        "offset": offset,
+                        "bytes": len(data),
+                        "elapsed_s": time.time() - chunk_started,
+                        "start_epoch": chunk_started,
+                        "reconnect_count": self.reconnects,
+                        "forward_session_count": getattr(self, "forward_sessions", 0),
+                        "error": chunk_error,
+                    }
+                    with (self.runtime / "source-transfer.jsonl").open(
+                        "a", encoding="utf-8"
+                    ) as log:
+                        log.write(json.dumps(receipt, sort_keys=True) + "\n")
         return json.loads(self.phase("staging", lambda: self.request("/stage", b"", end=end))[0])
 
     def upload_gate_a_inputs(self, end, *, operator_ports=None):

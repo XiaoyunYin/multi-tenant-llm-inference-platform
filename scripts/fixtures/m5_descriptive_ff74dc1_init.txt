@@ -1,0 +1,40 @@
+    def __init__(self, output, manifest):
+        self.output = Path(output)
+        self.output.mkdir(parents=True, exist_ok=True)
+        self.binding = manifest["descriptive"]
+        self.namespace = "mti-" + self.binding["session"]
+        self.cluster = self.binding["session"]
+        self.context = self.cluster
+        self.kubeconfig = self.output / "kubeconfig"
+        self.campaign = kind_rollout.Campaign(self.output)
+        self.timing = self.binding["timing"]
+        self.original_end = manifest["deadline_epoch"]
+        self.deadline_epoch = phase_deadline(self.original_end, self.timing, "retrieve")
+        self.work_deadline_epoch = phase_deadline(
+            self.original_end, self.timing, "load"
+        )
+        self.deadline = time.monotonic() + self.work_deadline_epoch - time.time()
+        self.startup_seconds = self.binding["startup_seconds"]
+        self.warmup_duration, self.load_duration = 120, 600
+        self.rollout_durations = {
+            "gateway": self.timing["gateway_rollout_seconds"],
+            "vllm": self.timing["vllm_rollout_seconds"],
+        }
+        self.rollout_duration = max(self.rollout_durations.values())
+        self.rollout_action = self.timing["rollout_action_seconds"]
+        self.minimum_workload_seconds = self.timing["minimum_workload_seconds"]
+        self.corpus = None
+        self.model, self.tenant_id = MODEL, "m5-descriptive"
+        credential = self.output / "credential.secret"
+        if not credential.exists():
+            with credential.open("x") as handle:
+                handle.write(secrets.token_urlsafe(32))
+            credential.chmod(0o600)
+        self.credential = credential.read_text()
+        state = self.output / "state.json"
+        stored = json.loads(state.read_bytes()) if state.exists() else {}
+        for name in ("client_pod", "client_placement", "client_image"):
+            if name in stored:
+                setattr(self, name, stored[name])
+        self.results = stored.get("results", {})
+        self.commands, self.forwarders = [], []

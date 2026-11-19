@@ -27,9 +27,41 @@ from inference_platform.package_a_operator import Ports
 from inference_platform.r1_cloud_operator import stop_forward
 from inference_platform.r1_lifecycle import Production
 from m5_descriptive_cleanup import missing, pages
+from m5_descriptive_diagnostics import collect, write_cost
 from m5_descriptive_inventory import gpu_states, inventory
+from m5_descriptive_capacity import select_capacity
+from package_a_host import host_environment
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def phase_command(phase):
+    if phase not in {
+        "provision",
+        "smoke",
+        "load",
+        "gateway_rollout",
+        "replica_rollout",
+        "export",
+        "retrieve",
+    }:
+        raise ValueError("descriptive:phase_command")
+    return (
+        "cd /opt/dec077/repo; export "
+        + " ".join(
+            name + "=" + shlex.quote(value)
+            for name, value in host_environment().items()
+        )
+        + "; "
+        + shlex.join(
+            [
+                "/opt/dec077/repo/python/.venv/bin/python",
+                "-B",
+                "/opt/dec077/repo/scripts/m5_descriptive_remote.py",
+                phase,
+            ]
+        )
+    )
 
 
 def validate_cleanup_policy(policy, session):
@@ -130,11 +162,11 @@ def require_review(text, manifest, digest):
         raise ValueError("descriptive:review_round_missing")
     latest = text[rounds[-1].end() :]
     lines = re.findall(
-        r"(?m)^M5 DESCRIPTIVE EKS PLAN APPROVED manifest=[0-9a-f]{64} source=[0-9a-f]{40}$",
+        r"(?m)^M5 DESCRIPTIVE EKS PLAN APPROVED manifest=[0-9a-f]{64} source=[0-9a-f]{40}\r?$",
         latest,
     )
     expected = f"M5 DESCRIPTIVE EKS PLAN APPROVED manifest={digest} source={manifest['source_commit']}"
-    if lines != [expected]:
+    if [line.removesuffix("\r") for line in lines] != [expected]:
         raise ValueError("descriptive:exact_committed_review_required")
 
 
@@ -384,6 +416,7 @@ class EKSports:
         self.end = consumed["deadline_epoch"] if consumed else self.started + 18000
         self.deadline = time.monotonic() + self.end - time.time()
         self.host = None
+        self.bootstrap_complete = False
         self.capacity = Capacity(self, recovering=recovering)
         self.owned_vpcs = []
         self.main_root = None
@@ -491,10 +524,10 @@ class EKSports:
             json.dumps({"sha256": digest, "bytes": len(body)})
         )
 
-    def make_targeted(self, identifier):
+    def make_targeted(self, identifier, *, deadline=None):
         import datetime
 
-        stop = min(self.deadline, time.monotonic() + 60)
+        stop = min(self.deadline, deadline or self.deadline, time.monotonic() + 60)
         if stop <= time.monotonic():
             raise TimeoutError("descriptive:targeted_reservation_deadline")
         # Whole seconds round the reservation fallback down, never beyond the
@@ -547,6 +580,21 @@ class EKSports:
             time.sleep(min(1, max(0, stop - time.monotonic())))
         raise TimeoutError("descriptive:targeted_reservation_deadline")
 
+    def host_runtime(self, outputs):
+        """Preserve the session cutoff across the agent's work-deadline rewrite."""
+        return {
+            **self.manifest["host_manifest"],
+            "deadline_epoch": self.end,
+            "descriptive": {
+                **self.manifest["descriptive"],
+                "original_deadline_epoch": self.end,
+                "repository_url": outputs["repository_url"]["value"],
+            },
+        }
+
+    def host_work_deadline(self):
+        return phase_deadline(self.end, self.manifest["timing"], "provision")
+
     def provision(self):
         # Supplied review hash/committed source are checked by main before this
         # method, then consume before the first write. Never retry an Apply.
@@ -568,49 +616,7 @@ class EKSports:
         (self.directory / "arming-witness.json").write_text(
             json.dumps(witness, indent=2)
         )
-        selected = None
-        for alternative in self.manifest["alternatives"]:
-            self.capacity.inputs["availability_zone"] = alternative["zone"]
-            self.capacity.directory = self.directory / "capacity" / alternative["zone"]
-            self.capacity.directory.mkdir()
-            result = self.capacity.reserve_capacity(time.monotonic() + 180)
-            (self.capacity.directory / "probe.json").write_text(json.dumps(result))
-            identifier = result.get("capacity_reservation_id")
-            if result["result"] == "success":
-                try:
-                    self.make_targeted(identifier)
-                    arn = f"arn:aws:ec2:us-east-1:{self.manifest['account']}:capacity-reservation/{identifier}"
-                    self.sdk.client("resource-groups").group_resources(
-                        Group=self.manifest["capacity_group_arn"], ResourceArns=[arn]
-                    )
-                    members = pages(
-                        self.sdk.client("resource-groups"),
-                        "list_group_resources",
-                        "ResourceIdentifiers",
-                        Group=self.manifest["capacity_group_arn"],
-                    )
-                    if [m["ResourceArn"] for m in members] != [arn]:
-                        raise ValueError("descriptive:capacity_group_members")
-                    selected = alternative
-                    break
-                except Exception:
-                    if not self.capacity.cancel_capacity(
-                        identifier, time.monotonic() + 60
-                    )["verified"]:
-                        raise RuntimeError(
-                            "descriptive:capacity_cleanup_unverified"
-                        ) from None
-                    raise
-            if not self.capacity.cancel_session_capacity_reservations(
-                time.monotonic() + 90
-            ):
-                raise RuntimeError("descriptive:capacity_cleanup_unverified")
-            if result["result"] != "capacity_unavailable":
-                raise ValueError(
-                    "descriptive:capacity_probe:" + str(result.get("error_code"))
-                )
-        if selected is None:
-            raise ValueError("descriptive:capacity_unavailable_all_reviewed_zones")
+        selected = select_capacity(self)
         self.main_root = self.directory / selected["directory"]
         (self.directory / "selected-plan.json").write_text(json.dumps(selected))
         self.tf(self.main_root, "apply", "-input=false", "create.tfplan")
@@ -624,14 +630,7 @@ class EKSports:
             timeout=30,
         )
         outputs = json.loads(outputs)
-        runtime = {
-            **self.manifest["host_manifest"],
-            "deadline_epoch": self.end,
-            "descriptive": {
-                **self.manifest["descriptive"],
-                "repository_url": outputs["repository_url"]["value"],
-            },
-        }
+        runtime = self.host_runtime(outputs)
         path = self.directory / "host-manifest.json"
         path.write_text(json.dumps(runtime))
         self.host = Ports(
@@ -639,10 +638,11 @@ class EKSports:
         )
         self.host.host = outputs["operator_instance"]["value"]
         self.host.started, self.host.deadline = self.started, self.end
-        work_end = phase_deadline(self.end, self.manifest["timing"], "provision")
+        work_end = self.host_work_deadline()
         self.host.bootstrap(work_end)
         self.host.upload(work_end)
         self.host.run_checks(work_end)
+        self.bootstrap_complete = True
         self.host.ssm(
             self.host.host,
             [
@@ -661,16 +661,7 @@ class EKSports:
         if end <= time.time():
             raise TimeoutError("descriptive:phase_window:" + phase)
         self.host.deadline = end
-        command = [
-            "/opt/dec077/repo/python/.venv/bin/python",
-            "-B",
-            "/opt/dec077/repo/scripts/m5_descriptive_remote.py",
-            phase,
-        ]
-        shell = (
-            "cd /opt/dec077/repo; export PATH=/opt/dec077/tools/go/bin:/opt/dec077/tools/uv-x86_64-unknown-linux-gnu:/opt/dec077/tools/docker:/usr/local/bin:/usr/bin:/bin; export PYTHONPATH=/opt/dec077/repo/python/src; "
-            + shlex.join(command)
-        )
+        shell = phase_command(phase)
         result = self.host.ssm(
             self.host.host,
             [shell],
@@ -698,10 +689,42 @@ class EKSports:
         return self.remote("gateway_rollout" if app == "gateway" else "replica_rollout")
 
     def export(self):
-        self.frozen = self.remote("export")
+        if not getattr(self, "bootstrap_complete", True):
+            self.frozen = collect(
+                self.host,
+                self.directory,
+                phase_deadline(self.end, self.manifest["timing"], "export"),
+                root=getattr(self, "diagnostic_root", "/opt/dec077"),
+            )
+            return self.frozen
+        try:
+            self.frozen = self.remote("export")
+        except Exception as error:
+            from inference_platform.command_diagnostics import stderr_tail
+
+            (self.directory / "remote-export-failure.json").write_text(
+                json.dumps(
+                    {"error": stderr_tail(str(error), secrets=(self.host.token,))}
+                )
+            )
+            self.frozen = collect(
+                self.host,
+                self.directory,
+                phase_deadline(self.end, self.manifest["timing"], "export"),
+                root=getattr(self, "diagnostic_root", "/opt/dec077"),
+            )
         return self.frozen
 
     def retrieve(self):
+        if getattr(self, "frozen", {}).get("kind") == "repo-free-diagnostics":
+            for name, facts in self.frozen["files"].items():
+                path = self.directory / name
+                if (
+                    path.stat().st_size != facts["bytes"]
+                    or file_digest(path) != facts["sha256"]
+                ):
+                    raise ValueError("descriptive:diagnostics_readback")
+            return self.frozen
         remote = self.remote("retrieve")
         if remote != self.frozen:
             raise ValueError("descriptive:remote_retrieval_hash")
@@ -910,6 +933,13 @@ def main():
     parser.add_argument("--cleanup-only", action="store_true")
     parser.add_argument("--profile", default="admin-learning")
     args = parser.parse_args()
+    try:
+        run_packet(args)
+    finally:
+        write_cost(args.packet)
+
+
+def run_packet(args):
     if (
         not args.cleanup_only
         and file_digest(args.packet / "manifest.json") != args.approved_manifest_sha256

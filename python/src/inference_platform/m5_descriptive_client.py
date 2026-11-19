@@ -19,7 +19,16 @@ from types import SimpleNamespace
 
 from .calibration import CalibrationConfig
 from .m5_descriptive import stream
-from .m5_descriptive_operator import build_corpus, file_inventory, load
+from .m5_descriptive_operator import (
+    CLIENT_HTTP_TIMEOUT_SECONDS,
+    OBSERVER_STOP_SECONDS,
+    SMOKE_BOUNDARIES,
+    SMOKE_STREAM_SECONDS,
+    build_corpus,
+    file_inventory,
+    load,
+)
+from .time_budget import remaining_seconds
 
 DATA = Path("/results")
 LABEL = re.compile(r"[a-z][a-z0-9_]{0,40}")
@@ -206,10 +215,10 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
             model=ports.model,
             run_id="m5-smoke",
             max_tokens=1,
-            timeout_seconds=30,
+            timeout_seconds=SMOKE_STREAM_SECONDS,
         )
         samples = []
-        stop = min(ports.deadline, time.monotonic() + 30)
+        stop = min(ports.deadline, time.monotonic() + SMOKE_STREAM_SECONDS)
         while time.monotonic() < stop:
             sample = stream(
                 config,
@@ -225,12 +234,7 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
             time.sleep(min(0.25, max(0, stop - time.monotonic())))
         else:
             raise ValueError("descriptive:smoke_not_completed")
-        for path, expected in (
-            ("/", 404),
-            ("/metrics", 404),
-            ("/admin", 404),
-            ("/v1/chat/completions", 401),
-        ):
+        for path, expected in SMOKE_BOUNDARIES:
             request = urllib.request.Request(
                 ports.client_url + path,
                 data=b"{}" if expected == 401 else None,
@@ -238,7 +242,9 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
             )
             try:
                 with urllib.request.urlopen(
-                    request, context=ports.tls_context, timeout=5
+                    request,
+                    context=ports.tls_context,
+                    timeout=remaining_seconds(ports.deadline, CLIENT_HTTP_TIMEOUT_SECONDS),
                 ) as response:
                     status = response.status
             except urllib.error.HTTPError as error:
@@ -257,8 +263,11 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
     if task["kind"] != "load":
         raise ValueError("descriptive:client_task_kind")
     observer = None
+    observation_end = None
     if "replacement" in task:
         replacement = task["replacement"]
+        if "observe_seconds" in replacement:
+            observation_end = min(ports.deadline, time.monotonic() + replacement["observe_seconds"])
         observer = observer_factory(ports.namespace, replacement["target"], replacement["old_uid"])
         observer.thread.start()
     try:
@@ -270,10 +279,14 @@ def run_task(task, ports, *, observer_factory=ReadyObserver):
             corpus=ports.corpus,
             label=task["label"],
         )
+        if observation_end is not None:
+            observer.thread.join(timeout=max(0, observation_end - time.monotonic()))
     finally:
         if observer:
             observer.stop.set()
-            observer.thread.join(timeout=5)
+            observer.thread.join(
+                timeout=min(OBSERVER_STOP_SECONDS, max(0, ports.deadline - time.monotonic()))
+            )
     value = {"levels": result}
     if observer:
         if observer.thread.is_alive() or observer.error or observer.ready_ns is None:
@@ -344,7 +357,7 @@ def control(root, mode, arguments):
             or url.password
         ):
             raise ValueError("descriptive:observation_target")
-        with urllib.request.urlopen(arguments[0], timeout=5) as response:
+        with urllib.request.urlopen(arguments[0], timeout=CLIENT_HTTP_TIMEOUT_SECONDS) as response:
             body = response.read(2 * 1024**2 + 1)
             status = response.status
         if len(body) > 2 * 1024**2:

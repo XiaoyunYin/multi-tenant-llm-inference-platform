@@ -10,7 +10,22 @@ from pathlib import Path
 sys.path.insert(0, "/repo/python/src")
 sys.path.insert(0, "/repo/scripts")
 from inference_platform.package_a_cloud import TASK_CHECKS, run_exe, save, sha  # noqa: E402
-from package_a_host import Host  # noqa: E402
+from package_a_host import Host, host_environment  # noqa: E402
+
+BARE_ENVIRONMENT = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8"}
+
+
+def bootstrap_command(script, runtime, output, *, with_environment=True):
+    environment = host_environment() if with_environment else BARE_ENVIRONMENT
+    return [
+        "env",
+        "-i",
+        *(name + "=" + value for name, value in environment.items()),
+        "sh",
+        str(script),
+        str(runtime),
+        str(output),
+    ]
 
 
 def main():
@@ -48,36 +63,22 @@ def main():
     tools.mkdir()
     with tarfile.open("/artifacts/python") as archive:
         archive.extractall(tools, filter="data")
-    # Only apt/systemd are fixture-bound. PATH is the exact system PATH below.
+    # Only apt/systemd are fixture-bound. The child gets the real agent's env.
     Path("/usr/sbin/python3").symlink_to(tools / "python/bin/python3.12")
     for name in ("apt-get", "systemctl"):
         path = Path("/usr/sbin") / name
         path.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> /out/service-fixtures.log\n')
         path.chmod(0o755)
     literal = repo / "scripts/package_a_bootstrap.sh"
-    original = literal.read_text()
-    mutant = Path("/tmp/bootstrap-without-exports.sh")
-    mutant.write_text(
-        "\n".join(
-            line
-            for line in original.splitlines()
-            if not line.startswith("export HOME=")
-        )
-        + "\n"
-    )
     results = {}
-    for name, script in (("without-exports", mutant), ("clean", literal)):
+    for name in ("without-exports", "clean"):
         results[name] = run_exe(
-            [
-                "env",
-                "-i",
-                "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
-                "LANG=C.UTF-8",
-                "sh",
-                script,
+            bootstrap_command(
+                literal,
                 out / "runtime.json",
                 out / name,
-            ],
+                with_environment=name == "clean",
+            ),
             cwd=repo,
             output=out / (name + ".log"),
             timeout=900,
@@ -101,10 +102,8 @@ def main():
             "staged": staged,
             "literal_bootstrap_sha256": sha(literal),
             "pins_unchanged_sha256": sha(repo / "deploy/package-a/pins.json"),
-            "launch_environment": {
-                "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
-                "LANG": "C.UTF-8",
-            },
+            "launch_environment": host_environment(),
+            "negative_launch_environment": BARE_ENVIRONMENT,
             "verified_source": "PASS",
             "uv_sync_go_mod_download_go_build": "real",
             "first_gate_sample": runner["checks"][0]["sample"],

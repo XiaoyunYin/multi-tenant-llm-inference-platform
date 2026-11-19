@@ -1,0 +1,19 @@
+    def finish_task(self, label):
+        holder = []
+
+        def done():
+            result = self.client_control("status", label)
+            if result["status"] == "FAILED":
+                raise ValueError(result["error"])
+            if result["status"] == "PASS":
+                holder.append(result["result"])
+                return True
+            return False
+
+        self.wait(
+            done,
+            min(
+                self.startup_seconds + self.rollout_duration + 180, self.deadline - time.monotonic()
+            ),
+        )
+        return holder[0]

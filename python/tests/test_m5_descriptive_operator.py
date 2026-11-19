@@ -15,7 +15,16 @@ from inference_platform.m5_descriptive_client import (
     pushed_digest,
     run_task,
 )
-from inference_platform.m5_descriptive_operator import PHASES, execute, file_inventory, load
+from inference_platform.m5_descriptive_cluster import ClusterPorts
+from inference_platform.m5_descriptive_operator import (
+    PHASES,
+    execute,
+    file_inventory,
+    load,
+    session_timing,
+    task_poll_budget,
+    task_work_seconds,
+)
 
 
 class Ports:
@@ -58,6 +67,117 @@ class Ports:
 
 
 class OperatorTests(unittest.TestCase):
+    def test_submitted_production_task_budgets_fit_the_reserved_window(self):
+        timing = session_timing(640, 140)
+        cases = (
+            ({"kind": "smoke"}, 50, 80),
+            ({"kind": "load", "levels": [1], "duration": 120}, 240, 270),
+            ({"kind": "load", "levels": [1, 4, 16], "duration": 600}, 2160, 2190),
+            ({"kind": "load", "levels": [4], "duration": 600, "replacement": {}}, 770, 800),
+            ({"kind": "load", "levels": [4], "duration": 900, "replacement": {}}, 1030, 1060),
+        )
+        budgets = []
+        for task, expected_work, expected_budget in cases:
+            with self.subTest(task=task):
+                work = task_work_seconds(task, 640, timing["rollout_action_seconds"])
+                budget = task_poll_budget(task, 640, timing["rollout_action_seconds"])
+                self.assertEqual(work, expected_work)
+                self.assertEqual(budget, expected_budget)
+                self.assertGreaterEqual(budget, work)
+                budgets.append(budget)
+        self.assertEqual(sum(budgets), timing["minimum_workload_seconds"])
+        historical_poll = (
+            640 + max(timing["gateway_rollout_seconds"], timing["vllm_rollout_seconds"]) + 180
+        )
+        self.assertEqual(historical_poll, 1720)
+        self.assertLess(historical_poll, task_work_seconds(cases[2][0], 640, 120))
+
+    def test_submit_and_status_subprocess_are_capped_by_the_work_deadline(self):
+        ports = ClusterPorts()
+        ports.startup_seconds = 640
+        ports.rollout_action = 120
+        ports.deadline = 115
+        ports.results = {}
+        ports.client_control = Mock(
+            side_effect=[{"submitted": "load"}, {"status": "PASS", "result": {"observed": True}}]
+        )
+        with patch("inference_platform.m5_descriptive_cluster.time.monotonic", return_value=100):
+            ports.start_task("load", levels=[1, 4, 16], duration=600)
+            self.assertEqual(ports.finish_task("load"), {"observed": True})
+        self.assertEqual(
+            [call.kwargs["deadline"] for call in ports.client_control.call_args_list], [115, 115]
+        )
+        record = ports.results["task_polls"]["load"]
+        self.assertEqual(record["poll_budget_s"], 2190)
+        self.assertEqual(record["effective_budget_s"], 15)
+        self.assertEqual(record["status"], "PASS")
+
+    def test_gateway_observer_can_read_ready_after_the_measured_window(self):
+        observer = SimpleNamespace(thread=Mock(), stop=Mock(), error=None, ready_ns=None)
+        observer.thread.is_alive.return_value = False
+        clock = [100]
+
+        def finished_load(*args, **kwargs):
+            clock[0] += 600
+            return []
+
+        def join(*, timeout):
+            if observer.ready_ns is None:
+                observer.stop.set.assert_not_called()
+                self.assertEqual(timeout, 190)
+                observer.ready_ns = 880_000_000_000
+
+        observer.thread.join.side_effect = join
+        with (
+            patch("inference_platform.m5_descriptive_client.load", side_effect=finished_load),
+            patch(
+                "inference_platform.m5_descriptive_client.time.monotonic",
+                side_effect=lambda: clock[0],
+            ),
+        ):
+            result = run_task(
+                {
+                    "kind": "load",
+                    "label": "gateway_rollout",
+                    "levels": [4],
+                    "duration": 600,
+                    "replacement": {
+                        "target": "gateway-0",
+                        "old_uid": "old",
+                        "observe_seconds": 790,
+                    },
+                },
+                SimpleNamespace(namespace="test", deadline=1200, corpus=None),
+                observer_factory=Mock(return_value=observer),
+            )
+        observer.stop.set.assert_called_once()
+        self.assertEqual(result["replacement"]["ready_monotonic_ns"], 880_000_000_000)
+
+    def test_diagnostics_only_export_retrieves_then_halts_instead_of_claiming_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ports = Ports()
+            frozen = {"kind": "repo-free-diagnostics", "files": {}}
+            ports.export = lambda: ports.calls.append("export") or frozen
+            ports.retrieve = lambda: ports.calls.append("retrieve") or frozen
+            with self.assertRaisesRegex(RuntimeError, "descriptive:diagnostics_only_export"):
+                execute(ports, Path(tmp) / "run", deadline=time.monotonic() + 1000)
+            self.assertEqual(ports.calls[-4:], ["export", "retrieve", "teardown", "inventory"])
+            receipt = json.loads((Path(tmp) / "run/receipt.json").read_bytes())
+            self.assertFalse(receipt["complete"])
+            self.assertEqual(receipt["phases"][-3]["status"], "PASS")
+
+    def test_diagnostics_only_after_work_failure_preserves_original_halt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ports = Ports("provision")
+            frozen = {"kind": "repo-free-diagnostics", "files": {}}
+            ports.export = lambda: ports.calls.append("export") or frozen
+            ports.retrieve = lambda: ports.calls.append("retrieve") or frozen
+            with self.assertRaisesRegex(ValueError, "injected:provision"):
+                execute(ports, Path(tmp) / "run", deadline=time.monotonic() + 1000)
+            self.assertEqual(ports.calls[-4:], ["export", "retrieve", "teardown", "inventory"])
+            receipt = json.loads((Path(tmp) / "run/receipt.json").read_bytes())
+            self.assertIn("injected:provision", receipt["halt"])
+
     def test_work_failure_attempts_existing_client_export_before_teardown(self):
         with tempfile.TemporaryDirectory() as tmp:
             ports = Ports("replica_rollout")

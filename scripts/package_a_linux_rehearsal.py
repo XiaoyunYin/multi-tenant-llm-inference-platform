@@ -23,6 +23,7 @@ from inference_platform.package_a_cloud import (  # noqa: E402
     memory_sample,
     run_exe,
     save,
+    sha,
 )
 from inference_platform.package_a_operator import (
     bootstrap_shell,
@@ -47,6 +48,11 @@ def constrained_host_record(sampled):
         "host_gate_required_bytes": required,
         "host_gate_status": "passed" if available >= required else "host_gate_failed",
     }
+
+
+def bundle_facts(path):
+    """Hash the real bundle without allocating its full size under the cgroup."""
+    return {"bundle_bytes": path.stat().st_size, "bundle_sha256": sha(path)}
 
 
 def main():
@@ -95,8 +101,7 @@ def main():
     manifest = {
         "checks": list(TASK_CHECKS),
         "source_commit": head,
-        "bundle_bytes": bundle.stat().st_size,
-        "bundle_sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+        **bundle_facts(bundle),
         "python_sha256": json.loads(Path("/bundle/python-hashes.json").read_bytes()),
         "python_executable": str(python),
         "pins": pins,

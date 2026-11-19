@@ -180,6 +180,29 @@ class FaultPorts:
 
 
 class PackageACloudTests(unittest.TestCase):
+    def test_linux_standin_hashes_bundle_without_whole_file_allocation(self):
+        spec = importlib.util.spec_from_file_location(
+            "linux_standin_hash", ROOT / "scripts/package_a_linux_rehearsal.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        with patch.object(sys, "path", [str(ROOT / "scripts"), *sys.path]):
+            spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "source.bundle"
+            expected = hashlib.sha256()
+            with path.open("wb") as handle:
+                for _ in range(80):
+                    block = b"real-bundle-data" * 4096
+                    handle.write(block)
+                    expected.update(block)
+            with patch.object(
+                Path, "read_bytes", side_effect=AssertionError("unbounded bundle read")
+            ):
+                self.assertEqual(
+                    module.bundle_facts(path),
+                    {"bundle_bytes": 80 * len(block), "bundle_sha256": expected.hexdigest()},
+                )
+
     def test_transport_rehearsal_lifecycle_contains_monotonic_phase_ranges(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "transport"

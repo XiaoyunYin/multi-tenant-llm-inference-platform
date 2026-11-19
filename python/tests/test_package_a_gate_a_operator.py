@@ -338,9 +338,12 @@ class GateASsmTransportTests(unittest.TestCase):
             with patch("inference_platform.package_a_operator.ROOT", root):
                 with self.assertRaisesRegex(
                     ValueError,
-                    r"gate_a_packet:ssm_parameter_bytes:receiver\.bootstrap:6[0-9]{4,}",
-                ):
+                    r"^gate_a_packet:ssm_parameter_bytes:receiver\.bootstrap:\d+$",
+                ) as refused:
                     gate_a_command_line_records(root / "packet", {"region": "us-east-1"})
+                # Source growth can put the refusal above the 60,000-byte decade.
+                reported_bytes = int(str(refused.exception).rsplit(":", 1)[1])
+                self.assertGreaterEqual(reported_bytes, 60_000)
 
     def test_ssm_parameter_file_is_owner_only_and_removed_after_send_call(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -26,6 +26,14 @@ class RoutinePruneTest(unittest.TestCase):
             ):
                 selection({"descriptive_eks_rehearsal": invalid})
 
+    def test_payload_validation_selector_is_boolean_and_history_bundle_unchanged(self):
+        self.assertEqual(
+            selection({"descriptive_payload_validation": True}),
+            {"descriptive_payload_validation": True},
+        )
+        with self.assertRaisesRegex(ValueError, "descriptive_payload_validation"):
+            selection({"descriptive_payload_validation": "shell"})
+
     def fixture(self, root):
         directory = root / ".cache/routine-tests/run"
         archive = directory / "operator/receipts.tar.gz"

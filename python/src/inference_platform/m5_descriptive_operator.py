@@ -13,6 +13,13 @@ from .r1_manifest import epoch, row
 from .stage_c_tokenizer import pinned_tokenizer
 
 LEVELS = (1, 4, 16)
+CLIENT_DRAIN_SECONDS = 120
+SMOKE_STREAM_SECONDS = 30
+CLIENT_HTTP_TIMEOUT_SECONDS = 5
+SMOKE_BOUNDARIES = (("/", 404), ("/metrics", 404), ("/admin", 404), ("/v1/chat/completions", 401))
+OBSERVER_STOP_SECONDS = 5
+TASK_CONTROL_MARGIN_SECONDS = 30
+ROLLOUT_ACTION_SECONDS = 120
 PHASES = (
     "provision",
     "smoke",
@@ -26,22 +33,72 @@ PHASES = (
 )
 
 
-def workload_budget(warmup_seconds, level_seconds, gateway_seconds, vllm_seconds):
-    """Same measured windows, six bounded drains and smoke in both adapters."""
-    return warmup_seconds + 6 * 120 + 3 * level_seconds + gateway_seconds + vllm_seconds + 30
+def task_work_seconds(task, startup_seconds, rollout_action_seconds):
+    """Maximum submitted work; replacement readiness and measured load run concurrently."""
+    if task["kind"] == "smoke":
+        return SMOKE_STREAM_SECONDS + len(SMOKE_BOUNDARIES) * CLIENT_HTTP_TIMEOUT_SECONDS
+    client = len(task["levels"]) * (task["duration"] + CLIENT_DRAIN_SECONDS)
+    if "replacement" not in task:
+        return client
+    return (
+        max(client, rollout_action_seconds + startup_seconds)
+        + OBSERVER_STOP_SECONDS
+        + CLIENT_HTTP_TIMEOUT_SECONDS
+    )
 
 
-def session_timing(startup_seconds):
+def task_poll_budget(task, startup_seconds, rollout_action_seconds):
+    return (
+        task_work_seconds(task, startup_seconds, rollout_action_seconds)
+        + TASK_CONTROL_MARGIN_SECONDS
+    )
+
+
+def workload_budget(
+    warmup_seconds,
+    level_seconds,
+    gateway_seconds,
+    vllm_seconds,
+    *,
+    startup_seconds,
+    rollout_action_seconds,
+):
+    tasks = (
+        {"kind": "smoke"},
+        {"kind": "load", "levels": [1], "duration": warmup_seconds},
+        {"kind": "load", "levels": LEVELS, "duration": level_seconds},
+        {"kind": "load", "levels": [4], "duration": gateway_seconds, "replacement": {}},
+        {"kind": "load", "levels": [4], "duration": vllm_seconds, "replacement": {}},
+    )
+    return sum(task_poll_budget(task, startup_seconds, rollout_action_seconds) for task in tasks)
+
+
+def session_timing(startup_seconds, payload_upload_seconds=0):
     """Reserve both retrieval hops and cleanup inside the original five hours."""
     from .package_a_cloud import transfer_seconds
 
     if type(startup_seconds) is not int or startup_seconds <= 0:
         raise ValueError("descriptive:startup_bound")
-    if 120 + startup_seconds + 60 > 900:
+    if type(payload_upload_seconds) is not int or payload_upload_seconds < 0:
+        raise ValueError("descriptive:payload_upload_bound")
+    if ROLLOUT_ACTION_SECONDS + startup_seconds + 60 > 900:
         raise ValueError("descriptive:startup_exceeds_replacement_window")
     one_hop = transfer_seconds(512 * 1024**2)
     # Warmup/drain, three measured levels/drains, two rollouts/drains, smoke.
-    workload = workload_budget(120, 600, 600, 900)
+    workload = workload_budget(
+        120,
+        600,
+        600,
+        900,
+        startup_seconds=startup_seconds,
+        rollout_action_seconds=ROLLOUT_ACTION_SECONDS,
+    )
+    available = 18000 - 2 * one_hop - 1800 - workload - 2 * startup_seconds - payload_upload_seconds
+    # Round 379 R536: Round 376 provision was 1581.078 s before upload
+    # finished. Reserve twice that observation plus 60 s for Apply/staging.
+    # Upload and startup still have their own unchanged, conservative reserves.
+    apply_staging = math.ceil(2 * 1581.078 + 60)
+    wait = max(0, available - apply_staging)
     return {
         "session_seconds": 18000,
         "receipt_limit_bytes": 512 * 1024**2,
@@ -50,14 +107,15 @@ def session_timing(startup_seconds):
         "cleanup_reserve_seconds": 1800,
         "gateway_rollout_seconds": 600,
         "vllm_rollout_seconds": 900,
-        "rollout_action_seconds": 120,
+        "rollout_action_seconds": ROLLOUT_ACTION_SECONDS,
         "minimum_workload_seconds": workload,
         "initial_startup_budget_seconds": 2 * startup_seconds,
-        "remaining_infrastructure_seconds": 18000
-        - 2 * one_hop
-        - 1800
-        - workload
-        - 2 * startup_seconds,
+        "source_upload_budget_seconds": payload_upload_seconds,
+        "infrastructure_before_capacity_wait_seconds": available,
+        "apply_through_staging_reserve_seconds": apply_staging,
+        "capacity_wait_budget_seconds": wait,
+        "capacity_cycle_spacing_seconds": 60,
+        "remaining_infrastructure_seconds": available - wait,
     }
 
 
@@ -128,6 +186,10 @@ def execute(ports, output, *, deadline, rehearsal=False):
         frozen = phase("export", ports.export)
 
         phase("retrieve", lambda: retrieve_verified(frozen))
+        if frozen.get("kind") == "repo-free-diagnostics":
+            # Diagnostics can be retrieved successfully without establishing
+            # that the workload's frozen evidence was exported completely.
+            raise RuntimeError("descriptive:diagnostics_only_export")
     except Exception as error:
         failed = error
         receipt["halt"] = type(error).__name__ + ":" + str(error)
@@ -208,7 +270,7 @@ def load(ports, levels, *, duration, deadline, corpus=None, label="load"):
             ],
             deadline=deadline,
             level_duration_seconds=duration,
-            drain_seconds=120,
+            drain_seconds=CLIENT_DRAIN_SECONDS,
             request_function=request,
         )
         if result["status"] != "completed" or len(result["levels"]) != 1:

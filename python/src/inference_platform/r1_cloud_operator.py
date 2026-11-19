@@ -517,7 +517,12 @@ class Operator:
                 "--document-name",
                 "AWS-StartPortForwardingSession",
                 "--parameters",
-                json.dumps({"portNumber": ["22280"], "localPortNumber": [str(port)]}),
+                json.dumps(
+                    {
+                        "portNumber": [str(self.inputs.get("ssm_remote_port", 22280))],
+                        "localPortNumber": [str(port)],
+                    }
+                ),
             ],
             env={
                 **os.environ,

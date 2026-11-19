@@ -4,7 +4,7 @@ set -eu
 bootstrap_start_epoch=$(date +%s)
 BOOTSTRAP_DEADLINE_EPOCH=$((bootstrap_start_epoch + 900))
 export BOOTSTRAP_DEADLINE_EPOCH
-export HOME=/root GOPATH=/root/go GOMODCACHE=/root/go/pkg/mod GOCACHE=/root/.cache/go-build XDG_CACHE_HOME=/root/.cache
+# The agent supplies host_environment(), also used by descriptive phase commands.
 runtime=$1
 output=$2
 repo=$(pwd)

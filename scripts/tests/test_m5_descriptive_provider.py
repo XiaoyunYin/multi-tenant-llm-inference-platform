@@ -28,6 +28,7 @@ from inference_platform.m5_descriptive_cluster import ClusterPorts
 from inference_platform.m5_descriptive_operator import phase_deadline, session_timing
 from inference_platform.package_a_cloud import gate_a_role_reexec_target
 from m5_descriptive_cleanup import clean, deadline, owned_session
+from m5_descriptive_capacity import zone_pairs
 from m5_descriptive_eks import (
     Capacity,
     EKSports,
@@ -54,64 +55,26 @@ from test_m5_infra_safety import plan_fixture
 
 class ProviderTests(unittest.TestCase):
     def test_source_bundle_relative_destination_is_absolute_for_real_git_clone(self):
+        from test_m5_descriptive_payload import fixture
+        from package_a_host import stage_sparse_payload
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             repo, packet = root / "repo", root / "packet"
-            repo.mkdir()
             packet.mkdir()
-            subprocess.run(
-                ["git", "init", "-b", "main", str(repo)],
-                check=True,
-                capture_output=True,
-            )
-            (repo / "source.txt").write_bytes(b"exact source\n")
-            subprocess.run(
-                ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
-            )
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo),
-                    "-c",
-                    "user.name=Fixture",
-                    "-c",
-                    "user.email=fixture@users.noreply.github.com",
-                    "commit",
-                    "-m",
-                    "fixture",
-                ],
-                check=True,
-                capture_output=True,
-            )
-            commit = (
-                subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"])
-                .decode()
-                .strip()
-            )
+            commit = fixture(repo)
             relative = Path(os.path.relpath(packet / "source.bundle", Path.cwd()))
             with (
                 patch("build_m5_descriptive_packet.ROOT", repo),
-                patch("build_m5_descriptive_packet.SCRATCH", root / "scratch"),
+                patch("m5_descriptive_payload.ENTRYPOINTS", ("host.py",)),
             ):
                 bundle = source_bundle(relative, commit)
             self.assertEqual(bundle, (packet / "source.bundle").resolve())
-            argv = json.loads(bundle.with_suffix(".command.json").read_bytes())["argv"]
-            self.assertTrue(Path(argv[-2]).is_absolute())
+            binding = json.loads(bundle.with_suffix(".payload.json").read_bytes())
             restored = root / "restored"
-            subprocess.run(
-                ["git", "clone", str(bundle), str(restored)],
-                check=True,
-                capture_output=True,
-            )
-            self.assertEqual((restored / "source.txt").read_bytes(), b"exact source\n")
+            self.assertTrue(stage_sparse_payload(restored, bundle, binding)["verified"])
             self.assertEqual(
-                subprocess.check_output(
-                    ["git", "-C", str(restored), "rev-parse", "HEAD"]
-                )
-                .decode()
-                .strip(),
-                commit,
+                (restored / "python/src/example.py").read_bytes(), b"value = 1\n"
             )
 
     @staticmethod
@@ -611,8 +574,12 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(phase_deadline(end, timing, "load"), 11784)
         self.assertEqual(phase_deadline(end, timing, "export"), 13992)
         self.assertEqual(phase_deadline(end, timing, "retrieve"), 16200)
-        self.assertEqual(session_timing(640)["remaining_infrastructure_seconds"], 6334)
-        self.assertEqual(session_timing(640)["minimum_workload_seconds"], 4170)
+        self.assertEqual(
+            session_timing(640)["infrastructure_before_capacity_wait_seconds"],
+            18000 - 4416 - 1800 - 1280 - 4400,
+        )
+        self.assertEqual(session_timing(640)["remaining_infrastructure_seconds"], 3223)
+        self.assertEqual(session_timing(640)["minimum_workload_seconds"], 4400)
         with self.assertRaisesRegex(ValueError, "startup_exceeds_replacement_window"):
             session_timing(721)
 
@@ -683,6 +650,86 @@ class ProviderTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stdout.decode())
                 self.assertTrue(json.loads(result.stdout)["valid"])
+                if name == "m5_descriptive":
+                    # Only the isolated test copy disables credential/account
+                    # discovery. Real provider schema/plan generation remains;
+                    # no AWS reservation or Apply is possible in this check.
+                    override = 'provider "aws" {\n skip_credentials_validation = true\n skip_metadata_api_check = true\n skip_requesting_account_id = true\n}\n'
+                    for module in (tree / name, tree / "eks"):
+                        (module / "offline_override.tf").write_text(override)
+                    env.update(
+                        AWS_ACCESS_KEY_ID="fixture",
+                        AWS_SECRET_ACCESS_KEY="fixture",
+                        AWS_EC2_METADATA_DISABLED="true",
+                    )
+                    offered = {
+                        "InstanceTypeOfferings": [
+                            {"InstanceType": kind, "Location": "us-east-1" + suffix}
+                            for kind in ("g6.xlarge", "c6i.2xlarge")
+                            for suffix in "abcdef"
+                        ]
+                    }
+                    for pair in zone_pairs(offered):
+                        variables = {
+                            "session": "m5-fixture",
+                            "source_commit": "a" * 40,
+                            "operator_ami": "ami-00000000000000000",
+                            "zones": [pair["zone"], pair["control_plane_zone"]],
+                            "gpu_release": "1.35.9-20261112",
+                            "cpu_release": "1.35.9-20261112",
+                            "capacity_group_arn": "arn:aws:resource-groups:us-east-1:000000000000:group/m5-fixture-capacity",
+                            "quota_vcpus": 8,
+                            "prior_spend_usd": 60.97,
+                            "session_forecast_usd": 32.19,
+                        }
+                        (tree / name / "input.tfvars.json").write_text(
+                            json.dumps(variables)
+                        )
+                        binary = pair["zone"] + ".tfplan"
+                        planned = subprocess.run(
+                            [
+                                terraform,
+                                "-chdir=" + str(tree / name),
+                                "plan",
+                                "-input=false",
+                                "-refresh=false",
+                                "-var-file=input.tfvars.json",
+                                "-out=" + binary,
+                            ],
+                            env=env,
+                            capture_output=True,
+                            timeout=180,
+                        )
+                        self.assertEqual(planned.returncode, 0, planned.stderr.decode())
+                        shown = subprocess.check_output(
+                            [
+                                terraform,
+                                "-chdir=" + str(tree / name),
+                                "show",
+                                "-json",
+                                binary,
+                            ],
+                            env=env,
+                            timeout=60,
+                        )
+                        decoded = json.loads(shown)
+                        self.assertEqual(verify_plan(decoded).count, 2)
+                        self.assertEqual(
+                            decoded["variables"]["zones"]["value"], variables["zones"]
+                        )
+                        print(
+                            "DESCRIPTIVE_ZONE_PLAN="
+                            + json.dumps(
+                                {
+                                    "zone": pair["zone"],
+                                    "creates": len(decoded["resource_changes"]),
+                                    "sha256": hashlib.sha256(
+                                        (tree / name / binary).read_bytes()
+                                    ).hexdigest(),
+                                    "json_sha256": hashlib.sha256(shown).hexdigest(),
+                                }
+                            )
+                        )
 
     def test_descriptive_bootstrap_reexecs_locked_venv(self):
         with patch(
@@ -818,13 +865,113 @@ class ProviderTests(unittest.TestCase):
         manifest, digest = {"source_commit": "a" * 40}, "b" * 64
         marker = f"M5 DESCRIPTIVE EKS PLAN APPROVED manifest={digest} source={manifest['source_commit']}"
         require_review("## Claude Round 999\n" + marker, manifest, digest)
-        for text in (
+        for ending in ("\n", "\r\n"):
+            with self.subTest(accepted_ending=repr(ending)):
+                require_review(
+                    "## Claude Round 999" + ending + marker + ending, manifest, digest
+                )
+        cases = (
             "## Claude Round 998\n" + marker + "\n## Claude Round 999\n",
             "## Claude Round 999\n" + marker + "\n" + marker,
+            "## Claude Round 999\r\n" + marker + "\r\n" + marker + "\r\n",
+            "## Claude Round 999\n" + marker + "\r\n" + marker + "\n",
             "## Claude Round 999\n",
-        ):
-            with self.assertRaisesRegex(ValueError, "exact_committed_review_required"):
-                require_review(text, manifest, digest)
+            *(
+                "## Claude Round 999\n" + marker + suffix
+                for suffix in ("x", " ", "\t", "\r\r\n")
+            ),
+            "## Claude Round 999\n" + marker.replace(digest, "c" * 64),
+            "## Claude Round 999\n"
+            + marker.replace(manifest["source_commit"], "d" * 40),
+            "## Claude Round 999\n " + marker,
+        )
+        for text in cases:
+            with self.subTest(refused=repr(text)):
+                with self.assertRaisesRegex(
+                    ValueError, "exact_committed_review_required"
+                ):
+                    require_review(text, manifest, digest)
+        with self.assertRaisesRegex(ValueError, "review_round_missing"):
+            require_review(marker, manifest, digest)
+
+    def committed_mixed_review(self, ending):
+        """Seed the real legacy index blob so git add cannot hide the CRLF bug."""
+        attrs = (Path(__file__).resolve().parents[2] / ".gitattributes").read_bytes()
+        manifest, digest = {"source_commit": "a" * 40}, "b" * 64
+        marker = f"M5 DESCRIPTIVE EKS PLAN APPROVED manifest={digest} source={manifest['source_commit']}"
+        legacy = b"# Historical review\r\nold LF line\n## Claude Round 1\r\nold note\n"
+        block = ending.join(["", "## Claude Round 2", marker, ""]).encode()
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            prefix = [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.safecrlf=false",
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@users.noreply.github.com",
+            ]
+
+            def git(*args, data=None):
+                return subprocess.check_output(
+                    prefix + list(args), input=data, stderr=subprocess.PIPE
+                )
+
+            git("init", "-b", "main")
+            (repo / ".gitattributes").write_bytes(attrs)
+            (repo / "REVIEW.md").write_bytes(legacy)
+            git("add", ".gitattributes")
+            # Ordinary initial add would normalize a new file. Plumbing commits
+            # the historical mixed bytes already present in this repository.
+            blob = git("hash-object", "-w", "--stdin", data=legacy).decode().strip()
+            git("update-index", "--add", "--cacheinfo", "100644," + blob + ",REVIEW.md")
+            git("commit", "-m", "historical mixed endings")
+            self.assertEqual(git("show", "HEAD:REVIEW.md"), legacy)
+            (repo / "REVIEW.md").write_bytes(legacy + block)
+            git("add", "REVIEW.md")
+            git("commit", "-m", "append review block")
+            raw = git("show", "HEAD:REVIEW.md")
+            self.assertEqual(raw, legacy + block)
+            self.assertIn(b"\r\n", raw)
+            require_review(raw.decode("utf-8"), manifest, digest)
+            self.assertEqual((repo / "REVIEW.md").read_bytes(), raw)
+
+    def test_real_git_crlf_block_appended_to_mixed_review_is_accepted(self):
+        self.committed_mixed_review("\r\n")
+
+    def test_real_git_lf_block_appended_to_mixed_review_is_accepted(self):
+        self.committed_mixed_review("\n")
+
+    def test_round374_raw_git_review_is_a_parser_witness_not_an_approval(self):
+        root = Path(__file__).resolve().parents[2]
+        commit = "4a702a6b4b394e5638bdfc516878edccb6e93f17"
+        raw = subprocess.check_output(
+            ["git", "-C", str(root), "show", commit + ":REVIEW.md"]
+        )
+        digest = "c33a4a540e2479c1b5f36b6a4f797a358064925419b961bc6b7650a61def3c90"
+        source = "917f991cc6535fc471c42a33a12a76750d486d13"
+        self.assertIn(b"\r\n", raw)
+        require_review(raw.decode("utf-8"), {"source_commit": source}, digest)
+        receipt = {
+            "schema": "r533-parser-witness.v1",
+            "review_commit": commit,
+            "review_blob_sha256": hashlib.sha256(raw).hexdigest(),
+            "parser_source_sha256": hashlib.sha256(
+                Path(require_review.__code__.co_filename).read_bytes()
+            ).hexdigest(),
+            "historical_manifest_sha256": digest,
+            "historical_source_commit": source,
+            "accepted_by_parser": True,
+            "authorizes_session": False,
+            "old_packet_reusable": False,
+            "purpose": "Historical parser witness only; the old packet and approval remain dead.",
+        }
+        print(json.dumps({"r533_parser_witness": receipt}, sort_keys=True), flush=True)
 
     def test_all_kubernetes_operations_are_shared(self):
         for name in (
@@ -1038,7 +1185,7 @@ class ProviderTests(unittest.TestCase):
         ports = EKSClusterPorts.__new__(EKSClusterPorts)
         ports.timing = session_timing(640)
         ports.minimum_workload_seconds = ports.timing["minimum_workload_seconds"]
-        ports.deadline = time.monotonic() + 4169
+        ports.deadline = time.monotonic() + 4399
         with self.assertRaisesRegex(TimeoutError, "remaining_workload_window"):
             ports.smoke()
 
@@ -1050,8 +1197,8 @@ class ProviderTests(unittest.TestCase):
             patch("rehearse_m5_descriptive.kind_rollout.Campaign"),
         ):
             ports = KindPorts(Path(tmp) / "host")
-            self.assertEqual(ports.minimum_workload_seconds, 821)
-            ports.deadline = time.monotonic() + 820
+            self.assertEqual(ports.minimum_workload_seconds, 1075)
+            ports.deadline = time.monotonic() + 1074
             self.assertIs(KindPorts.smoke, EKSClusterPorts.smoke)
             with self.assertRaisesRegex(TimeoutError, "remaining_workload_window"):
                 ports.smoke()
@@ -1059,19 +1206,24 @@ class ProviderTests(unittest.TestCase):
     def test_production_client_windows_bind_gateway_600_and_vllm_900(self):
         import time
 
+        original_end = time.time() + 18000
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch("m5_descriptive_remote.kind_rollout.Campaign"),
+            patch("m5_descriptive_remote.resolve_tool_paths"),
         ):
             ports = EKSClusterPorts(
                 Path(tmp),
                 {
                     "descriptive": {
                         "session": "m5-fixture",
+                        "original_deadline_epoch": original_end,
                         "timing": session_timing(640),
                         "startup_seconds": 640,
                     },
-                    "deadline_epoch": time.time() + 18000,
+                    "deadline_epoch": phase_deadline(
+                        original_end, session_timing(640), "provision"
+                    ),
                 },
             )
             self.assertEqual(ports.startup_seconds, 640)

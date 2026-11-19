@@ -3,7 +3,6 @@
 import argparse
 import copy
 import json
-import os
 import shutil
 import hashlib
 import shlex
@@ -19,6 +18,7 @@ from inference_platform.m5_descriptive_client import pushed_digest
 from inference_platform.m5_descriptive_cluster import ClusterPorts
 from inference_platform.m5_descriptive_operator import execute, workload_budget
 from inference_platform.package_a_images import save_amd64_archive
+from package_a_host import host_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_IMAGE = "registry:3.0.0@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e"
@@ -89,6 +89,8 @@ class KindPorts(ClusterPorts):
             self.load_duration,
             self.rollout_duration,
             self.rollout_duration,
+            startup_seconds=self.startup_seconds,
+            rollout_action_seconds=self.rollout_action,
         )
         self.corpus = None
 
@@ -105,8 +107,11 @@ class KindPorts(ClusterPorts):
         ).strip():
             raise ValueError("descriptive:existing_registry")
         callback = (
-            "export PATH="
-            + shlex.quote(os.environ["PATH"])
+            "export "
+            + " ".join(
+                name + "=" + shlex.quote(value)
+                for name, value in host_environment().items()
+            )
             + "; "
             + (
                 shlex.join(
@@ -452,8 +457,24 @@ class KindPorts(ClusterPorts):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--payload-transfer-receipt", type=Path)
     args = parser.parse_args()
+    if args.payload_transfer_receipt:
+        from package_a_host import verify_sparse_payload
+        from inference_platform.package_a_cloud import verified_source
+
+        transfer = json.loads(args.payload_transfer_receipt.read_bytes())
+        from inference_platform.m5_payload_guard import install_read_guard
+
+        install_read_guard(ROOT, transfer["binding"]["paths"])
+        verify_sparse_payload(ROOT, transfer["binding"])
+        runtime = json.loads(Path("/opt/dec077/runtime.json").read_bytes())
+        verified_source(ROOT, runtime["source_commit"], runtime["python_sha256"])
     args.output.mkdir(parents=True, exist_ok=False)
+    if args.payload_transfer_receipt:
+        (args.output / "payload-binding.json").write_text(
+            json.dumps(transfer["binding"], indent=2) + "\n"
+        )
     ports = KindPorts(args.output / "host")
     try:
         receipt = execute(

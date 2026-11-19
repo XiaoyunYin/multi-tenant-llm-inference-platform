@@ -11,6 +11,7 @@ import io
 import json
 import math
 import os
+import re
 import signal
 import shutil
 import subprocess
@@ -33,12 +34,86 @@ EXPORT_FILE_MAX_BYTES = CHUNK
 EXPORT_FILE_EDGE_BYTES = CHUNK // 2
 
 
+def host_environment():
+    """One explicit SSM child environment, shared by bootstrap and DEC-100 phases."""
+    return {
+        "HOME": "/root",
+        "GOPATH": "/root/go",
+        "GOMODCACHE": "/root/go/pkg/mod",
+        "GOCACHE": "/root/.cache/go-build",
+        "XDG_CACHE_HOME": "/root/.cache",
+        "LANG": "C.UTF-8",
+        "PATH": "/opt/dec077/tools/go/bin:/opt/dec077/tools/uv-x86_64-unknown-linux-gnu:/opt/dec077/tools/docker:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PYTHONPATH": "/opt/dec077/repo/python/src",
+    }
+
+
 def digest(path):
     result = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(CHUNK), b""):
             result.update(block)
     return result.hexdigest()
+
+
+def verify_sparse_payload(repo, binding):
+    """Verify materialized bytes/modes, not merely the sealed HEAD's tree."""
+    repo = Path(repo)
+
+    def git(*argv):
+        return subprocess.check_output(["git", "-C", str(repo), *argv], timeout=120)
+
+    if git("rev-parse", "HEAD").decode().strip() != binding["source_commit"]:
+        raise ValueError("descriptive:payload_commit")
+    for path in binding["paths"]:
+        git("add", "--force", "--sparse", "--", path)
+    actual_tree = git("write-tree").decode().strip()
+    for path, expected in binding["paths"].items():
+        actual = git("rev-parse", actual_tree + ":" + path).decode().strip()
+        if actual != expected:
+            raise ValueError("descriptive:payload_tree:" + path)
+    if git("status", "--porcelain"):
+        raise ValueError("descriptive:payload_worktree")
+    return {
+        "source_commit": binding["source_commit"],
+        "paths": binding["paths"],
+        "verified": True,
+    }
+
+
+def stage_sparse_payload(repo, pack, binding):
+    repo, pack = Path(repo), Path(pack)
+    if binding.get("format") != "git-pack-sparse-v1" or not binding.get("paths"):
+        raise ValueError("descriptive:payload_format")
+    for path, oid in binding["paths"].items():
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", path) or path in {".", "..", ".git"}:
+            raise ValueError("descriptive:payload_path")
+        if not re.fullmatch(r"[0-9a-f]{40}", oid):
+            raise ValueError("descriptive:payload_identity")
+
+    def git(*argv, **kwargs):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *argv], timeout=120, **kwargs
+        )
+
+    if not repo.exists():
+        repo.mkdir()
+        git("init")
+        # A promisor pack explicitly permits omitted evidence/history blobs.
+        # No network remote exists; an accidental omitted read cannot fetch it.
+        git("config", "core.sparseCheckout", "true")
+        git("config", "extensions.partialClone", "payload")
+        git("config", "remote.payload.promisor", "true")
+        with pack.open("rb") as source:
+            git("index-pack", "--stdin", "--promisor", stdin=source)
+        (repo / ".git/shallow").write_text(binding["source_commit"] + "\n")
+        git("update-ref", "--no-deref", "HEAD", binding["source_commit"])
+        (repo / ".git/info/sparse-checkout").write_text(
+            "".join("/" + p + "\n" for p in binding["paths"])
+        )
+        git("read-tree", "-mu", "HEAD")
+        git("fsck", "--full")
+    return verify_sparse_payload(repo, binding)
 
 
 def validate_gate_a_s3_get_url(url, *, bucket, key, local_minio_origin=None):
@@ -592,7 +667,12 @@ class Host:
             head = self.manifest["source_commit"]
             if len(head) != 40 or any(c not in "0123456789abcdef" for c in head):
                 raise ValueError("invalid_source_commit")
-            if not self.repo.exists():
+            if self.manifest.get("source_payload") is not None:
+                binding = self.manifest["source_payload"]
+                if binding.get("source_commit") != head:
+                    raise ValueError("descriptive:payload_commit")
+                stage_sparse_payload(self.repo, self.partial, binding)
+            elif not self.repo.exists():
                 self.command(["git", "init", str(self.repo)])
                 # Product bundles keep their historical shallow contract. The
                 # routine plan/history suites require the complete private graph.
@@ -664,15 +744,7 @@ class Host:
                     str(self.output),
                 ],
                 cwd=self.repo,
-                env={
-                    "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
-                    "LANG": "C.UTF-8",
-                    "HOME": "/root",
-                    "GOPATH": "/root/go",
-                    "GOMODCACHE": "/root/go/pkg/mod",
-                    "GOCACHE": "/root/.cache/go-build",
-                    "XDG_CACHE_HOME": "/root/.cache",
-                },
+                env=host_environment(),
                 stdout=self.log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,

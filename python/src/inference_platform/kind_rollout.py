@@ -17,6 +17,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from .command_diagnostics import checked_process
 from .kind_fake import STREAM_CHUNK_DELAY_MS, STREAM_CHUNKS
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -34,14 +35,13 @@ def write_json(path, value):
 
 
 def run(*args, env=None, timeout=300, capture=True):
-    result = subprocess.run(
+    result = checked_process(
         [str(arg) for arg in args],
         cwd=ROOT,
         env=env,
         timeout=timeout,
         check=True,
         stdout=subprocess.PIPE if capture else None,
-        stderr=subprocess.PIPE if capture else None,
         text=True,
         encoding="utf-8",
     )

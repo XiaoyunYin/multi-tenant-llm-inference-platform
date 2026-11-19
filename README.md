@@ -28,7 +28,23 @@ Tenant cache salts are derived server-side. Backend health/load state carries id
 
 The cited campaigns are [the original reviewed run](experiments/inf037a/kind-2026-10-02-reviewed), [the first coverage follow-up](experiments/inf037a/kind-2026-10-02-r090) and [the confirmed coverage campaign](experiments/inf037a/kind-2026-10-02-r090-confirmed). The confirmed campaign records 16 gateway-update and 24 backend-replacement completions, zero failures/partials/false completions, zero reservations afterwards, and live-stream SIGTERM counts 5/3/4 across the two old gateways and backend. The first follow-up exported measurements but its outer PowerShell capture returned nonzero on expected Docker stderr; it is not an invocation PASS. The original shorter-stream campaign lacked guaranteed per-pod coverage; those historical limitations are retained.
 
-The corrected campaign uses eight closed-loop workers staggered by 0.4 seconds and approximately 30-second fake streams; every terminated pod must have live streams at SIGTERM or the harness fails. These small populations support counts and empirical ranges, not tail-percentile claims. One connection per request, one Windows Docker Desktop host, observation brackets and gateway-observed backend intervals limit attribution. A backend native active counter also verifies coverage. No full 120-second-bound/grace-expiry, real-vLLM, cache recovery, GPU or managed-cluster result is established. Private independent review verified the correction in Round 48. EKS and Kubernetes-with-GPU claims remain reserved for future M5 work.
+The corrected campaign uses eight closed-loop workers staggered by 0.4 seconds and approximately 30-second fake streams; every terminated pod must have live streams at SIGTERM or the harness fails. These small populations support counts and empirical ranges, not tail-percentile claims. One connection per request, one Windows Docker Desktop host, observation brackets and gateway-observed backend intervals limit attribution. A backend native active counter also verifies coverage. No full 120-second-bound/grace-expiry, real-vLLM, cache recovery, GPU or managed-cluster result is established. Private independent review verified the correction in Round 48.
+
+## EKS deployment (M5)
+
+Terraform provisioned EKS with two Go gateways and two vLLM replicas on two fixed g6.xlarge GPU nodes, each with one NVIDIA L4. In one run in us-east-1c, vLLM 0.29.0 served Qwen2.5-7B-Instruct. An in-cluster CPU client used TLS with 1,024 input tokens and a one-output-token limit per request.
+
+Each load window ran for 600 seconds. Completions include drain and use all scheduled requests as the denominator. In-window throughput counts completions during the window only. TTFT measures time to first token, with one sample per completed request here.
+
+| Client concurrency | Completed / scheduled | In-window req/s | TTFT p50 (ms) | TTFT p95 (ms) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 3,141 / 3,141 | 5.23 | 250.8 | 262.9 |
+| 4 | 5,840 / 5,840 | 9.73 | 350.4 | 816.6 |
+| 16 | 6,689 / 6,689 | 11.12 | 1,362.0 | 2,704.1 |
+
+At concurrency 4 in the same run, the 600-second gateway rolling restart completed 5,890/5,890 scheduled requests. The 900-second in-place vLLM replica replacement completed 7,892/7,894. The two HTTP 502s occurred before any content, on requests dispatched 0.24 and 0.29 seconds after deletion and before the old endpoint was observed excluded at 0.53 seconds. The gateway relays each request once. The replacement reached Ready 180.4 seconds after deletion, and the first completed stream on the replacement slot arrived 528.8 ms after the client observed Ready.
+
+These are descriptive observations from one deployment run. The private source repository retains the evidence at `docs/evidence/m5-descriptive-eks-r394/README.md`.
 
 ## Local CPU / mock-backend engineering measurement (INF-036)
 
@@ -80,7 +96,7 @@ For local fake serving, follow [the CPU deployment instructions](deploy/local/RE
 
 ## Planned research and current limits
 
-The planned question is: **How much cache and backend-load state should a replicated LLM inference router maintain, and when should it trust that state?** Planned comparisons range from round-robin and fresh load samples to prefix affinity and more detailed cache state under skew, stale observations, backend changes and tenant competition. Protocol and threshold freeze, the confirmatory routing comparison, completion of the R0 instrumentation (Stage C), full M5 and GPU/cloud rollout work remain pending; R1 below is a one-session pilot. The project implements policies within its own gateway; no superiority over external routing systems is established.
+The planned question is: **How much cache and backend-load state should a replicated LLM inference router maintain, and when should it trust that state?** Planned comparisons range from round-robin and fresh load samples to prefix affinity and more detailed cache state under skew, stale observations, backend changes and tenant competition. Protocol and threshold freeze, the confirmatory routing comparison and completion of the R0 instrumentation (Stage C) remain pending; R1 below is a one-session pilot. The project implements policies within its own gateway; no superiority over external routing systems is established.
 
 This snapshot's cited evidence preserves original bytes and historical status labels. Claims in this README were audited against the committed evidence before publication; review and approval records are maintained privately. No resume material is part of this repository.
 

@@ -9,8 +9,14 @@ import subprocess
 import time
 from pathlib import Path
 
+from .command_diagnostics import checked_process, stderr_tail
 from .m5_descriptive_client import client_resources
-from .m5_descriptive_operator import file_inventory
+from .m5_descriptive_operator import (
+    TASK_CONTROL_MARGIN_SECONDS,
+    file_inventory,
+    task_poll_budget,
+    task_work_seconds,
+)
 from .package_a_workload import test_tls_command, write_kind_secret
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -19,12 +25,24 @@ ROOT = Path(__file__).resolve().parents[3]
 class ClusterPorts:
     def call(self, argv, timeout=180):
         started = time.monotonic()
-        result = subprocess.run(
-            list(map(str, argv)),
-            cwd=ROOT,
-            capture_output=True,
-            timeout=timeout,
-        )
+        try:
+            result = checked_process(
+                list(map(str, argv)),
+                cwd=ROOT,
+                capture_output=True,
+                timeout=timeout,
+                secrets=(getattr(self, "credential", ""),),
+            )
+        except subprocess.CalledProcessError as error:
+            self.commands.append(
+                {
+                    "argv": [str(argv[0])],
+                    "exit_code": error.returncode,
+                    "elapsed_s": time.monotonic() - started,
+                }
+            )
+            (self.output / "failure.stderr").write_text(str(error))
+            raise
         self.commands.append(
             {
                 "argv": list(map(str, argv)),
@@ -32,17 +50,17 @@ class ClusterPorts:
                 "elapsed_s": time.monotonic() - started,
             }
         )
-        if result.returncode:
-            # Diagnostics remain private host output. Do not expose Secret bodies.
-            (self.output / "failure.stderr").write_bytes(result.stderr[-65536:])
-            raise RuntimeError("descriptive:command_failed:" + str(argv[0]))
         return result.stdout.decode()
 
-    def k(self, *args):
+    def k(self, *args, deadline=None):
         requested = [arg for arg in args if str(arg).startswith("--timeout=")]
         timeout = (
             float(str(requested[-1]).split("=", 1)[1].removesuffix("s")) + 30 if requested else 180
         )
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+            if timeout <= 0:
+                raise TimeoutError("descriptive:readiness_deadline")
         return self.call(
             [
                 self.campaign.kubectl,
@@ -57,12 +75,17 @@ class ClusterPorts:
             timeout=timeout,
         )
 
-    def wait(self, predicate, seconds=120):
-        end = min(self.deadline, time.monotonic() + seconds)
-        while not predicate():
-            if time.monotonic() >= end:
-                raise TimeoutError("descriptive:readiness_deadline")
-            time.sleep(0.25)
+    def wait(self, predicate, seconds=120, *, deadline=None):
+        end = min(
+            self.deadline,
+            time.monotonic() + seconds,
+            deadline if deadline is not None else self.deadline,
+        )
+        while time.monotonic() < end:
+            if predicate():
+                return
+            time.sleep(min(0.25, max(0, end - time.monotonic())))
+        raise TimeoutError("descriptive:readiness_deadline")
 
     def forward(self, target, remote):
         with socket.socket() as sock:
@@ -215,7 +238,7 @@ class ClusterPorts:
             "scaling": "fixed",
         }
 
-    def client_control(self, mode, *args):
+    def client_control(self, mode, *args, deadline=None):
         return json.loads(
             self.k(
                 "exec",
@@ -226,21 +249,53 @@ class ClusterPorts:
                 "inference_platform.m5_descriptive_client",
                 mode,
                 *args,
+                deadline=deadline,
             )
         )
 
-    def start_task(self, label, kind="load", **values):
+    def start_task(self, label, kind="load", *, started=None, **values):
         task = {"kind": kind, "label": label, **values}
         if hasattr(self, "work_deadline_epoch"):
             task["deadline_epoch"] = self.work_deadline_epoch
+        started = time.monotonic() if started is None else started
+        budget = task_poll_budget(task, self.startup_seconds, self.rollout_action)
+        cutoff = min(self.deadline, started + budget)
+        receipt = {
+            "kind": kind,
+            "levels": task.get("levels", []),
+            "duration_s": task.get("duration"),
+            "replacement": "replacement" in task,
+            "max_work_s": task_work_seconds(task, self.startup_seconds, self.rollout_action),
+            "control_margin_s": TASK_CONTROL_MARGIN_SECONDS,
+            "poll_budget_s": budget,
+            "effective_budget_s": max(0, cutoff - started),
+            "started_monotonic": started,
+            "status": "SUBMITTING",
+        }
+        self.results.setdefault("task_polls", {})[label] = receipt
+        if not hasattr(self, "_task_deadlines"):
+            self._task_deadlines = {}
+        self._task_deadlines[label] = cutoff
         encoded = base64.b64encode(json.dumps(task, sort_keys=True).encode()).decode()
-        return self.client_control("submit", encoded)
+        result = self.client_control(
+            "submit", encoded, deadline=min(cutoff, started + TASK_CONTROL_MARGIN_SECONDS)
+        )
+        receipt["status"] = "SUBMITTED"
+        return result
 
     def finish_task(self, label):
         holder = []
+        receipt = self.results["task_polls"][label]
+        cutoff = self._task_deadlines[label]
+        poll_started = time.monotonic()
 
         def done():
-            result = self.client_control("status", label)
+            try:
+                result = self.client_control("status", label, deadline=cutoff)
+            except subprocess.TimeoutExpired as error:
+                if time.monotonic() >= cutoff:
+                    raise TimeoutError("descriptive:readiness_deadline") from error
+                raise
             if result["status"] == "FAILED":
                 raise ValueError(result["error"])
             if result["status"] == "PASS":
@@ -248,12 +303,17 @@ class ClusterPorts:
                 return True
             return False
 
-        self.wait(
-            done,
-            min(
-                self.startup_seconds + self.rollout_duration + 180, self.deadline - time.monotonic()
-            ),
-        )
+        try:
+            self.wait(done, receipt["poll_budget_s"], deadline=cutoff)
+        except Exception:
+            receipt["status"] = "FAILED"
+            raise
+        else:
+            receipt["status"] = "PASS"
+        finally:
+            finished = time.monotonic()
+            receipt["elapsed_s"] = finished - receipt["started_monotonic"]
+            receipt["poll_elapsed_s"] = finished - poll_started
         return holder[0]
 
     def smoke(self):
@@ -261,12 +321,15 @@ class ClusterPorts:
             raise TimeoutError("descriptive:remaining_workload_window")
         self.start_task("smoke", "smoke")
         value = self.finish_task("smoke")
-        services = json.loads(self.k("get", "services", "-o", "json"))["items"]
+        cutoff = self._task_deadlines["smoke"]
+        services = json.loads(self.k("get", "services", "-o", "json", deadline=cutoff))["items"]
         if any(s["spec"]["type"] != "ClusterIP" for s in services):
             raise ValueError("descriptive:public_service")
         counts = {}
         for app in ("gateway", "vllm"):
-            pods = json.loads(self.k("get", "pods", "-l", "app=" + app, "-o", "json"))["items"]
+            pods = json.loads(
+                self.k("get", "pods", "-l", "app=" + app, "-o", "json", deadline=cutoff)
+            )["items"]
             counts[app] = len({p["metadata"]["uid"] for p in pods})
         if counts != {"gateway": 2, "vllm": 2}:
             raise ValueError("descriptive:smoke_topology")
@@ -289,8 +352,18 @@ class ClusterPorts:
         return value
 
     def rollout(self, app):
+        started = time.monotonic()
         target = app + "-0"
-        before = json.loads(self.k("get", "pod", target, "-o", "json"))
+        before = json.loads(
+            self.k(
+                "get",
+                "pod",
+                target,
+                "-o",
+                "json",
+                deadline=min(self.deadline, started + TASK_CONTROL_MARGIN_SECONDS),
+            )
+        )
         old_uid = before["metadata"]["uid"]
         label = app + "_rollout"
         duration = (
@@ -300,20 +373,34 @@ class ClusterPorts:
         )
         self.start_task(
             label,
+            started=started,
             levels=[4],
             duration=duration,
-            replacement={"target": target, "old_uid": old_uid},
+            replacement={
+                "target": target,
+                "old_uid": old_uid,
+                "observe_seconds": self.rollout_action
+                + self.startup_seconds
+                + TASK_CONTROL_MARGIN_SECONDS,
+            },
         )
-        time.sleep(self.rollout_action)
+        time.sleep(min(self.rollout_action, max(0, self.deadline - time.monotonic())))
         action = time.monotonic()
-        self.k("delete", "pod", target, "--wait=false")
+        cutoff = self._task_deadlines[label]
+        end = min(cutoff, action + self.startup_seconds)
+        self.k("delete", "pod", target, "--wait=false", deadline=end)
         excluded = None
         replacement = None
-        end = min(self.deadline, action + self.startup_seconds)
         while time.monotonic() < end:
             endpoints = json.loads(
                 self.k(
-                    "get", "endpointslices", "-l", "kubernetes.io/service-name=" + app, "-o", "json"
+                    "get",
+                    "endpointslices",
+                    "-l",
+                    "kubernetes.io/service-name=" + app,
+                    "-o",
+                    "json",
+                    deadline=end,
                 )
             )
             included = any(
@@ -325,7 +412,9 @@ class ClusterPorts:
             )
             if not included and excluded is None:
                 excluded = time.monotonic() - action
-            pod = json.loads(self.k("get", "pods", "-l", "app=" + app, "-o", "json"))["items"]
+            pod = json.loads(self.k("get", "pods", "-l", "app=" + app, "-o", "json", deadline=end))[
+                "items"
+            ]
             replacement = next(
                 (
                     p
@@ -341,7 +430,7 @@ class ClusterPorts:
             )
             if replacement and excluded is not None:
                 break
-            time.sleep(0.25)
+            time.sleep(min(0.25, max(0, end - time.monotonic())))
         if replacement is None or excluded is None:
             raise TimeoutError("descriptive:replacement_readiness")
         ready = time.monotonic() - action
@@ -350,6 +439,7 @@ class ClusterPorts:
             "observe",
             f"http://{replacement['status']['podIP']}:{remote}/"
             + ("health" if app == "vllm" else "readyz"),
+            deadline=cutoff,
         )
         if observed["status"] != 200:
             raise ValueError("descriptive:replacement_health")
@@ -391,10 +481,36 @@ class ClusterPorts:
         return inventory
 
     def export(self):
-        self.retrieve_clients()
+        client_present = hasattr(self, "client_pod")
+        clients = self.retrieve_clients() if client_present else None
         directory = self.output / "frozen"
         directory.mkdir()
-        events = json.loads(self.k("get", "events", "-o", "json"))["items"]
+        (directory / "client-records.json").write_text(
+            json.dumps(
+                {
+                    "status": "present" if client_present else "absent",
+                    "reason": None if client_present else "client_pod_not_created",
+                    "inventory": clients,
+                },
+                sort_keys=True,
+            )
+        )
+        observations = {}
+        observed = {}
+        for kind in ("events", "pods"):
+            try:
+                observed[kind] = json.loads(self.k("get", kind, "-o", "json"))["items"]
+                observations[kind] = {"status": "present", "count": len(observed[kind])}
+            except Exception as error:
+                if client_present:
+                    raise
+                observations[kind] = {
+                    "status": "unavailable",
+                    "error": stderr_tail(str(error), secrets=(getattr(self, "credential", ""),)),
+                }
+                observed[kind] = []
+        (directory / "observations.json").write_text(json.dumps(observations, sort_keys=True))
+        events = observed["events"]
         (directory / "events.json").write_text(
             json.dumps(
                 [
@@ -409,7 +525,42 @@ class ClusterPorts:
             )
         )
         (directory / "results.json").write_text(json.dumps(self.results, sort_keys=True))
-        shutil.copytree(self.output / "clients", directory / "clients")
+        (directory / "pod-states.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": pod["metadata"]["name"],
+                        "uid_sha256": hashlib.sha256(pod["metadata"]["uid"].encode()).hexdigest(),
+                        "phase": pod.get("status", {}).get("phase"),
+                        "conditions": [
+                            {
+                                key: condition.get(key)
+                                for key in ("type", "status", "lastTransitionTime")
+                            }
+                            for condition in pod.get("status", {}).get("conditions", [])
+                        ],
+                    }
+                    for pod in observed["pods"]
+                ],
+                sort_keys=True,
+            )
+        )
+        if client_present:
+            shutil.copytree(self.output / "clients", directory / "clients")
+        logs = getattr(self, "phase_logs", None)
+        if logs is not None:
+            destination = directory / "phase-logs"
+            destination.mkdir()
+            for source in sorted(Path(logs).glob("*.log")):
+                with source.open("rb") as handle:
+                    handle.seek(0, 2)
+                    handle.seek(max(0, handle.tell() - 8192))
+                    tail = stderr_tail(
+                        handle.read(8192), secrets=(getattr(self, "credential", ""),)
+                    )
+                (destination / source.name).write_text(tail)
+        if not client_present:
+            return file_inventory(directory)
         # Collect all four independent serving endpoints, not a Service sample.
         for app, remote in (("gateway", 8080), ("vllm", 8000)):
             for index in range(2):

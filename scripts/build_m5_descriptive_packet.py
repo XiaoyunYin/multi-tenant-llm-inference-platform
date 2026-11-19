@@ -14,12 +14,10 @@ import os
 import shutil
 import subprocess
 import tarfile
-import tempfile
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from inference_platform.package_a_cloud import transfer_seconds
 from inference_platform.m5_descriptive_operator import session_timing
 from inference_platform.package_a_operator import python_hashes
 from m5_descriptive_eks import (
@@ -28,10 +26,10 @@ from m5_descriptive_eks import (
     verify_plan,
 )
 
+from m5_descriptive_payload import produce, transfer_bound
+from m5_descriptive_capacity import zone_pairs
+
 ROOT = Path(__file__).resolve().parents[1]
-SCRATCH = Path(
-    r"D:\coding agent files\multi-tenant-llm-inference-platform\codex\r373-work"
-)
 E10_ARCHIVE = (
     "docs/evidence/m5-l4-compatibility-round281/execution-2026-10-26/receipts.tar.gz"
 )
@@ -105,7 +103,7 @@ def refresh(directory, profile):
     lambda_limits = lambda_settings["AccountLimit"]
     lambda_function_count = lambda_settings["AccountUsage"]["FunctionCount"]
     validate_lambda_limits(lambda_limits, lambda_function_count)
-    session = "m5-desc-r372"
+    session = "m5-desc-r379"
     bucket = (
         session + "-" + hashlib.sha256(identity["Account"].encode()).hexdigest()[:12]
     )
@@ -175,17 +173,11 @@ def refresh(directory, profile):
         LocationType="availability-zone",
         Filters=[
             {"Name": "instance-type", "Values": ["g6.xlarge", "c6i.2xlarge"]},
-            {"Name": "location", "Values": ["us-east-1c", "us-east-1b"]},
         ],
         MaxResults=100,
     )
-    if quota < 8 or not all(
-        any(
-            row["InstanceType"] == "g6.xlarge" and row["Location"] == zone
-            for row in offerings["InstanceTypeOfferings"]
-        )
-        for zone in ("us-east-1c", "us-east-1b")
-    ):
+    zones = zone_pairs(offerings)
+    if quota < 8:
         raise ValueError("descriptive:quota_or_offering")
     read(
         "ec2",
@@ -261,6 +253,7 @@ def refresh(directory, profile):
         "releases": releases,
         "operator_ami": operator,
         "gpu_quota_vcpus": quota,
+        "zone_pairs": zones,
         "lambda_account_limits": lambda_limits,
         "lambda_function_count": lambda_function_count,
         "prices": prices,
@@ -360,39 +353,9 @@ def forecast(live):
 
 
 def source_bundle(destination, commit):
-    """The Git -C working directory must not reinterpret the output path."""
     destination = Path(destination).resolve()
-    SCRATCH.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="packet-source-", dir=SCRATCH) as tmp:
-        clone = Path(tmp) / "source.git"
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "--bare",
-                "--no-local",
-                "--depth",
-                "1",
-                "--branch",
-                "main",
-                ROOT.as_uri(),
-                str(clone),
-            ],
-            check=True,
-            capture_output=True,
-        )
-        observed = (
-            subprocess.check_output(["git", "-C", str(clone), "rev-parse", "HEAD"])
-            .decode()
-            .strip()
-        )
-        if observed != commit:
-            raise ValueError("descriptive:source_moved")
-        argv = ["git", "-C", str(clone), "bundle", "create", str(destination), "--all"]
-        write(destination.with_suffix(".command.json"), {"argv": argv})
-        result = subprocess.run(argv, capture_output=True)
-        destination.with_suffix(".stderr").write_bytes(result.stderr)
-        result.check_returncode()
+    binding = produce(ROOT, commit, destination)
+    write(destination.with_suffix(".payload.json"), binding)
     return destination
 
 
@@ -410,14 +373,31 @@ def prepare(directory, commit, refresh_path, startup_path):
     validate_lambda_limits(
         live.get("lambda_account_limits", {}), live.get("lambda_function_count")
     )
+    offering_source = next(
+        r
+        for r in live["sources"]
+        if r["operation"] == "describe_instance_type_offerings"
+    )
+    zones = zone_pairs(
+        json.loads((refresh_path.parent / offering_source["response"]).read_bytes())
+    )
+    if zones != live["zone_pairs"]:
+        raise ValueError("descriptive:live_zone_set_changed")
     hourly_rate, forecast_usd = forecast(live)
-    prior = json.loads(
-        (ROOT / "docs/evidence/m5-package-a/spend-ledger.json").read_bytes()
-    )["prior_spend_usd"]
+    descriptive_ledger = ROOT / "docs/evidence/m5-descriptive-eks/spend-ledger.json"
+    prior = (
+        json.loads(descriptive_ledger.read_bytes())["cumulative_product_estimate_usd"]
+        if descriptive_ledger.exists()
+        else json.loads(
+            (ROOT / "docs/evidence/m5-package-a/spend-ledger.json").read_bytes()
+        )["prior_spend_usd"]
+    )
     if not directory.resolve().is_relative_to((ROOT / ".cache").resolve()):
         raise ValueError("descriptive:packet_root")
     directory.mkdir(parents=True, exist_ok=False)
-    session = "m5-desc-r372"
+    bundle = source_bundle(directory / "source.bundle", commit)
+    upload_bound = transfer_bound(bundle.stat().st_size)
+    session = "m5-desc-r379"
     bucket = session + "-" + hashlib.sha256(live["account"].encode()).hexdigest()[:12]
     group = (
         f"arn:aws:resource-groups:us-east-1:{live['account']}:group/{session}-capacity"
@@ -548,7 +528,8 @@ def prepare(directory, commit, refresh_path, startup_path):
         json.dumps(json.loads(policy), sort_keys=True).encode()
     ).hexdigest()
     alternatives = []
-    for first, second in (("us-east-1c", "us-east-1b"), ("us-east-1b", "us-east-1c")):
+    for pair in zones:
+        first, second = pair["zone"], pair["control_plane_zone"]
         target = directory / ("zone-" + first)
         shutil.copytree(
             ROOT / "infra/terraform/m5_descriptive",
@@ -572,12 +553,16 @@ def prepare(directory, commit, refresh_path, startup_path):
         )
         verify_plan(result)
         validate_cleanup_resource_tags(result, session, json.loads(policy))
-        alternatives.append({"zone": first, "directory": target.name})
+        alternatives.append({**pair, "directory": target.name})
     write(directory / "plans.json", plans)
     startup = startup_bound(startup_path)
     write(directory / "startup-evidence.json", startup["evidence"])
-    timing = session_timing(startup["seconds"])
-    bundle = source_bundle(directory / "source.bundle", commit)
+    timing = session_timing(startup["seconds"], upload_bound)
+    if (
+        timing["remaining_infrastructure_seconds"]
+        < timing["apply_through_staging_reserve_seconds"]
+    ):
+        raise ValueError("descriptive:payload_exceeds_session_budget")
     pins = json.loads((ROOT / "deploy/package-a/pins.json").read_bytes())
     # Root gp3 / IPv4 rates are the accepted Package A basis. The EKS/EC2 rates
     # above come from live products; $10 covers ECR/logs/cleanup/network variance.
@@ -592,7 +577,8 @@ def prepare(directory, commit, refresh_path, startup_path):
         "python_sha256": python_hashes(commit),
         "bundle_sha256": sha(bundle),
         "bundle_bytes": bundle.stat().st_size,
-        "upload_timeout_s": transfer_seconds(bundle.stat().st_size),
+        "upload_timeout_s": upload_bound,
+        "source_payload": json.loads(bundle.with_suffix(".payload.json").read_bytes()),
         "python_executable": "/opt/dec077/repo/python/.venv/bin/python",
         "operator_tools": tools,
         "session_manager_plugin_path": str(plugin.relative_to(ROOT)),
@@ -631,13 +617,31 @@ def prepare(directory, commit, refresh_path, startup_path):
             "timing": timing,
         },
         "timing": timing,
+        "capacity_wait_basis": {
+            "source": "docs/evidence/m5-descriptive-eks-r376/execution-receipt.sanitized.json",
+            "observed_provision_s": 1581.078,
+            "apply_staging_rule": "ceil(2 * observed_provision_s + 60)",
+            "wait_rule": "max(0, infrastructure_before_capacity_wait_seconds - apply_through_staging_reserve_seconds)",
+            "bootstrap_and_arming_cannot_extend_wait": True,
+        },
         "startup_bound": startup,
         "session_seconds": 18000,
         "cleanup_reserve_seconds": 1800,
         "forecast_usd": forecast_usd,
+        "payload_transfer": {
+            "bytes": bundle.stat().st_size,
+            "bound_s": upload_bound,
+            "minimum_bytes_per_s": 100000,
+            "passes": 2,
+            "overhead_s": 60,
+        },
         "forecast_basis": {
             "hourly_usd": hourly_rate,
             "maximum_hours_including_cleanup": 5.5,
+            "source_upload_seconds_inside_session": upload_bound,
+            "capacity_wait_seconds_inside_session": timing[
+                "capacity_wait_budget_seconds"
+            ],
             "fixed_other_usd": 10,
             "margin": 1.25,
         },
@@ -648,7 +652,7 @@ def prepare(directory, commit, refresh_path, startup_path):
             "immutable original deadline",
             "bootstrap (state bucket and capacity group)",
             "backstop Apply and deployed witness",
-            "R1 sequential AZ capacity check",
+            "bounded cycling R1 AZ capacity check; cancel/verify each failure; >=60 s between cycles",
             "one selected saved composed Apply",
             "Package A bootstrap/upload",
             "shared provision/smoke/load/gateway rollout/replica rollout/export/retrieve",
@@ -663,6 +667,7 @@ def prepare(directory, commit, refresh_path, startup_path):
             "consumed",
             "arming-witness",
             "capacity readbacks",
+            "capacity-wait.json with every probe and separate elapsed time",
             "host runner",
             "client placement and image digest",
             "client JSONL and hashes",

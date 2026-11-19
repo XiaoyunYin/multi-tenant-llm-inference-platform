@@ -60,6 +60,7 @@ if __name__ == "__main__":
 
     stage(*sys.argv[1:])
     Path("/evidence/ready").touch()
-    # Hold for bounded control/retrieval; Pod activeDeadlineSeconds is absolute.
+    # Hold for inventory readback and controller deletion; rollout status and the
+    # outer phase deadline bound the controller, not a forbidden Pod deadline.
     while True:
         time.sleep(1)

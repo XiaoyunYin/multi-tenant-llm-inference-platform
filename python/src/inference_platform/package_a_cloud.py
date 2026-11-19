@@ -1206,6 +1206,9 @@ class Runner:
             self.repo, self.manifest["source_commit"], self.manifest["python_sha256"]
         )
         if self.role == "descriptive_operator":
+            from .m5_payload_guard import install_read_guard
+
+            install_read_guard(self.repo, self.manifest["source_payload"]["paths"])
             # Bootstrap installed the pinned tools/locked venv. The existing
             # SSM operator invokes bounded descriptive phases afterward.
             self.call(
