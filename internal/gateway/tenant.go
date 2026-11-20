@@ -60,12 +60,14 @@ func (t *TenantPolicy) AllowsModel(model string) bool {
 
 type TenantRegistry struct {
 	byCredential map[[sha256.Size]byte]*TenantPolicy
+	byTenant     map[string]*TenantPolicy
+	managed      *CredentialStore
 }
 
 // AdmissionLimits exposes effective limits without credentials, models or cache salts.
 func (r *TenantRegistry) AdmissionLimits() map[string]map[string]int64 {
-	limits := make(map[string]map[string]int64, len(r.byCredential))
-	for _, tenant := range r.byCredential {
+	limits := make(map[string]map[string]int64, len(r.byTenant))
+	for _, tenant := range r.byTenant {
 		limits[tenant.ID] = map[string]int64{
 			"max_concurrent":         tenant.MaxConcurrent,
 			"request_rate_limit":     tenant.RequestRateLimit,
@@ -111,27 +113,37 @@ func deriveCacheSalt(secret CacheSaltSecret, tenantID string) string {
 }
 
 func NewTenantRegistry(specs []TenantSpec, cacheSaltSecret CacheSaltSecret) (*TenantRegistry, error) {
+	return newTenantRegistry(specs, cacheSaltSecret, nil)
+}
+
+func newTenantRegistry(specs []TenantSpec, cacheSaltSecret CacheSaltSecret, managed *CredentialStore) (*TenantRegistry, error) {
 	if len(specs) == 0 {
 		return nil, errors.New("at least one tenant is required")
 	}
 	registry := &TenantRegistry{byCredential: make(map[[sha256.Size]byte]*TenantPolicy, len(specs))}
-	identities := make(map[string]struct{}, len(specs))
+	registry.byTenant = make(map[string]*TenantPolicy, len(specs))
+	registry.managed = managed
 	for _, spec := range specs {
 		if !tenantIDPattern.MatchString(spec.TenantID) {
 			return nil, fmt.Errorf("invalid tenant_id %q", spec.TenantID)
 		}
-		if _, exists := identities[spec.TenantID]; exists {
+		if _, exists := registry.byTenant[spec.TenantID]; exists {
 			return nil, fmt.Errorf("duplicate tenant_id %q", spec.TenantID)
 		}
-		identities[spec.TenantID] = struct{}{}
-		digestBytes, err := hex.DecodeString(spec.CredentialSHA256)
-		if err != nil || len(digestBytes) != sha256.Size || strings.ToLower(spec.CredentialSHA256) != spec.CredentialSHA256 {
-			return nil, fmt.Errorf("tenant %q credential_sha256 must be 64 lowercase hexadecimal characters", spec.TenantID)
-		}
 		var digest [sha256.Size]byte
-		copy(digest[:], digestBytes)
-		if _, exists := registry.byCredential[digest]; exists {
-			return nil, errors.New("tenant credentials must be unique")
+		if managed != nil {
+			if spec.CredentialSHA256 != "" {
+				return nil, errors.New("managed mode refuses static credentials")
+			}
+		} else {
+			digestBytes, err := hex.DecodeString(spec.CredentialSHA256)
+			if err != nil || len(digestBytes) != sha256.Size || strings.ToLower(spec.CredentialSHA256) != spec.CredentialSHA256 {
+				return nil, fmt.Errorf("tenant %q credential_sha256 must be 64 lowercase hexadecimal characters", spec.TenantID)
+			}
+			copy(digest[:], digestBytes)
+			if _, exists := registry.byCredential[digest]; exists {
+				return nil, errors.New("tenant credentials must be unique")
+			}
 		}
 		if len(spec.Models) == 0 {
 			return nil, fmt.Errorf("tenant %q must allow at least one model", spec.TenantID)
@@ -163,12 +175,26 @@ func NewTenantRegistry(specs []TenantSpec, cacheSaltSecret CacheSaltSecret) (*Te
 			SetupBackendID: spec.SetupBackendID,
 			cacheSalt:      deriveCacheSalt(cacheSaltSecret, spec.TenantID),
 		}
-		registry.byCredential[digest] = policy
+		registry.byTenant[spec.TenantID] = policy
+		if managed == nil {
+			registry.byCredential[digest] = policy
+		}
 	}
 	return registry, nil
 }
 
 func LoadTenantRegistry(reader io.Reader, cacheSaltSecret CacheSaltSecret) (*TenantRegistry, error) {
+	return loadTenantRegistry(reader, cacheSaltSecret, nil)
+}
+
+func LoadManagedTenantRegistry(reader io.Reader, cacheSaltSecret CacheSaltSecret, store *CredentialStore) (*TenantRegistry, error) {
+	if store == nil {
+		return nil, errors.New("managed mode requires a credential store")
+	}
+	return loadTenantRegistry(reader, cacheSaltSecret, store)
+}
+
+func loadTenantRegistry(reader io.Reader, cacheSaltSecret CacheSaltSecret, managed *CredentialStore) (*TenantRegistry, error) {
 	const maxTenantConfigurationBytes = 1 << 20
 	payload, err := io.ReadAll(io.LimitReader(reader, maxTenantConfigurationBytes+1))
 	if err != nil {
@@ -192,7 +218,7 @@ func LoadTenantRegistry(reader io.Reader, cacheSaltSecret CacheSaltSecret) (*Ten
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		return nil, errors.New("tenant configuration must contain one JSON object")
 	}
-	return NewTenantRegistry(document.Tenants, cacheSaltSecret)
+	return newTenantRegistry(document.Tenants, cacheSaltSecret, managed)
 }
 
 func (r *TenantRegistry) Authenticate(authorization string) (*TenantPolicy, error) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -84,17 +85,6 @@ func runWithMode(checkConfig bool) int {
 	secretCloseErr := cacheSaltSecretFile.Close()
 	if secretErr != nil || secretCloseErr != nil {
 		logger.Error("cannot load cache-salt secret", "path", cacheSaltSecretPath, "error", errors.Join(secretErr, secretCloseErr))
-		return 2
-	}
-	tenantConfig, err := os.Open(tenantConfigPath)
-	if err != nil {
-		logger.Error("cannot open tenant configuration", "path", tenantConfigPath, "error", err)
-		return 2
-	}
-	tenants, tenantErr := gateway.LoadTenantRegistry(tenantConfig, cacheSaltSecret)
-	closeErr := tenantConfig.Close()
-	if tenantErr != nil || closeErr != nil {
-		logger.Error("cannot load tenant configuration", "path", tenantConfigPath, "error", errors.Join(tenantErr, closeErr))
 		return 2
 	}
 	shutdownGrace, err := envDuration("GATEWAY_SHUTDOWN_GRACE", 2*time.Minute)
@@ -180,6 +170,16 @@ func runWithMode(checkConfig bool) int {
 	var coordinator admission.Coordinator
 	var redisClient *redis.Client
 	admissionMode := envOrDefault("ADMISSION_MODE", "redis")
+	meterMode := envOrDefault("ADMISSION_METERING_MODE", "off")
+	if meterMode != "off" && (meterMode != "on" || admissionMode != "redis") {
+		logger.Error("ADMISSION_METERING_MODE must be off or on with Redis admission")
+		return 2
+	}
+	authMode := envOrDefault("TENANT_AUTH_MODE", "static")
+	if authMode != "static" && (authMode != "managed" || admissionMode != "redis") {
+		logger.Error("TENANT_AUTH_MODE must be static or managed with Redis admission")
+		return 2
+	}
 	switch admissionMode {
 	case "redis":
 		redisClient = redis.NewClient(&redis.Options{
@@ -191,6 +191,9 @@ func runWithMode(checkConfig bool) int {
 		if !checkConfig {
 			pingContext, cancelPing := context.WithTimeout(context.Background(), 2*time.Second)
 			pingErr := redisClient.Ping(pingContext).Err()
+			if pingErr == nil && meterMode == "on" {
+				pingErr = admission.CheckUsageDurability(pingContext, redisClient)
+			}
 			cancelPing()
 			if pingErr != nil {
 				logger.Error("admission coordinator is unavailable", "error", pingErr)
@@ -199,6 +202,8 @@ func runWithMode(checkConfig bool) int {
 			}
 		}
 		coordinator, err = admission.NewRedisCoordinator(redisClient, admission.RedisConfig{
+			Metering:           meterMode == "on",
+			ManagedCredentials: authMode == "managed",
 			MeasurementCapture: os.Getenv("GATEWAY_MEASUREMENT_PATH") != "",
 			Namespace:          envOrDefault("ADMISSION_NAMESPACE", "mti:local:v1"),
 			GlobalCapacity:     globalCapacity, LeaseDuration: leaseDuration, TombstoneTTL: tombstoneTTL,
@@ -229,6 +234,24 @@ func runWithMode(checkConfig bool) int {
 		defer redisClient.Close()
 	}
 
+	tenantConfig, err := os.Open(tenantConfigPath)
+	if err != nil {
+		logger.Error("cannot open tenant configuration", "path", tenantConfigPath, "error", err)
+		return 2
+	}
+	loadTenants := gateway.LoadTenantRegistry
+	if authMode == "managed" {
+		store := gateway.NewCredentialStore(redisClient, coordinator.(*admission.RedisCoordinator))
+		loadTenants = func(reader io.Reader, salt gateway.CacheSaltSecret) (*gateway.TenantRegistry, error) {
+			return gateway.LoadManagedTenantRegistry(reader, salt, store)
+		}
+	}
+	tenants, tenantErr := loadTenants(tenantConfig, cacheSaltSecret)
+	closeErr := tenantConfig.Close()
+	if tenantErr != nil || closeErr != nil {
+		logger.Error("cannot load tenant configuration", "path", tenantConfigPath, "error", errors.Join(tenantErr, closeErr))
+		return 2
+	}
 	transport := &http.Transport{
 		MaxIdleConns:          128,
 		MaxIdleConnsPerHost:   32,
@@ -440,6 +463,7 @@ func runWithMode(checkConfig bool) int {
 
 func gatewayConfigForCapacityMode(dynamicCapacity *admission.DynamicCapacityConfig) gateway.Config {
 	config := gateway.DefaultConfig()
+	config.LogAdmissionTiming = os.Getenv("GATEWAY_LOG_ADMISSION_TIMING") == "true"
 	config.FixedModeTerminalCodes = dynamicCapacity == nil
 	return config
 }

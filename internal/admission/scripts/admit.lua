@@ -2,6 +2,16 @@
 -- atomic path. No caller timestamp is accepted. Equality is expired.
 local server_time = redis.call('TIME')
 local now_ms = tonumber(server_time[1]) * 1000 + math.floor(tonumber(server_time[2]) / 1000)
+local managed = ARGV[19] == 'managed'
+if managed and ARGV[15] == 'admit' then
+  local credential = redis.call('HMGET', KEYS[10], 'tenant', 'generation', 'role', 'active_ms', 'expiry_ms', 'revoked_ms')
+  local active = tonumber(credential[4])
+  local expiry = tonumber(credential[5])
+  if credential[1] ~= ARGV[20] or credential[2] ~= ARGV[21] or credential[3] ~= 'inference'
+    or not active or not expiry or active > now_ms or expiry <= now_ms or credential[6] ~= '0' then
+    return {'credential_denied', 0, 0}
+  end
+end
 local dynamic = ARGV[10] == 'dynamic'
 local capacity = tonumber(ARGV[6])
 local fresh = true
@@ -20,8 +30,10 @@ if dynamic then
   global_config = 'dynamic|' .. table.concat(ARGV, '|', 11, 14) .. '|' .. ARGV[7] .. '|' .. ARGV[8]
 end
 if ARGV[18] == 'capture' then global_config = global_config .. '|capture' end
+if managed then global_config = global_config .. '|managed' end
 redis.call('SETNX', KEYS[5], global_config)
 if redis.call('GET', KEYS[5]) ~= global_config then return {'config_mismatch', 0, 0} end
+if managed then redis.call('PERSIST', KEYS[5]) end
 if dynamic then
   -- Dynamic config/state are durable: idle time must not forget a low or allow
   -- a differently configured gateway into the same namespace.
@@ -121,13 +133,13 @@ end
 local tenant_config = tostring(ARGV[3]) .. '|' .. tostring(ARGV[4]) .. '|' .. tostring(ARGV[5])
 redis.call('SETNX', KEYS[5], global_config)
 redis.call('SETNX', KEYS[6], tenant_config)
-if not dynamic then redis.call('PEXPIRE', KEYS[5], ARGV[9]) end
+if not dynamic and not managed then redis.call('PEXPIRE', KEYS[5], ARGV[9]) end
 redis.call('PEXPIRE', KEYS[6], ARGV[9])
 if redis.call('GET', KEYS[5]) ~= global_config or redis.call('GET', KEYS[6]) ~= tenant_config then
   return {'config_mismatch', 0, 0}
 end
 
-if not dynamic then redis.call('PEXPIRE', KEYS[5], ARGV[9]) end
+if not dynamic and not managed then redis.call('PEXPIRE', KEYS[5], ARGV[9]) end
 redis.call('PEXPIRE', KEYS[6], ARGV[9])
 redis.call('PEXPIRE', KEYS[2], ARGV[9])
 redis.call('PEXPIRE', KEYS[3], ARGV[9])

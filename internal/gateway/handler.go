@@ -77,6 +77,7 @@ type unsupportedParameterError struct{ name string }
 func (e *unsupportedParameterError) Error() string { return "unsupported parameter: " + e.name }
 
 type Config struct {
+	LogAdmissionTiming     bool
 	MaxRequestBytes        int64
 	MaxEventBytes          int
 	MaxConcurrent          int
@@ -242,6 +243,10 @@ func New(config Config, registry *Registry, client *http.Client, logger *slog.Lo
 	}
 	if gateway.admission == nil {
 		return nil, errors.New("admission coordinator is required")
+	}
+	managed, _ := gateway.admission.(interface{ ManagedCredentials() bool })
+	if (gateway.tenants.managed != nil) != (managed != nil && managed.ManagedCredentials()) {
+		return nil, errors.New("tenant registry and admission credential modes differ")
 	}
 	if gateway.backendSelection.RequiresRoutingContext() && gateway.routingTokenizer == nil {
 		return nil, errors.New("contextual routing requires a routing-key tokenizer")
@@ -436,6 +441,14 @@ type upstreamRequest struct {
 	} `json:"stream_options"`
 }
 
+func unauthenticatedTerminal() requestTerminal {
+	return requestTerminal{cause: terminalRejected, code: "unauthenticated"}
+}
+
+func admissionUnavailableTerminal() requestTerminal {
+	return requestTerminal{cause: terminalRejected, code: "admission_unavailable"}
+}
+
 func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Request) {
 	// Do not trust client trace context at the public edge. Start a fresh root
 	// server span so the response header, logs, and downstream traceparent are
@@ -449,6 +462,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	tenantID := ""
 	selection := BackendDecision{Policy: RoutingPolicyNone, FallbackReason: FallbackReasonNone}
 	var routerDecisionUnixNS int64
+	var admissionElapsedNS int64
 	terminal := requestTerminal{cause: terminalInternalError, code: "internal_error"}
 	var upstreamHTTPStatus, upstreamErrorCode int
 	var upstreamErrorType, upstreamErrorShape string
@@ -488,6 +502,9 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			"upstream_error_shape", upstreamErrorShape,
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
+		if g.config.LogAdmissionTiming && admissionElapsedNS > 0 {
+			g.logger.Info("admission timing", "elapsed_ns", admissionElapsedNS)
+		}
 		g.metrics.recordTerminal(terminal.cause)
 	}()
 	response.Header().Set("X-Request-ID", requestID)
@@ -505,9 +522,16 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		g.writeError(response, http.StatusServiceUnavailable, "shutting_down", requestID, true)
 		return
 	}
-	tenant, authErr := g.tenants.Authenticate(request.Header.Get("Authorization"))
+	tenant, fence, authErr := g.tenants.authenticateRequest(request.Context(), request.Header.Values("Authorization"))
+	if errors.Is(authErr, errCredentialStore) {
+		terminal = admissionUnavailableTerminal()
+		g.metrics.rejected.Add(1)
+		g.metrics.admissionUnavailable.Add(1)
+		g.writeError(response, http.StatusServiceUnavailable, terminal.code, requestID, true)
+		return
+	}
 	if authErr != nil {
-		terminal = requestTerminal{cause: terminalRejected, code: "unauthenticated"}
+		terminal = unauthenticatedTerminal()
 		g.metrics.rejected.Add(1)
 		g.writeError(response, http.StatusUnauthorized, "unauthenticated", requestID, false)
 		return
@@ -569,19 +593,36 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		return
 	}
 	admissionContext, cancelAdmission := context.WithTimeout(request.Context(), g.config.AdmissionTimeout)
+	var admissionStarted time.Time
+	if g.config.LogAdmissionTiming {
+		admissionStarted = time.Now()
+	}
 	admissionResult, admissionErr := g.admission.Admit(admissionContext, admission.Request{
-		TenantID: tenant.ID, ReservationID: reservationID,
+		TenantID: tenant.ID, ReservationID: reservationID, Credential: fence, RequestID: requestID,
 		Limits: admission.Limits{
 			RequestLimit: tenant.RequestRateLimit, RequestWindow: tenant.RequestRateWindow,
 			MaxConcurrent: tenant.MaxConcurrent,
 		},
 	})
+	if g.config.LogAdmissionTiming {
+		admissionElapsedNS = time.Since(admissionStarted).Nanoseconds()
+	}
 	cancelAdmission()
 	admissionCapture := map[string]any{"request_id": requestID, "reservation_id": reservationID, "admit_called": true, "decision": admissionResult.Decision.Code(), "effective_b": admissionResult.Capacity, "retry_after_ms": admissionResult.RetryAfter.Milliseconds(), "idempotent": admissionResult.Idempotent}
 	if admissionErr != nil {
 		admissionCapture["error"] = admissionErr.Error()
 	}
 	g.measurement.Record("admit", admissionCapture)
+	if errors.Is(admissionErr, admission.ErrCredentialDenied) {
+		if fence != nil {
+			g.tenants.managed.evict(fence.KeyID)
+		}
+		<-g.semaphore
+		terminal = unauthenticatedTerminal()
+		g.metrics.rejected.Add(1)
+		g.writeError(response, http.StatusUnauthorized, terminal.code, requestID, false)
+		return
+	}
 	if admissionErr != nil {
 		g.bestEffortRelease(tenant.ID, reservationID, requestID)
 		<-g.semaphore
@@ -590,7 +631,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			g.metrics.cancelled.Add(1)
 			return
 		}
-		terminal = requestTerminal{cause: terminalRejected, code: "admission_unavailable"}
+		terminal = admissionUnavailableTerminal()
 		g.metrics.rejected.Add(1)
 		g.metrics.admissionUnavailable.Add(1)
 		g.writeError(response, http.StatusServiceUnavailable, "admission_unavailable", requestID, true)

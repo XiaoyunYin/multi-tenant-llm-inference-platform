@@ -45,7 +45,14 @@ type Limits struct {
 	MaxConcurrent int64
 }
 
+type CredentialFence struct {
+	KeyID      string
+	Generation uint64
+}
+
 type Request struct {
+	RequestID     string
+	Credential    *CredentialFence
 	TenantID      string
 	ReservationID string
 	Limits        Limits
@@ -64,6 +71,8 @@ type Coordinator interface {
 }
 
 type RedisConfig struct {
+	Metering           bool
+	ManagedCredentials bool
 	MeasurementCapture bool // Secured, untrimmed Redis Stream; default off.
 	Namespace          string
 	GlobalCapacity     int64
@@ -81,10 +90,13 @@ type DynamicCapacityConfig struct {
 }
 
 var (
-	tenantPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$`)
-	reservationPattern = regexp.MustCompile(`^rsv_[0-9a-f]{32}$`)
-	namespacePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_-]{0,126}$`)
+	credentialIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	tenantPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,190}$`)
+	requestIDPattern    = regexp.MustCompile(`^req_[0-9a-f]{32}$`)
+	reservationPattern  = regexp.MustCompile(`^rsv_[0-9a-f]{32}$`)
+	namespacePattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_-]{0,126}$`)
 
+	ErrCredentialDenied      = errors.New("credential denied by admission fence")
 	ErrReservationReleased   = errors.New("reservation was already released")
 	ErrConfigurationMismatch = errors.New("admission configuration does not match existing Redis state")
 )
@@ -141,9 +153,13 @@ func NewRedisCoordinator(client redis.Scripter, config RedisConfig) (*RedisCoord
 		client: client, config: config, keyPrefix: prefix,
 		globalMemberKey: prefix + "global:active",
 		stateTTLMS:      stateTTL.Milliseconds(),
-		admitScript:     redis.NewScript(admitLua), releaseScript: redis.NewScript(releaseLua),
+		admitScript:     redis.NewScript(admissionSource(config.Metering)), releaseScript: redis.NewScript(releaseLua),
 	}, nil
 }
+
+func (c *RedisCoordinator) ManagedCredentials() bool { return c.config.ManagedCredentials }
+
+func (c *RedisCoordinator) CredentialKey(id string) string { return c.keyPrefix + "credential:" + id }
 
 func (c *RedisCoordinator) Admit(ctx context.Context, request Request) (Result, error) {
 	if err := validateRequest(request); err != nil {
@@ -169,6 +185,28 @@ func (c *RedisCoordinator) Admit(ctx context.Context, request Request) (Result, 
 		durationMilliseconds(c.config.TombstoneTTL), c.stateTTLMS,
 	}
 	args = append(args, c.capacityArgs("admit", "", 0)...)
+	if c.config.ManagedCredentials != (request.Credential != nil) {
+		return Result{}, ErrConfigurationMismatch
+	}
+	if c.config.ManagedCredentials {
+		fence := request.Credential
+		if !credentialIDPattern.MatchString(fence.KeyID) || fence.Generation == 0 {
+			return Result{}, errors.New("invalid credential fence")
+		}
+		keys = append(keys, c.CredentialKey(fence.KeyID))
+		args = append(args, "managed", request.TenantID, strconv.FormatUint(fence.Generation, 10))
+	}
+	if c.config.Metering {
+		if !requestIDPattern.MatchString(request.RequestID) {
+			return Result{}, errors.New("valid server request ID required for metering")
+		}
+		if !c.config.ManagedCredentials {
+			keys = append(keys, c.keyPrefix+"unused")
+			args = append(args, "", "", "")
+		}
+		keys = append(keys, c.keyPrefix+"usage:admitted")
+		args = append(args, request.RequestID)
+	}
 	value, err := c.admitScript.Run(
 		ctx,
 		c.client,
@@ -206,6 +244,9 @@ func (c *RedisCoordinator) ReportHealthy(ctx context.Context, gateway string, he
 	keys := []string{c.keyPrefix + "unused", c.keyPrefix + "unused", c.globalMemberKey, c.keyPrefix + "unused", c.keyPrefix + "config:global", c.keyPrefix + "unused", c.keyPrefix + "capacity:reports", c.keyPrefix + "capacity:lows", c.keyPrefix + "capacity:state", c.keyPrefix + "capacity:report:" + gateway}
 	args := []any{"", "", 1, 1, 1, c.config.GlobalCapacity, c.config.LeaseDuration.Milliseconds(), c.config.TombstoneTTL.Milliseconds(), c.stateTTLMS}
 	args = append(args, c.capacityArgs(op, gateway, healthy)...)
+	if c.config.ManagedCredentials {
+		args = append(args, "managed")
+	}
 	value, err := c.admitScript.Run(ctx, c.client, keys, args...).Result()
 	if err != nil {
 		return fmt.Errorf("atomic health report: %w", err)
@@ -322,6 +363,8 @@ func parseAdmissionResult(value any) (Result, error) {
 		result.Decision = SystemCapacityLimited
 	case "capacity_reports_expired":
 		result.Decision = CapacityReportsExpired
+	case "credential_denied":
+		return Result{}, ErrCredentialDenied
 	case "released":
 		return Result{}, ErrReservationReleased
 	case "config_mismatch":

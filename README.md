@@ -42,7 +42,7 @@ Each load window ran for 600 seconds. Completions include drain and use all sche
 | 4 | 5,840 / 5,840 | 9.73 | 350.4 | 816.6 |
 | 16 | 6,689 / 6,689 | 11.12 | 1,362.0 | 2,704.1 |
 
-At concurrency 4 in the same run, the 600-second gateway rolling restart completed 5,890/5,890 scheduled requests. The 900-second in-place vLLM replica replacement completed 7,892/7,894. The two HTTP 502s occurred before any content, on requests dispatched 0.24 and 0.29 seconds after deletion and before the old endpoint was observed excluded at 0.53 seconds. The gateway relays each request once. The replacement reached Ready 180.4 seconds after deletion, and the first completed stream on the replacement slot arrived 528.8 ms after the client observed Ready.
+At concurrency 4 in the same run, replacing one of the two gateway pods (the other kept serving) during the 600-second window completed 5,890/5,890 scheduled requests. The 900-second in-place vLLM replica replacement completed 7,892/7,894. The two HTTP 502s occurred before any content, on requests dispatched 0.24 and 0.29 seconds after deletion and before the old endpoint was observed excluded at 0.53 seconds. The gateway relays each request once. The replacement reached Ready 180.4 seconds after deletion, and the first completed stream on the replacement slot arrived 528.8 ms after the client observed Ready.
 
 These are descriptive observations from one deployment run. The private source repository retains the evidence at `docs/evidence/m5-descriptive-eks-r394/README.md`.
 

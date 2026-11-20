@@ -10,6 +10,7 @@ import json
 import math
 import os
 import platform
+import secrets
 import statistics
 import subprocess
 import threading
@@ -17,11 +18,14 @@ import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[3]
 REDIS = "redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d"
 NAMESPACE = "mti:inf036:v1"
 PORTS = [28700, 28701, 28800, 28801, 28900, 28901, 26379]
+ADMISSION_ARMS = ("static", "managed", "metered", "static-aof")
+ADMISSION_BLOCKS = 5
 
 
 def write_json(path, value):
@@ -41,7 +45,7 @@ def get(url):
         return response.read()
 
 
-def preflight(url):
+def preflight(url, credential="local-dev-token"):
     payload = {
         "model": "test-model",
         "messages": [{"role": "user", "content": "cpu-probe"}],
@@ -51,7 +55,7 @@ def preflight(url):
     request = urllib.request.Request(
         url + "/v1/chat/completions",
         json.dumps(payload).encode(),
-        {"Authorization": "Bearer local-dev-token", "Content-Type": "application/json"},
+        {"Authorization": "Bearer " + credential, "Content-Type": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=5) as response:
         events = [
@@ -328,13 +332,56 @@ def completion_accounting(delta, result):
 
 
 class Campaign:
-    def __init__(self, args):
+    def __init__(self, args, *, admission_cell=None):
         self.args, self.output = args, args.output.resolve()
         self.container = f"mti-inf036-{os.getpid()}"
         self.work = ROOT / ".cache" / self.container
         self.processes, self.handles, self.pids = [], [], {}
         self.samples, self.stop = [], threading.Event()
         self.runs = []
+        self.variant = getattr(args, "admission_variant", None)
+        self.redis_aof = self.variant in ("metered", "static-aof")
+        if admission_cell is None:
+            port_offset = 20 * ADMISSION_ARMS.index(self.variant) if self.variant else 0
+            self.ports = [port + port_offset for port in PORTS[:-1]]
+            self.redis_port = PORTS[-1] + (1 + port_offset // 20 if self.variant else 0)
+        else:
+            # Each paired cell owns new listeners so a previous cell's
+            # connection shutdown cannot affect the next port preflight.
+            first_port = 29000 + admission_cell * len(PORTS)
+            self.ports = list(range(first_port, first_port + len(PORTS) - 1))
+            self.redis_port = first_port + len(PORTS) - 1
+            self.container += f"-{admission_cell}"
+            self.work = ROOT / ".cache" / self.container
+        self.credential = "local-dev-token"
+        self.credential_record = None
+        if self.variant == "managed":
+            key_id = secrets.token_hex(16)
+            salt, secret = secrets.token_bytes(16), secrets.token_bytes(32)
+            verifier = hashlib.sha256(b"mti-inference-credential-v1\x00" + salt + secret)
+            self.credential = key_id + "." + secret.hex()
+            self.credential_record = (
+                "HSET",
+                f"{NAMESPACE}:{{admission}}:credential:{key_id}",
+                "key_id",
+                key_id,
+                "tenant",
+                "tenant-local",
+                "role",
+                "inference",
+                "salt",
+                salt.hex(),
+                "verifier",
+                verifier.hexdigest(),
+                "generation",
+                "1",
+                "active_ms",
+                "1",
+                "expiry_ms",
+                str(int(time.time() * 1000) + 3600000),
+                "revoked_ms",
+                "0",
+            )
         suffix = ".exe" if os.name == "nt" else ""
         self.gateway, self.bench = self.work / f"gateway{suffix}", self.work / f"cpu-bench{suffix}"
         inherited = {
@@ -355,6 +402,22 @@ class Campaign:
 
     def redis(self, *args):
         return command("docker", "exec", self.container, "redis-cli", "--raw", *args)
+
+    def redis_persistence(self):
+        settings = {}
+        for name, expected in {
+            "appendonly": "yes" if self.redis_aof else "no",
+            "appendfsync": "always" if self.redis_aof else "everysec",
+        }.items():
+            lines = self.redis("CONFIG", "GET", name).splitlines()
+            if lines != [name, expected]:
+                raise ValueError(f"Redis CONFIG GET {name}: expected {expected}, got {lines}")
+            settings[name] = lines[1]
+        return settings
+
+    def seed_credential(self):
+        if self.credential_record:
+            self.redis(*self.credential_record)
 
     def info(self):
         result = {
@@ -385,7 +448,7 @@ class Campaign:
     def metrics(self):
         result = {}
         for i in range(2):
-            text = get(f"http://127.0.0.1:{28800 + i}/metrics").decode()
+            text = get(f"http://127.0.0.1:{self.ports[2 + i]}/metrics").decode()
             result[f"gateway{i}"] = {
                 line.split()[0]: int(line.split()[1])
                 for line in text.splitlines()
@@ -434,7 +497,7 @@ class Campaign:
             self.stop.wait(0.25)
 
     def profile(self, run_id, i):
-        base = f"http://127.0.0.1:{28900 + i}/debug/pprof/"
+        base = f"http://127.0.0.1:{self.ports[4 + i]}/debug/pprof/"
         cpu = self.output / f"{run_id}-gateway{i}-cpu.pprof"
         cpu.write_bytes(get(base + "profile?seconds=15"))
         heap = self.output / f"{run_id}-gateway{i}-heap.pprof"
@@ -464,8 +527,14 @@ class Campaign:
         assert before_reservations == {"global": 0, "tenant": 0}
         # Owned isolated Redis only: remove prior tombstone state between cells.
         assert self.redis("FLUSHDB") == "OK"
+        self.seed_credential()
+        logs = [self.work / f"gateway{i}.log" for i in range(2)]
+        offsets = [log.stat().st_size for log in logs]
         before, redis_before = self.metrics(), self.info()
-        targets = [f"http://127.0.0.1:{p}" for p in (PORTS[:2] if mode == "direct" else PORTS[2:4])]
+        targets = [
+            f"http://127.0.0.1:{p}"
+            for p in (self.ports[:2] if mode == "direct" else self.ports[2:4])
+        ]
         duration = 20 if concurrency else max(self.args.min_seconds, self.args.samples / rate)
         raw = self.output / f"{run_id}.jsonl.gz"
         argv = [
@@ -488,7 +557,7 @@ class Campaign:
         process = subprocess.Popen(
             [str(x) for x in argv],
             cwd=ROOT,
-            env={**self.env, "GOMAXPROCS": "4"},
+            env={**self.env, "GOMAXPROCS": "4", "CPU_BENCH_CREDENTIAL": self.credential},
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -534,6 +603,29 @@ class Campaign:
         write_json(self.output / f"{run_id}.json", {**entry, "audit_status": "pending"})
         if mode == "gateway":
             entry["completion_accounting"] = completion_accounting(delta, result)
+            if self.variant:
+                elapsed = []
+                for log, offset in zip(logs, offsets, strict=True):
+                    with log.open("rb") as handle:
+                        handle.seek(offset)
+                        for line in handle:
+                            row = json.loads(line)
+                            if row.get("msg") == "admission timing":
+                                elapsed.append(row["elapsed_ns"] / 1e6)
+                expected = sum(
+                    result[key]["counts"]["completed"] for key in ("warmup", "measurement")
+                )
+                if len(elapsed) != expected:
+                    raise ValueError(
+                        f"admission timing count {len(elapsed)} does not match {expected} completed requests"
+                    )
+                # Warmup and measurement share gateway processes; their ordered
+                # log slices are reported as the complete admitted workload.
+                entry["admission_ms"] = {
+                    "count": len(elapsed),
+                    "p50": percentile(elapsed, 0.5),
+                    "p99": percentile(elapsed, 0.99),
+                }
         assert all(
             v.get("inference_gateway_release_failures_total", 0) == 0 for v in delta.values()
         )
@@ -554,12 +646,12 @@ class Campaign:
             flush=True,
         )
 
-    def execute(self):
+    def execute(self, *, first_block=1):
         self.output.mkdir(parents=True, exist_ok=False)
         self.work.mkdir(parents=True, exist_ok=False)
         import socket
 
-        for port in PORTS:
+        for port in [*self.ports, self.redis_port]:
             with socket.socket() as sock:
                 sock.bind(("127.0.0.1", port))
         for target, package in ((self.gateway, "./cmd/gateway"), (self.bench, "./cmd/cpu-bench")):
@@ -571,6 +663,9 @@ class Campaign:
             )
         tenant = json.loads((ROOT / "deploy/local/tenants.json").read_text(encoding="utf-8"))
         tenant["tenants"][0].update(request_rate_limit=100000, max_concurrent=1024)
+        if self.variant == "managed":
+            for spec in tenant["tenants"]:
+                spec.pop("credential_sha256")
         tenant_path = self.work / "tenants.json"
         write_json(tenant_path, tenant)
         owned_redis = False
@@ -588,48 +683,62 @@ class Campaign:
                 "--cpus",
                 "2",
                 "-p",
-                "127.0.0.1:26379:6379",
+                f"127.0.0.1:{self.redis_port}:6379",
                 REDIS,
                 "redis-server",
                 "--save",
                 "",
                 "--appendonly",
-                "no",
+                "yes" if self.redis_aof else "no",
+                *(["--appendfsync", "always"] if self.redis_aof else []),
             )
             deadline = time.monotonic() + 20
             while self.redis("PING") != "PONG":
                 if time.monotonic() > deadline:
                     raise TimeoutError("Redis")
                 time.sleep(0.1)
+            self.seed_credential()
             self.spawn(
                 "fake",
-                [self.bench, "-mode", "fakes", "-addresses", "127.0.0.1:28700,127.0.0.1:28701"],
+                [
+                    self.bench,
+                    "-mode",
+                    "fakes",
+                    "-addresses",
+                    ",".join(f"127.0.0.1:{port}" for port in self.ports[:2]),
+                ],
                 {**self.env, "GOMAXPROCS": "4"},
             )
             for i in range(2):
-                self.wait_ready(f"http://127.0.0.1:{28700 + i}/health")
+                self.wait_ready(f"http://127.0.0.1:{self.ports[i]}/health")
                 env = {
                     **self.env,
                     "GOMAXPROCS": "2",
-                    "GATEWAY_HTTP_ADDR": f"127.0.0.1:{28800 + i}",
-                    "GATEWAY_PPROF_ADDR": f"127.0.0.1:{28900 + i}",
+                    "GATEWAY_HTTP_ADDR": f"127.0.0.1:{self.ports[2 + i]}",
+                    "GATEWAY_PPROF_ADDR": f"127.0.0.1:{self.ports[4 + i]}",
                     "BACKEND_DISCOVERY": "",
-                    "BACKENDS": "fake-0=http://127.0.0.1:28700,fake-1=http://127.0.0.1:28701",
+                    "BACKENDS": ",".join(
+                        f"fake-{index}=http://127.0.0.1:{port}"
+                        for index, port in enumerate(self.ports[:2])
+                    ),
                     "TENANT_CONFIG_PATH": str(tenant_path),
                     "CACHE_SALT_SECRET_FILE": str(ROOT / "deploy/local/cache-salt.secret.example"),
                     "ADMISSION_MODE": "redis",
-                    "REDIS_ADDR": "127.0.0.1:26379",
+                    "REDIS_ADDR": f"127.0.0.1:{self.redis_port}",
+                    "TENANT_AUTH_MODE": "managed" if self.variant == "managed" else "static",
+                    "ADMISSION_METERING_MODE": "on" if self.variant == "metered" else "off",
+                    "GATEWAY_LOG_ADMISSION_TIMING": "true" if self.variant else "false",
                     "ADMISSION_NAMESPACE": NAMESPACE,
                     "ADMISSION_GLOBAL_CAPACITY": "1024",
                     "GATEWAY_MAX_CONCURRENT": "512",
                     "OTEL_SDK_DISABLED": "true",
                 }
                 self.spawn(f"gateway{i}", [self.gateway], env)
-                self.wait_ready(f"http://127.0.0.1:{28800 + i}/readyz")
+                self.wait_ready(f"http://127.0.0.1:{self.ports[2 + i]}/readyz")
             paths = command("git", "ls-files").splitlines()
             probes = {
-                f"endpoint{i}": preflight(f"http://127.0.0.1:{port}")
-                for i, port in enumerate(PORTS[:4])
+                f"endpoint{i}": preflight(f"http://127.0.0.1:{port}", self.credential)
+                for i, port in enumerate(self.ports[:4])
             }
             write_json(self.output / "preflight.json", probes)
             sources = [
@@ -648,7 +757,8 @@ class Campaign:
             write_json(
                 self.output / "environment.json",
                 {
-                    "scope": "local CPU/mock engineering probe",
+                    "scope": "CPU/mock engineering probe",
+                    "admission_variant": self.variant,
                     "source_commit": command("git", "rev-parse", "HEAD"),
                     "source_hashes": {
                         p: hashlib.sha256(
@@ -694,9 +804,12 @@ class Campaign:
             sampler = threading.Thread(target=self.sample)
             sampler.start()
             for rate in self.args.rates:
-                for block in range(1, self.args.blocks + 1):
+                for block in range(first_block, first_block + self.args.blocks):
+                    persistence = self.redis_persistence() if self.variant else None
                     for mode in ["direct", "gateway"] if block % 2 else ["gateway", "direct"]:
                         self.run(mode, rate, block)
+                    if persistence is not None:
+                        write_json(self.output / f"redis-r{rate}-b{block}.json", persistence)
             if self.args.profiles:
                 for concurrency in (1, 16, 64):
                     self.run("gateway", 100, 1, concurrency)
@@ -722,7 +835,7 @@ class Campaign:
             for handle in self.handles:
                 handle.close()
             if owned_redis:
-                command("docker", "rm", "-f", self.container)
+                command("docker", "rm", "-f", "-v", self.container)
             remaining = command("docker", "ps", "-aq", "--filter", f"name=^/{self.container}$")
             write_json(
                 self.output / "teardown.json",
@@ -742,6 +855,54 @@ class Campaign:
             )
 
 
+def admission_arm_order(block):
+    offset = (block - 1) % len(ADMISSION_ARMS)
+    return ADMISSION_ARMS[offset:] + ADMISSION_ARMS[:offset]
+
+
+def admission_study(output):
+    """Run one paired cell at a time with the same settings and rotated arm order."""
+    output.mkdir(parents=True, exist_ok=False)
+    cells = []
+    for block in range(1, ADMISSION_BLOCKS + 1):
+        for position, arm in enumerate(admission_arm_order(block), start=1):
+            args = SimpleNamespace(
+                output=output / f"block-{block}" / arm,
+                admission_variant=arm,
+                rates=[100],
+                blocks=1,
+                samples=2400,
+                min_seconds=12,
+                profiles=False,
+                precise_dispatch=True,
+            )
+            cell_index = len(cells)
+            campaign = Campaign(args, admission_cell=cell_index)
+            started = time.monotonic()
+            campaign.execute(first_block=block)
+            [paired] = comparison(campaign.runs)["paired_quantile_differences"]
+            gateway = next(row for row in campaign.runs if row["mode"] == "gateway")
+            settings = json.loads((args.output / f"redis-r100-b{block}.json").read_bytes())
+            cells.append(
+                {
+                    **paired,
+                    "arm": arm,
+                    "position": position,
+                    "redis_config_get": settings,
+                    "elapsed_s": time.monotonic() - started,
+                    "admission_ms": gateway["admission_ms"],
+                    "measured_counts": {
+                        row["mode"]: row["result"]["measurement"]["counts"] for row in campaign.runs
+                    },
+                    "dispatch_lag_p99_ms": {
+                        row["mode"]: row["result"]["measurement"]["dispatch_lag_ms"]["p99"]
+                        for row in campaign.runs
+                    },
+                }
+            )
+            write_json(output / "blocks.json", cells)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -753,6 +914,9 @@ def main():
     parser.add_argument("--samples", type=int, default=2400)
     parser.add_argument("--no-profiles", dest="profiles", action="store_false")
     parser.add_argument("--precise-dispatch", action="store_true")
+    admission = parser.add_mutually_exclusive_group()
+    admission.add_argument("--admission-variant", choices=ADMISSION_ARMS)
+    admission.add_argument("--admission-study", action="store_true")
     args = parser.parse_args()
     if (
         args.blocks < 1
@@ -761,7 +925,10 @@ def main():
         or any(r <= 0 for r in args.rates)
     ):
         parser.error("positive run conditions required")
-    Campaign(args).execute()
+    if args.admission_study:
+        admission_study(args.output)
+    else:
+        Campaign(args).execute()
     return 0
 
 

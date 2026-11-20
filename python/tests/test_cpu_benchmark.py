@@ -1,10 +1,44 @@
 import os
 import unittest
+from unittest.mock import Mock
 
-from inference_platform.cpu_benchmark import completion_accounting, native_process, percentile
+from inference_platform.cpu_benchmark import (
+    ADMISSION_ARMS,
+    Campaign,
+    admission_arm_order,
+    completion_accounting,
+    native_process,
+    percentile,
+)
 
 
 class CPUAnalysisTests(unittest.TestCase):
+    def test_admission_arm_order_rotates_in_each_block(self):
+        orders = [admission_arm_order(block) for block in range(1, 6)]
+        self.assertEqual(orders[0], ADMISSION_ARMS)
+        self.assertEqual(orders[4], orders[0])
+        for arm in ADMISSION_ARMS:
+            self.assertEqual({order.index(arm) for order in orders[:4]}, set(range(4)))
+
+    def test_admission_redis_persistence_is_read_back(self):
+        campaign = Campaign.__new__(Campaign)
+        campaign.redis = Mock(side_effect=["appendonly\nno", "appendfsync\neverysec"])
+        campaign.redis_aof = False
+        self.assertEqual(
+            campaign.redis_persistence(), {"appendonly": "no", "appendfsync": "everysec"}
+        )
+        self.assertEqual(
+            [call.args for call in campaign.redis.call_args_list],
+            [
+                ("CONFIG", "GET", "appendonly"),
+                ("CONFIG", "GET", "appendfsync"),
+            ],
+        )
+        campaign.redis_aof = True
+        campaign.redis = Mock(side_effect=["appendonly\nyes", "appendfsync\neverysec"])
+        with self.assertRaisesRegex(ValueError, "appendfsync"):
+            campaign.redis_persistence()
+
     def test_completion_observers_keep_failed_clients_failed(self):
         result = {
             "warmup": {"counts": {"completed": 2, "failed": 0, "partial": 0}},

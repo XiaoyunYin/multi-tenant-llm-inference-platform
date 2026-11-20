@@ -41,6 +41,13 @@ type row struct {
 }
 
 // Validate the actual content and complete protocol, not just a trailing DONE.
+var benchmarkCredential = func() string {
+	if credential := os.Getenv("CPU_BENCH_CREDENTIAL"); credential != "" {
+		return credential
+	}
+	return "local-dev-token"
+}()
+
 func consume(reader io.Reader) (first time.Time, complete bool, hadContent bool) {
 	scanner := bufio.NewScanner(reader)
 	var text strings.Builder
@@ -112,7 +119,7 @@ func consume(reader io.Reader) (first time.Time, complete bool, hadContent bool)
 func request(client *http.Client, targets []string, origin time.Time, phase string, ordinal int, planned time.Duration) row {
 	r := row{Phase: phase, Ordinal: ordinal, Target: ordinal % len(targets), PlannedNS: int64(planned)}
 	req, _ := http.NewRequest(http.MethodPost, targets[r.Target]+"/v1/chat/completions", bytes.NewBufferString(payload))
-	req.Header.Set("Authorization", "Bearer local-dev-token")
+	req.Header.Set("Authorization", "Bearer "+benchmarkCredential)
 	req.Header.Set("Content-Type", "application/json")
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
 		r.Reused = info.Reused

@@ -56,7 +56,8 @@ function Invoke-PlanStructureChecks {
     }
     if ($ids.Count -eq 0) { throw "PLAN task index contains no task IDs." }
     foreach ($id in ($ids.Keys | Sort-Object)) {
-        $count = [regex]::Matches($plan, ('(?m)^### ' + [regex]::Escape($id) + '(?![0-9a-z])')).Count
+        # Tasks can be nested under a numbered subsection, as in section 6.6.
+        $count = [regex]::Matches($plan, ('(?m)^#{3,4} ' + [regex]::Escape($id) + '(?![0-9a-z])')).Count
         if ($count -ne 1) { throw "PLAN task $id requires exactly one heading; found $count." }
     }
     $sections = [regex]::Matches($plan, '(?m)^## (\d+)\. ')
