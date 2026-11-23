@@ -64,6 +64,23 @@ class TestSummaryTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid_partition"):
                 summarize_directory(root)
 
+    def test_script_partition_reports_finished_modules_only(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            counts = {"run": 1, "passed": 1, "skipped": 0, "errors": 0, "failures": 0}
+            events = [
+                {"module_start": "test_first"},
+                {"module_finish": "test_first", "tests": counts},
+                {"module_start": "test_second"},
+            ]
+            (root / "scripts-shard-0.log").write_text(
+                "\n".join(map(json.dumps, events)) + "\nRan 1 test in 1s\n\nOK\n"
+            )
+            partition = summarize_directory(root)["framework_logs"][
+                "scripts-shard-0.log"
+            ]
+            self.assertEqual(partition["completed_modules"], {"test_first": counts})
+
     def test_verified_killed_subtest_control_is_separate_from_suite_counts(self):
         data = b"Ran 6 tests in 1.631s\n\nFAILED (failures=5, errors=3)\n"
         with tempfile.TemporaryDirectory() as folder:

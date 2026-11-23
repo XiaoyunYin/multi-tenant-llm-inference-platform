@@ -15,6 +15,14 @@ variable "capacity_group_arn" { type = string }
 variable "quota_vcpus" { type = number }
 variable "prior_spend_usd" { type = number }
 variable "session_forecast_usd" { type = number }
+variable "cpu_clock_rehearsal" {
+  type    = bool
+  default = false
+}
+variable "cpu_clock_account" {
+  type    = string
+  default = ""
+}
 
 # Reuse the unchanged Package A instance, no ingress, encrypted storage and
 # independent OS maximum-lifetime timer. No tests run on this product operator.
@@ -29,11 +37,13 @@ module "operator" {
   root_gib           = 100
 }
 module "eks" {
-  source             = "../eks"
-  enable_session     = true
-  offline_validation = false
-  session_id         = var.session
-  zones              = var.zones
+  source              = "../eks"
+  enable_session      = true
+  offline_validation  = false
+  session_id          = var.session
+  zones               = var.zones
+  cpu_clock_rehearsal = var.cpu_clock_rehearsal
+  gpu_enabled         = !var.cpu_clock_rehearsal
   pins = {
     kubernetes_version = "1.35"
     gpu_release        = var.gpu_release
@@ -52,7 +62,11 @@ module "eks" {
 resource "aws_iam_role_policy" "operator" {
   name = "${var.session}-descriptive"
   role = module.operator.role_name
-  policy = jsonencode({ Version = "2012-10-17", Statement = [
+  policy = var.cpu_clock_rehearsal ? jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["eks:DescribeCluster"], Resource = "arn:aws:eks:us-east-1:${var.cpu_clock_account}:cluster/${var.session}" },
+    { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+    { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages", "ecr:BatchGetImage"], Resource = "arn:aws:ecr:us-east-1:${var.cpu_clock_account}:repository/${var.session}" }
+    ] }) : jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["eks:DescribeCluster", "ecr:GetAuthorizationToken"], Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages", "ecr:BatchGetImage"], Resource = module.eks.repository_arn }
   ] })

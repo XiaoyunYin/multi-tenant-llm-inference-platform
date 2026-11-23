@@ -92,6 +92,7 @@ class StreamingProbeClientTests(unittest.TestCase):
             ]
         )
         self.assertTrue(row["token_itl_eligible"])
+        self.assertEqual(row["first_content_monotonic_ns"], 10_000_000)
         self.assertEqual(row["token_itl_ns"], [10_000_000])
         self.assertEqual(row["transport_content_gaps_ns"], [])
 

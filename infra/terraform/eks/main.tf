@@ -22,6 +22,10 @@ resource "terraform_data" "gate" {
       condition     = !var.offline_validation
       error_message = "Explicit session mode required; mocked tests supply the AWS provider."
     }
+    precondition {
+      condition     = !var.cpu_clock_rehearsal || !var.gpu_enabled
+      error_message = "The clock rehearsal must not include a GPU node group."
+    }
   }
 }
 resource "aws_vpc" "m5" {
@@ -184,9 +188,9 @@ resource "aws_eks_node_group" "cpu" {
   release_version = var.pins.cpu_release
   disk_size       = 40
   scaling_config {
-    min_size     = 2
-    desired_size = 2
-    max_size     = 2
+    min_size     = var.cpu_clock_rehearsal ? 3 : 2
+    desired_size = var.cpu_clock_rehearsal ? 3 : 2
+    max_size     = var.cpu_clock_rehearsal ? 3 : 2
   }
   node_repair_config { enabled = false }
   labels     = { "m5-role" = "cpu" }
@@ -215,6 +219,7 @@ resource "aws_eks_addon" "network" {
   cluster_name                = aws_eks_cluster.m5[0].name
   addon_name                  = each.key
   addon_version               = each.value
+  configuration_values        = each.key == "vpc-cni" && var.cpu_clock_rehearsal ? jsonencode({ enableNetworkPolicy = "true" }) : null
   resolve_conflicts_on_create = "NONE"
   resolve_conflicts_on_update = "NONE"
   lifecycle {

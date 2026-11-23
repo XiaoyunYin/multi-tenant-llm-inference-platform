@@ -41,8 +41,7 @@ def aws_cli_argv(inputs, service, operation, args):
     """Build the exact argv used by Operator.aws, for safe offline sizing."""
     return [
         "aws",
-        "--profile",
-        inputs["aws_profile"],
+        *(["--profile", inputs["aws_profile"]] if inputs["aws_profile"] else []),
         "--region",
         inputs["region"],
         service,
@@ -506,8 +505,7 @@ class Operator:
         child = subprocess.Popen(
             [
                 "aws",
-                "--profile",
-                self.inputs["aws_profile"],
+                *(["--profile", self.inputs["aws_profile"]] if self.inputs["aws_profile"] else []),
                 "--region",
                 self.inputs["region"],
                 "ssm",
@@ -539,8 +537,7 @@ class Operator:
         child.r1_ssm_env = {**os.environ, "AWS_CLI_OUTPUT_ENCODING": "utf-8"}
         child.r1_ssm_argv = [
             "aws",
-            "--profile",
-            self.inputs["aws_profile"],
+            *(["--profile", self.inputs["aws_profile"]] if self.inputs["aws_profile"] else []),
             "--region",
             self.inputs["region"],
         ]

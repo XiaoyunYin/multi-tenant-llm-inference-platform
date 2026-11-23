@@ -124,6 +124,28 @@ class ClusterPorts:
         self.wait(ready, 20)
         return port
 
+    def tenant_configuration(self):
+        tenants = json.loads((ROOT / "deploy/local/tenants.json").read_bytes())
+        for tenant in tenants["tenants"]:
+            tenant["tenant_id"] = self.tenant_id
+            tenant["credential_sha256"] = hashlib.sha256(self.credential.encode()).hexdigest()
+            tenant["models"] = [self.model]
+            tenant["max_concurrent"] = 64
+            tenant["request_rate_limit"] = 10000
+            tenant["request_rate_window_ms"] = 1000
+        return tenants
+
+    def client_credentials(self):
+        return {
+            "token": self.credential,
+            "tenant_id": self.tenant_id,
+            "model": self.model,
+            "corpus": self.corpus,
+        }
+
+    def client_job(self):
+        return client_resources(self.namespace, self.client_image, self.deadline_epoch)
+
     def deploy(self, source):
         manifest = self.render_manifest(source)
         namespace_file = self.output / "namespace.json"
@@ -135,17 +157,9 @@ class ClusterPorts:
         self.k("apply", "-f", namespace_file)
         secret = self.output / "cache-salt.secret"
         write_kind_secret(secret)
-        tenants = json.loads((ROOT / "deploy/local/tenants.json").read_bytes())
         # Rehearsal and real session use the same admission-neutral tenant budget.
-        for tenant in tenants["tenants"]:
-            tenant["tenant_id"] = self.tenant_id
-            tenant["credential_sha256"] = hashlib.sha256(self.credential.encode()).hexdigest()
-            tenant["models"] = [self.model]
-            tenant["max_concurrent"] = 64
-            tenant["request_rate_limit"] = 10000
-            tenant["request_rate_window_ms"] = 1000
         tenants_path = self.output / "tenants.secret"
-        tenants_path.write_text(json.dumps(tenants))
+        tenants_path.write_text(json.dumps(self.tenant_configuration()))
         self.k(
             "create",
             "secret",
@@ -186,16 +200,7 @@ class ClusterPorts:
             else:
                 self.k("rollout", "status", kind + "/" + name, timeout)
         credential_path = self.output / "client.secret"
-        credential_path.write_text(
-            json.dumps(
-                {
-                    "token": self.credential,
-                    "tenant_id": self.tenant_id,
-                    "model": self.model,
-                    "corpus": self.corpus,
-                }
-            )
-        )
+        credential_path.write_text(json.dumps(self.client_credentials()))
         self.k(
             "create",
             "secret",
@@ -209,7 +214,7 @@ class ClusterPorts:
             "load-client-ca",
             "--from-file=tls.crt=" + str(self.output / "tls.crt"),
         )
-        client = client_resources(self.namespace, self.client_image, self.deadline_epoch)
+        client = self.client_job()
         client_path = self.output / "client-job.json"
         client_path.write_text(json.dumps(client))
         self.k("apply", "-f", client_path)

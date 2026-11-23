@@ -464,6 +464,7 @@ func runWithMode(checkConfig bool) int {
 func gatewayConfigForCapacityMode(dynamicCapacity *admission.DynamicCapacityConfig) gateway.Config {
 	config := gateway.DefaultConfig()
 	config.LogAdmissionTiming = os.Getenv("GATEWAY_LOG_ADMISSION_TIMING") == "true"
+	config.StreamingObservations = os.Getenv("GATEWAY_INF060_OBSERVATIONS") == "true"
 	config.FixedModeTerminalCodes = dynamicCapacity == nil
 	return config
 }

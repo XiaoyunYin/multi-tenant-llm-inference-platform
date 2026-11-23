@@ -30,13 +30,14 @@ from m5_descriptive_cleanup import missing, pages
 from m5_descriptive_diagnostics import collect, write_cost
 from m5_descriptive_inventory import gpu_states, inventory
 from m5_descriptive_capacity import select_capacity
+from inf060_eks_cpu_plan import CPU_MARKER, standard_quota_readback, verify_cpu_binding
 from package_a_host import host_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def phase_command(phase):
-    if phase not in {
+def phase_command(phase, *, isolated=False):
+    if not is_streaming_phase(phase) and phase not in {
         "provision",
         "smoke",
         "load",
@@ -46,13 +47,17 @@ def phase_command(phase):
         "retrieve",
     }:
         raise ValueError("descriptive:phase_command")
+    environment = " ".join(
+        name + "=" + shlex.quote(value) for name, value in host_environment().items()
+    )
+    setup = (
+        "exec /usr/bin/env -i " + environment + " "
+        if isolated
+        else "export " + environment + "; "
+    )
     return (
-        "cd /opt/dec077/repo; export "
-        + " ".join(
-            name + "=" + shlex.quote(value)
-            for name, value in host_environment().items()
-        )
-        + "; "
+        "cd /opt/dec077/repo; "
+        + setup
         + shlex.join(
             [
                 "/opt/dec077/repo/python/.venv/bin/python",
@@ -62,6 +67,20 @@ def phase_command(phase):
             ]
         )
     )
+
+
+def is_streaming_phase(phase):
+    return (
+        re.fullmatch(
+            r"stream-(?:window-(?:smoke|warmup|0\.25|1|3|8)|snapshot-(?:0\.25|1|3|8)|final|partial)",
+            phase,
+        )
+        is not None
+    )
+
+
+def phase_budget_name(phase):
+    return "export" if phase in {"stream-final", "stream-partial"} else phase
 
 
 def validate_cleanup_policy(policy, session):
@@ -161,11 +180,16 @@ def require_review(text, manifest, digest):
     if not rounds:
         raise ValueError("descriptive:review_round_missing")
     latest = text[rounds[-1].end() :]
+    marker = (
+        CPU_MARKER
+        if manifest.get("descriptive", {}).get("cpu_clock_rehearsal")
+        else "M5 DESCRIPTIVE EKS PLAN APPROVED"
+    )
     lines = re.findall(
-        r"(?m)^M5 DESCRIPTIVE EKS PLAN APPROVED manifest=[0-9a-f]{64} source=[0-9a-f]{40}\r?$",
+        rf"(?m)^{re.escape(marker)} manifest=[0-9a-f]{{64}} source=[0-9a-f]{{40}}\r?$",
         latest,
     )
-    expected = f"M5 DESCRIPTIVE EKS PLAN APPROVED manifest={digest} source={manifest['source_commit']}"
+    expected = f"{marker} manifest={digest} source={manifest['source_commit']}"
     if [line.removesuffix("\r") for line in lines] != [expected]:
         raise ValueError("descriptive:exact_committed_review_required")
 
@@ -417,6 +441,11 @@ class EKSports:
         self.deadline = time.monotonic() + self.end - time.time()
         self.host = None
         self.bootstrap_complete = False
+        if not recovering and self.manifest.get("descriptive", {}).get(
+            "cpu_clock_rehearsal"
+        ):
+            if not standard_quota_readback(self.sdk)["fits"]:
+                raise ValueError("cpu_clock:standard_quota_busy")
         self.capacity = Capacity(self, recovering=recovering)
         self.owned_vpcs = []
         self.main_root = None
@@ -616,7 +645,15 @@ class EKSports:
         (self.directory / "arming-witness.json").write_text(
             json.dumps(witness, indent=2)
         )
-        selected = select_capacity(self)
+        cpu = self.manifest["descriptive"].get("cpu_clock_rehearsal")
+        selected = cpu["selection"] if cpu else select_capacity(self)
+        if cpu:
+            quota = standard_quota_readback(self.sdk)
+            (self.directory / "cpu-quota-before-apply.json").write_text(
+                json.dumps(quota)
+            )
+            if not quota["fits"]:
+                raise ValueError("cpu_clock:standard_quota_busy")
         self.main_root = self.directory / selected["directory"]
         (self.directory / "selected-plan.json").write_text(json.dumps(selected))
         self.tf(self.main_root, "apply", "-input=false", "create.tfplan")
@@ -641,6 +678,8 @@ class EKSports:
         work_end = self.host_work_deadline()
         self.host.bootstrap(work_end)
         self.host.upload(work_end)
+        if cpu:
+            self.host.upload_gate_a_inputs(work_end)
         self.host.run_checks(work_end)
         self.bootstrap_complete = True
         self.host.ssm(
@@ -657,11 +696,19 @@ class EKSports:
         }
 
     def remote(self, phase):
-        end = phase_deadline(self.end, self.manifest["timing"], phase)
+        descriptive = self.manifest.get("descriptive", {})
+        if is_streaming_phase(phase) and not descriptive.get("streaming"):
+            raise ValueError("descriptive:streaming_binding_required")
+        end = phase_deadline(
+            self.end, self.manifest["timing"], phase_budget_name(phase)
+        )
         if end <= time.time():
             raise TimeoutError("descriptive:phase_window:" + phase)
         self.host.deadline = end
-        shell = phase_command(phase)
+        shell = phase_command(
+            phase,
+            isolated=bool(descriptive.get("cpu_clock_rehearsal")),
+        )
         result = self.host.ssm(
             self.host.host,
             [shell],
@@ -821,7 +868,20 @@ class EKSports:
             (self.directory / "gpu-termination.json").write_text(
                 json.dumps({"verified": True, "known_count": len(known_gpus)})
             )
-            if not self.capacity.cancel_session_capacity_reservations(
+            cpu = self.manifest.get("descriptive", {}).get("cpu_clock_rehearsal")
+            if cpu:
+                reservations = pages(
+                    ec2,
+                    "describe_capacity_reservations",
+                    "CapacityReservations",
+                    Filters=[
+                        {"Name": "tag:Session", "Values": [self.manifest["session"]]},
+                        {"Name": "state", "Values": ["active", "pending"]},
+                    ],
+                )
+                if known_gpus or reservations:
+                    raise ValueError("cpu_clock:unexpected_accelerator_inventory")
+            elif not self.capacity.cancel_session_capacity_reservations(
                 time.monotonic() + 120
             ):
                 raise ValueError("descriptive:capacity_cleanup_unverified")
@@ -979,6 +1039,8 @@ def run_packet(args):
         if file_digest(tool["path"]) != tool["sha256"]:
             raise ValueError("descriptive:operator_tool_changed")
     verify_packet_files(args.packet, manifest)
+    if manifest["descriptive"].get("cpu_clock_rehearsal"):
+        verify_cpu_binding(args.packet, manifest)
     ports = EKSports(args.packet, profile=args.profile, recovering=args.cleanup_only)
     if args.cleanup_only:
         try:
@@ -986,6 +1048,10 @@ def run_packet(args):
         finally:
             result_inventory = ports.inventory()
         print(json.dumps({"teardown": result, "inventory": result_inventory}))
+    elif manifest["descriptive"].get("streaming"):
+        from inf060_eks_operator import execute_streaming
+
+        execute_streaming(ports, args.packet / "execution")
     else:
         execute(ports, args.packet / "execution", deadline=ports.deadline)
 

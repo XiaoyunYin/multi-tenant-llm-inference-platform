@@ -1,0 +1,600 @@
+{
+  "authorization_dependencies": [
+    "ec2:CreateTags",
+    "ec2:RevokeSecurityGroupIngress",
+    "iam:PassRole"
+  ],
+  "authorization_notes": {
+    "ec2:CreateTags": "EC2 separately authorizes tag-on-create for the resource creation APIs and RunInstances.",
+    "ec2:RevokeSecurityGroupIngress": "Conditional destroy with revoke_rules_on_delete on the owned SG when an ingress rule exists. Pinned provider vpc_security_group.go:423-444.",
+    "iam:PassRole": "Required to associate the bound GPU instance role through its instance profile."
+  },
+  "cpu_apply_destroy": {
+    "apply_completed": true,
+    "config": {
+      ".terraform.lock.hcl": "9d635a4b2f493556886c762dc69884483f42f58e1b3693bb90aaf37909353a8e",
+      "main.tf": "494900e7d05047c7cc1b7ea45ec648b56784fc67a98606f208d76fb72e8ff635",
+      "user-data.sh": "b3bd5a10fe95ae13d052c42fdede211a57321a3d430604d9d53395c832eae2e5",
+      "versions.tf": "fc81f24462690c7361b752468e5c61d674363e4c664cb6f070ef5560dc92cd55"
+    },
+    "counts": {
+      "active_instances": 0,
+      "addresses": 0,
+      "empty": true,
+      "gateways": 0,
+      "interfaces": 0,
+      "profiles": 0,
+      "roles": 0,
+      "route_tables": 0,
+      "security_groups": 0,
+      "subnets": 0,
+      "terraform_resources": 0,
+      "volumes": 0,
+      "vpcs": 0
+    },
+    "disk_gib": 128,
+    "estimate_usd": 0.0026014823403703704,
+    "interval": {
+      "destroy_start": "2026-11-22T06:12:50.868746+00:00",
+      "end": "2026-11-22T06:13:24.118667+00:00",
+      "start": "2026-11-22T06:12:18.258798+00:00"
+    },
+    "provider": "6.64.0",
+    "shape": "m6i.large",
+    "terraform": "1.16.2",
+    "verified": true
+  },
+  "operator_cli": [
+    "ec2:DescribeAddresses",
+    "ec2:DescribeImages",
+    "ec2:DescribeInstanceTypeOfferings",
+    "ec2:DescribeInstances",
+    "ec2:DescribeInternetGateways",
+    "ec2:DescribeNetworkInterfaces",
+    "ec2:DescribeRouteTables",
+    "ec2:DescribeSecurityGroups",
+    "ec2:DescribeSubnets",
+    "ec2:DescribeVolumes",
+    "ec2:DescribeVpcs",
+    "ec2:TerminateInstances",
+    "iam:ListInstanceProfiles",
+    "iam:ListRoles",
+    "pricing:GetProducts",
+    "servicequotas:GetServiceQuota",
+    "ssm:DescribeInstanceInformation",
+    "ssm:GetCommandInvocation",
+    "ssm:SendCommand",
+    "ssm:StartSession",
+    "ssm:TerminateSession",
+    "sts:GetCallerIdentity"
+  ],
+  "operator_code": [
+    "scripts/inf060_probe_operator.py:bootstrap,inventory,native_preflight",
+    "python/src/inference_platform/package_a_operator.py:Ports.teardown",
+    "python/src/inference_platform/r1_cloud_operator.py:Operator.ssm and Operator.tunnel",
+    "python/src/inference_platform/session_stop.py:terminate_forward_session"
+  ],
+  "provider": {
+    "delivery_wait_s": 623.9059999999881,
+    "events": [
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "AssociateRouteTable",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "AttachInternetGateway",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "AuthorizeSecurityGroupEgress",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateInternetGateway",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateRoute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateRouteTable",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateSecurityGroup",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateSubnet",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateVpc",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteInternetGateway",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteRouteTable",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteSecurityGroup",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteSubnet",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteVpc",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeImages",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeInstanceAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 7,
+        "error": null,
+        "event_name": "DescribeInstanceAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeInstanceTypes",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeInstanceTypes",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeInstances",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 4,
+        "error": null,
+        "event_name": "DescribeInstances",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeInternetGateways",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeInternetGateways",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeNetworkAcls",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeNetworkAcls",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeNetworkInterfaces",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 8,
+        "error": null,
+        "event_name": "DescribeRouteTables",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 5,
+        "error": null,
+        "event_name": "DescribeRouteTables",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": "Client.InvalidRouteTableID.NotFound",
+        "event_name": "DescribeRouteTables",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeSecurityGroupRules",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 6,
+        "error": null,
+        "event_name": "DescribeSecurityGroups",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 3,
+        "error": null,
+        "event_name": "DescribeSecurityGroups",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": "Client.InvalidGroup.NotFound",
+        "event_name": "DescribeSecurityGroups",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 3,
+        "error": null,
+        "event_name": "DescribeSubnets",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DescribeSubnets",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeTags",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeTags",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeVolumes",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeVolumes",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 4,
+        "error": null,
+        "event_name": "DescribeVpcAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 3,
+        "error": null,
+        "event_name": "DescribeVpcAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 3,
+        "error": null,
+        "event_name": "DescribeVpcs",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "DescribeVpcs",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": "Client.InvalidVpcID.NotFound",
+        "event_name": "DescribeVpcs",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DetachInternetGateway",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 5,
+        "error": "Client.DependencyViolation",
+        "event_name": "DetachInternetGateway",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DisassociateRouteTable",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ModifyInstanceAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ModifySubnetAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ModifyVpcAttribute",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "RevokeSecurityGroupEgress",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": "Client.InvalidPermission.NotFound",
+        "event_name": "RevokeSecurityGroupEgress",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "RevokeSecurityGroupEgress",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "RunInstances",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "TerminateInstances",
+        "event_source": "ec2.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "AddRoleToInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "AttachRolePolicy",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "CreateRole",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DeleteRole",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "DetachRolePolicy",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 5,
+        "error": null,
+        "event_name": "GetInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "GetInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "GetRole",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "GetRole",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 2,
+        "error": null,
+        "event_name": "ListAttachedRolePolicies",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 3,
+        "error": null,
+        "event_name": "ListAttachedRolePolicies",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ListInstanceProfilesForRole",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ListRolePolicies",
+        "event_source": "iam.amazonaws.com",
+        "phase": "apply"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "ListRolePolicies",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      },
+      {
+        "count": 1,
+        "error": null,
+        "event_name": "RemoveRoleFromInstanceProfile",
+        "event_source": "iam.amazonaws.com",
+        "phase": "destroy"
+      }
+    ],
+    "provider": "6.64.0",
+    "readback_utc": "2026-11-22T06:24:03.464051+00:00",
+    "terraform": "1.16.2",
+    "window": {
+      "destroy_start": "2026-11-22T06:12:50.868746+00:00",
+      "end": "2026-11-22T06:13:24.118667+00:00",
+      "start": "2026-11-22T06:12:18.258798+00:00"
+    }
+  },
+  "schema": "inf060-operator-action-trace-v1",
+  "trace_basis": "Sealed native Terraform configuration with CPU AMI, m6i.large, and a dedicated trace session. Resource graph, GP3, profile, IMDSv2 and terminate-on-shutdown retained.",
+  "user_agent_filter": [
+    "Terraform/1.16.2",
+    "terraform-provider-aws/6.64.0"
+  ]
+}

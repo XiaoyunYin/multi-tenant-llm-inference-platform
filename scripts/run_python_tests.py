@@ -49,9 +49,12 @@ def main():
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--weighted", action="store_true")
+    parser.add_argument(
+        "--directory", choices=("python/tests", "scripts/tests"), default="python/tests"
+    )
     parser.add_argument("--ceiling", type=int)
     args = parser.parse_args()
-    directory = Path("python/tests").resolve()
+    directory = Path(args.directory).resolve(strict=True)
     sys.path.insert(0, str(directory))
     selected = modules(directory, args.index, args.count, weighted=args.weighted)
     print(

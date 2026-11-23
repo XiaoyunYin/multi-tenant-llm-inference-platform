@@ -55,6 +55,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SPEND_LEDGER_PATH = ROOT / "docs/evidence/m5-package-a/spend-ledger.json"
 WINDOWS_COMMAND_LINE_LIMIT = 30_000
 SSM_PARAMETER_BYTES_LIMIT = 60_000
+ROUTINE_RECEIPT_MAX_BYTES = 512 * 1024**2
 
 
 def ssm_registration_window_s(manifest):
@@ -1255,7 +1256,14 @@ class Ports(Operator):
             cwd=self.directory / "terraform",
             output=output,
             timeout=max(0.001, deadline - time.time()),
-            env={**os.environ, "AWS_PROFILE": self.inputs["aws_profile"]},
+            env={
+                **os.environ,
+                **(
+                    {"AWS_PROFILE": self.inputs["aws_profile"]}
+                    if self.inputs["aws_profile"]
+                    else {}
+                ),
+            },
         )
 
     def apply(self, end):
@@ -1602,9 +1610,10 @@ class Ports(Operator):
         save(self.runtime / "gate-a-pre-p-staging.json", receipt)
         return receipt
 
-    def run_checks(self, end):
+    def run_checks(self, end, *, start=True):
         hard_cap = self.manifest.get("hard_cap_usd", CAP_USD)
-        self.request("/start", b"", end=end)
+        if start:
+            self.request("/start", b"", end=end)
         previous_progress = None
         while time.time() < end:
             if (
@@ -1627,19 +1636,28 @@ class Ports(Operator):
 
     def retrieve(self, end):
         started = time.time()
+        routine = self.manifest.get("role") == "routine_tests"
+        archive_bytes = None
+        bytes_written = 0
 
-        def unreachable(reason):
+        def unavailable(reason, status="unreachable"):
             result = {
                 "complete": False,
-                "status": "unreachable",
+                "status": status,
                 "reason": reason,
                 "elapsed_s": time.time() - started,
             }
+            if routine:
+                result.update(
+                    freeze_elapsed_s=time.time() - started,
+                    archive_bytes=archive_bytes,
+                    bytes_written=bytes_written,
+                )
             save(self.runtime / "retrieval.json", result)
             return result
 
         if not self.status_answered:
-            return unreachable("status_never_answered")
+            return unavailable("status_never_answered")
         # Locate ambiguous Apply effects even when Apply never returned an ID.
         self.deadline = end
         if self.host is None:
@@ -1651,7 +1669,41 @@ class Ports(Operator):
         try:
             meta = json.loads(self.request("/freeze", b"", end=reachability_end)[0])
         except TimeoutError:
-            return unreachable("freeze_unanswered")
+            return unavailable("freeze_unanswered")
+        if routine:
+            # Match the standalone host's fixed routine role policy. This is
+            # not a required input of the shared Ports manifest.
+            limit = ROUTINE_RECEIPT_MAX_BYTES
+            # Reserve two write passes at the existing conservative byte rate:
+            # the original compression and a truncation rewrite. All polling
+            # and any further rewrites share the original absolute cutoff.
+            write_end = min(end, started + transfer_seconds(limit))
+            while meta.get("state") == "archiving":
+                bytes_written = meta["bytes_written"]
+                remaining = write_end - time.time()
+                if remaining <= 0:
+                    return unavailable("archive_write_deadline", "failed")
+                time.sleep(min(1, remaining))
+                if time.time() >= write_end:
+                    return unavailable("archive_write_deadline", "failed")
+                try:
+                    meta = json.loads(self.request("/freeze", b"", end=write_end)[0])
+                except TimeoutError:
+                    return unavailable("archive_poll_unanswered")
+            if meta.get("state") == "failed":
+                return unavailable(meta["reason"], "failed")
+            if meta.get("state") not in (None, "ready"):
+                raise ValueError("archive_freeze_state")
+            archive_bytes = meta["bytes"]
+            if type(archive_bytes) is not int or not 0 < archive_bytes <= limit:
+                raise ValueError("archive_size_limit")
+            meta = {
+                **meta,
+                "archive_bytes": archive_bytes,
+                "host_freeze_elapsed_s": meta.get("freeze_elapsed_s"),
+                "freeze_elapsed_s": time.time() - started,
+            }
+            save(self.runtime / "retrieval.json", {**meta, "complete": False})
         # An acknowledged freeze gets the full byte-based transfer/reconnect
         # budget, still bounded by the original absolute cleanup end.
         end = min(end, time.time() + transfer_seconds(meta["bytes"]))
@@ -1685,8 +1737,11 @@ class Ports(Operator):
                 self.command(
                     [
                         "aws",
-                        "--profile",
-                        self.inputs["aws_profile"],
+                        *(
+                            ["--profile", self.inputs["aws_profile"]]
+                            if self.inputs["aws_profile"]
+                            else []
+                        ),
                         "--region",
                         "us-east-1",
                         "ec2",
@@ -2324,6 +2379,8 @@ class GateALifecycle:
 
     def checkpoint(self):
         now = self.clock()
+        # Gate A sender/receiver archives stay on the 32 MiB legacy host path.
+        # The wider routine_tests and descriptive_operator roles never use it.
         reserve = CLEANUP_S + transfer_seconds(EXPORT_MAX_BYTES)
         if now >= self.end - reserve:
             raise RuntimeError("gate_a:deadline_reserve")
@@ -2353,6 +2410,7 @@ class GateALifecycle:
         self.cap = self.manifest.get("hard_cap_usd", CAP_USD)
         self.receipt.update(first_possible_billable_at_epoch=self.start, deadline_epoch=self.end)
         save(self.output / "lifecycle.json", self.receipt)
+        # Same 32 MiB Gate A sender/receiver reserve as checkpoint().
         run_end = self.end - CLEANUP_S - transfer_seconds(EXPORT_MAX_BYTES)
         try:
             self.call("apply", lambda: self.ports.apply(run_end))

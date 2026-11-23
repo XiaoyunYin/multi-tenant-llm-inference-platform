@@ -14,6 +14,16 @@ spec.loader.exec_module(runner)
 
 
 class ShardTests(unittest.TestCase):
+    def test_routine_script_shards_can_be_selected_without_double_discovery(self):
+        from inference_platform.routine_aws_tests import selection
+
+        shards = [{"index": i, "count": 4} for i in range(4)]
+        self.assertEqual(selection({"script_shards": shards})["script_shards"], shards)
+        with self.assertRaisesRegex(ValueError, "script_shards_already_included"):
+            selection({"script_shards": shards, "python_shards": shards})
+        with self.assertRaisesRegex(ValueError, "routine:shard"):
+            selection({"script_shards": [{"index": 0, "count": 1, "weighted": True}]})
+
     def test_weighted_union_is_disjoint_collectors_isolated_and_ceilings_have_margin(
         self,
     ):

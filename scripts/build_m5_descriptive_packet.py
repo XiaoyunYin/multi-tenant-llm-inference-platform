@@ -20,6 +20,28 @@ from pathlib import Path
 
 from inference_platform.m5_descriptive_operator import session_timing
 from inference_platform.package_a_operator import python_hashes
+from inference_platform.inf060_eks_receipts import schedule_digest
+from inference_platform.inf060_eks_schedule import (
+    TENANTS,
+    SEED,
+    WINDOW_SECONDS,
+    WINDOW_WAIT_SECONDS,
+)
+from inf060_eks_cpu_plan import (
+    IMAGE_ARCHIVE,
+    NODE_COUNT,
+    OPERATOR_TYPE,
+    PLAN_DIRECTORY,
+    SERVICE_IMAGES,
+    SESSION,
+    STANDARD_QUOTA_CODE,
+    WORKER_TYPE,
+    archive_image_bindings,
+    canonical_digest,
+    check_image_bindings,
+    policy_actions,
+    verify_cpu_plan,
+)
 from m5_descriptive_eks import (
     validate_cleanup_policy,
     validate_cleanup_resource_tags,
@@ -65,7 +87,18 @@ def validate_lambda_limits(value, function_count):
         raise ValueError("descriptive:lambda_cleanup_concurrency_unavailable")
 
 
-def refresh(directory, profile):
+def cpu_zones(offerings):
+    zones = sorted(
+        row["Location"]
+        for row in offerings["InstanceTypeOfferings"]
+        if row["InstanceType"] == WORKER_TYPE
+    )
+    if len(set(zones)) < 2:
+        raise ValueError("cpu_clock:two_offering_zones_required")
+    return [{"zone": zones[0], "control_plane_zone": zones[1]}]
+
+
+def refresh(directory, profile, *, cpu_clock=False):
     import boto3
 
     directory.mkdir(parents=True, exist_ok=False)
@@ -103,7 +136,7 @@ def refresh(directory, profile):
     lambda_limits = lambda_settings["AccountLimit"]
     lambda_function_count = lambda_settings["AccountUsage"]["FunctionCount"]
     validate_lambda_limits(lambda_limits, lambda_function_count)
-    session = "m5-desc-r379"
+    session = SESSION if cpu_clock else "m5-desc-r379"
     bucket = (
         session + "-" + hashlib.sha256(identity["Account"].encode()).hexdigest()[:12]
     )
@@ -126,7 +159,12 @@ def refresh(directory, profile):
         if not read(service, method, absent_codes=absent, **kwargs).get("absent"):
             raise ValueError("descriptive:existing_session_resource:" + service)
     releases = {}
-    for role, branch in (("gpu", "nvidia"), ("cpu", "standard")):
+    profiles = (
+        (("cpu", "standard"),)
+        if cpu_clock
+        else (("gpu", "nvidia"), ("cpu", "standard"))
+    )
+    for role, branch in profiles:
         base = f"/aws/service/eks/optimized-ami/1.35/amazon-linux-2023/x86_64/{branch}/recommended/"
         releases[role] = read("ssm", "get_parameter", Name=base + "release_version")[
             "Parameter"
@@ -156,28 +194,54 @@ def refresh(directory, profile):
             for version in row["addonVersions"]
         ):
             raise ValueError("descriptive:addon_unavailable:" + name)
-    quota = read(
-        "service-quotas", "get_service_quota", ServiceCode="ec2", QuotaCode="L-DB2E81BA"
-    )["Quota"]["Value"]
-    read(
-        "service-quotas", "get_service_quota", ServiceCode="ec2", QuotaCode="L-1216C47A"
+    if cpu_clock:
+        schema = read(
+            "eks",
+            "describe_addon_configuration",
+            addonName="vpc-cni",
+            addonVersion=addons["addons"]["vpc-cni"],
+        )
+        if "enableNetworkPolicy" not in json.loads(schema["configurationSchema"]).get(
+            "definitions", {}
+        ).get("VpcCni", {}).get("properties", {}):
+            raise ValueError("cpu_clock:cni_policy_schema")
+    types = (
+        (WORKER_TYPE, OPERATOR_TYPE)
+        if cpu_clock
+        else ("g6.xlarge", WORKER_TYPE, OPERATOR_TYPE)
     )
+    quota = read(
+        "service-quotas",
+        "get_service_quota",
+        ServiceCode="ec2",
+        QuotaCode=STANDARD_QUOTA_CODE if cpu_clock else "L-DB2E81BA",
+    )["Quota"]["Value"]
+    if not cpu_clock:
+        read(
+            "service-quotas",
+            "get_service_quota",
+            ServiceCode="ec2",
+            QuotaCode="L-1216C47A",
+        )
     read(
         "ec2",
         "describe_instance_types",
-        InstanceTypes=["g6.xlarge", "c6i.2xlarge", "m6i.2xlarge"],
+        InstanceTypes=list(types),
     )
     offerings = read(
         "ec2",
         "describe_instance_type_offerings",
         LocationType="availability-zone",
         Filters=[
-            {"Name": "instance-type", "Values": ["g6.xlarge", "c6i.2xlarge"]},
+            {
+                "Name": "instance-type",
+                "Values": [WORKER_TYPE] if cpu_clock else ["g6.xlarge", WORKER_TYPE],
+            },
         ],
         MaxResults=100,
     )
-    zones = zone_pairs(offerings)
-    if quota < 8:
+    zones = cpu_zones(offerings) if cpu_clock else zone_pairs(offerings)
+    if quota < (32 if cpu_clock else 8):
         raise ValueError("descriptive:quota_or_offering")
     read(
         "ec2",
@@ -186,7 +250,7 @@ def refresh(directory, profile):
         MaxResults=100,
     )
     prices = {}
-    for instance in ("g6.xlarge", "c6i.2xlarge", "m6i.2xlarge"):
+    for instance in types:
         filters = {
             "regionCode": "us-east-1",
             "instanceType": instance,
@@ -252,7 +316,7 @@ def refresh(directory, profile):
         "caller_arn": identity["Arn"],
         "releases": releases,
         "operator_ami": operator,
-        "gpu_quota_vcpus": quota,
+        ("standard_quota_vcpus" if cpu_clock else "gpu_quota_vcpus"): quota,
         "zone_pairs": zones,
         "lambda_account_limits": lambda_limits,
         "lambda_function_count": lambda_function_count,
@@ -340,14 +404,16 @@ def startup_bound(path):
     }
 
 
-def forecast(live):
+def forecast(live, *, cpu_clock=False):
     hourly_rate = (
-        2 * live["prices"]["g6.xlarge"]
-        + 2 * live["prices"]["c6i.2xlarge"]
-        + live["prices"]["m6i.2xlarge"]
+        (0 if cpu_clock else 2 * live["prices"]["g6.xlarge"])
+        + (NODE_COUNT if cpu_clock else 2) * live["prices"][WORKER_TYPE]
+        + live["prices"][OPERATOR_TYPE]
         + live["prices"]["eks"]
-        + 5 * live["prices"]["ipv4"]
-        + 580 * live["prices"]["gp3_gib_month"] / 720
+        + (NODE_COUNT + 1 if cpu_clock else 5) * live["prices"]["ipv4"]
+        + (100 + NODE_COUNT * 40 if cpu_clock else 580)
+        * live["prices"]["gp3_gib_month"]
+        / 720
     )
     return hourly_rate, math.ceil((5.5 * hourly_rate + 10) * 1.25 * 100) / 100
 
@@ -359,7 +425,7 @@ def source_bundle(destination, commit):
     return destination
 
 
-def prepare(directory, commit, refresh_path, startup_path):
+def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
     directory = directory.resolve()
     current = (
         subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip()
@@ -378,12 +444,15 @@ def prepare(directory, commit, refresh_path, startup_path):
         for r in live["sources"]
         if r["operation"] == "describe_instance_type_offerings"
     )
-    zones = zone_pairs(
-        json.loads((refresh_path.parent / offering_source["response"]).read_bytes())
+    cpu_clock = cpu_images is not None
+    expected_quota = "standard_quota_vcpus" if cpu_clock else "gpu_quota_vcpus"
+    offering = json.loads(
+        (refresh_path.parent / offering_source["response"]).read_bytes()
     )
+    zones = cpu_zones(offering) if cpu_clock else zone_pairs(offering)
     if zones != live["zone_pairs"]:
         raise ValueError("descriptive:live_zone_set_changed")
-    hourly_rate, forecast_usd = forecast(live)
+    hourly_rate, forecast_usd = forecast(live, cpu_clock=cpu_clock)
     descriptive_ledger = ROOT / "docs/evidence/m5-descriptive-eks/spend-ledger.json"
     prior = (
         json.loads(descriptive_ledger.read_bytes())["cumulative_product_estimate_usd"]
@@ -397,7 +466,7 @@ def prepare(directory, commit, refresh_path, startup_path):
     directory.mkdir(parents=True, exist_ok=False)
     bundle = source_bundle(directory / "source.bundle", commit)
     upload_bound = transfer_bound(bundle.stat().st_size)
-    session = "m5-desc-r379"
+    session = SESSION if cpu_clock else "m5-desc-r379"
     bucket = session + "-" + hashlib.sha256(live["account"].encode()).hexdigest()[:12]
     group = (
         f"arn:aws:resource-groups:us-east-1:{live['account']}:group/{session}-capacity"
@@ -530,7 +599,7 @@ def prepare(directory, commit, refresh_path, startup_path):
     alternatives = []
     for pair in zones:
         first, second = pair["zone"], pair["control_plane_zone"]
-        target = directory / ("zone-" + first)
+        target = directory / (PLAN_DIRECTORY if cpu_clock else "zone-" + first)
         shutil.copytree(
             ROOT / "infra/terraform/m5_descriptive",
             target,
@@ -543,21 +612,51 @@ def prepare(directory, commit, refresh_path, startup_path):
                 "source_commit": commit,
                 "operator_ami": live["operator_ami"],
                 "zones": [first, second],
-                "gpu_release": live["releases"]["gpu"],
+                "gpu_release": live["releases"].get("gpu", ""),
                 "cpu_release": live["releases"]["cpu"],
                 "capacity_group_arn": group,
-                "quota_vcpus": live["gpu_quota_vcpus"],
+                "quota_vcpus": live[expected_quota],
                 "prior_spend_usd": prior,
                 "session_forecast_usd": forecast_usd,
+                **(
+                    {"cpu_clock_rehearsal": True, "cpu_clock_account": live["account"]}
+                    if cpu_clock
+                    else {}
+                ),
             },
         )
-        verify_plan(result)
+        operator_policy = verify_cpu_plan(result) if cpu_clock else verify_plan(result)
         validate_cleanup_resource_tags(result, session, json.loads(policy))
         alternatives.append({**pair, "directory": target.name})
     write(directory / "plans.json", plans)
-    startup = startup_bound(startup_path)
+    startup = (
+        {
+            "seconds": 180,
+            "evidence": {"basis": "pinned CPU kind readiness bound, no GPU staging"},
+        }
+        if cpu_clock
+        else startup_bound(startup_path)
+    )
     write(directory / "startup-evidence.json", startup["evidence"])
+    if cpu_clock:
+        inputs, images = cpu_image_input(
+            directory, cpu_images, commit, live["operator_ami"]
+        )
+        upload_bound += transfer_bound(inputs["bundle_bytes"])
     timing = session_timing(startup["seconds"], upload_bound)
+    if cpu_clock:
+        workload = 3 * WINDOW_WAIT_SECONDS + 956
+        available = (
+            timing["infrastructure_before_capacity_wait_seconds"]
+            + timing["minimum_workload_seconds"]
+            - workload
+        )
+        timing.update(
+            minimum_workload_seconds=workload,
+            infrastructure_before_capacity_wait_seconds=available,
+            remaining_infrastructure_seconds=available,
+            capacity_wait_budget_seconds=0,
+        )
     if (
         timing["remaining_infrastructure_seconds"]
         < timing["apply_through_staging_reserve_seconds"]
@@ -679,6 +778,57 @@ def prepare(directory, commit, refresh_path, startup_path):
         ],
         "files": {},
     }
+    if cpu_clock:
+        host["gate_a_inputs"] = inputs
+        manifest["descriptive"]["cpu_clock_rehearsal"] = {
+            "selection": alternatives[0],
+            "images": images,
+            "service_images": SERVICE_IMAGES,
+            "operator_policy_sha256": canonical_digest(operator_policy),
+            "operator_actions_sha256": canonical_digest(
+                policy_actions(operator_policy)
+            ),
+            "backstop_actions_sha256": canonical_digest(
+                policy_actions(json.loads(policy))
+            ),
+        }
+        manifest["descriptive"]["streaming"] = {
+            "gpu_hourly_usd": 0,
+            "conditions": {
+                "source": commit,
+                "artifact_path": "inf060-cpu-eks-clock-rehearsal",
+                "model": "cpu-sse-mock",
+                "revision": sha(ROOT / "scripts/inf060_kind_engine.py"),
+                "engine_version": "cpu-mock",
+                "image_digest": images["client"]["manifest_digest"],
+                "engine_flags": ["epoch-frontend-abort-fixture"],
+                "gpu_type": None,
+                "gpu_count": 0,
+                "capacity_type": "on-demand-cpu",
+                "zone": [
+                    alternatives[0]["zone"],
+                    alternatives[0]["control_plane_zone"],
+                ],
+                "policy": "round_robin",
+                "tenants": list(TENANTS),
+                "seed": SEED,
+                "run_count": 1,
+                "schedule_sha256": schedule_digest(),
+                "pins": {"images": images, **SERVICE_IMAGES},
+                "limits": {"window_seconds": WINDOW_SECONDS, "window_labels": ["8"]},
+            },
+        }
+        manifest["payload_transfer"]["bytes"] += inputs["bundle_bytes"]
+        manifest["sequence"] = [
+            "verify exact committed CPU review, all bindings and live standard vCPU headroom; consume once",
+            "arm original deadline; apply saved bootstrap and cleanup backstop; verify witness",
+            "recheck and record live standard vCPU headroom; apply one saved CPU-only composed plan without capacity reservation",
+            "bootstrap; stage bound source and images; confirm role, CNI and cross-node policy",
+            "measure idle and exec fallback; run smoke, warmup and a single 600 s 8 req/s window",
+            "verify peak and whole-window clocks; freeze, retrieve and independently recount",
+            "destroy main and bootstrap; verify zero while independent backstop is armed",
+            "destroy backstop and verify final inventory",
+        ]
     manifest["files"] = {
         p.relative_to(directory).as_posix(): {
             "bytes": p.stat().st_size,
@@ -687,8 +837,38 @@ def prepare(directory, commit, refresh_path, startup_path):
         for p in sorted(directory.rglob("*"))
         if p.is_file() and ".terraform" not in p.parts
     }
+    if cpu_clock:
+        from inf060_eks_cpu_plan import verify_cpu_binding
+
+        verify_cpu_binding(directory, manifest)
     write(directory / "manifest.json", manifest)
     return manifest
+
+
+def cpu_image_input(directory, images, commit, operator_ami):
+    receipt = json.loads((images / "images.json").read_bytes())
+    archive = images / IMAGE_ARCHIVE
+    facts = {"bytes": archive.stat().st_size, "sha256": sha(archive)}
+    if (
+        receipt["source"] != commit
+        or receipt["archive"] != facts
+        or receipt["operator_ami"] != operator_ami
+    ):
+        raise ValueError("cpu_clock:image_producer_binding")
+    check_image_bindings(archive_image_bindings(archive), receipt["images"])
+    write(directory / "cpu-image-producer.json", receipt)
+    bundle = directory / "cpu-images.tar"
+    with tarfile.open(bundle, "x") as output:
+        member = tarfile.TarInfo(IMAGE_ARCHIVE)
+        member.size = facts["bytes"]
+        with archive.open("rb") as stream:
+            output.addfile(member, stream)
+    return {
+        "bundle_path": bundle.name,
+        "bundle_sha256": sha(bundle),
+        "bundle_bytes": bundle.stat().st_size,
+        "inventory": {IMAGE_ARCHIVE: facts},
+    }, receipt["images"]
 
 
 def main():
@@ -697,14 +877,16 @@ def main():
     refreshed = sub.add_parser("refresh")
     refreshed.add_argument("--directory", type=Path, required=True)
     refreshed.add_argument("--profile", default="admin-learning")
+    refreshed.add_argument("--cpu-clock", action="store_true")
     prepared = sub.add_parser("prepare")
     prepared.add_argument("--directory", type=Path, required=True)
     prepared.add_argument("--commit", required=True)
     prepared.add_argument("--refresh", type=Path, required=True)
     prepared.add_argument("--startup-evidence", type=Path)
+    prepared.add_argument("--cpu-images", type=Path)
     args = parser.parse_args()
     if args.mode == "refresh":
-        value = refresh(args.directory, args.profile)
+        value = refresh(args.directory, args.profile, cpu_clock=args.cpu_clock)
         print(
             json.dumps(
                 {
@@ -716,7 +898,11 @@ def main():
         )
     else:
         value = prepare(
-            args.directory, args.commit, args.refresh, args.startup_evidence
+            args.directory,
+            args.commit,
+            args.refresh,
+            args.startup_evidence,
+            cpu_images=args.cpu_images,
         )
         print(
             json.dumps(

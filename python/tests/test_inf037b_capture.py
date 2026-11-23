@@ -175,22 +175,39 @@ class CaptureTests(unittest.TestCase):
     def test_owner_tick_settles_client_without_per_request_barrier(self):
         with TemporaryDirectory() as directory:
             owner = self.owner(Path(directory))
+            settle_by = time.monotonic() + 5
 
             def client():
                 owner.retain("kube", 0, 1, b"client", {})
                 owner.client_complete("kube", 0, 1, b"", {"client_request_end": True})
-                time.sleep(0.35)
-                self.assertEqual(owner.client_completions, [])
-                self.assertFalse(owner.wire["kube"]["pending"])
-                self.assertGreater(owner.wire["kube"]["barriers"], 0)
+                while time.monotonic() < settle_by:
+                    # Wait for the barrier to finish, including the completion it drained.
+                    if owner.io_lock.acquire(blocking=False):
+                        try:
+                            with owner.lock:
+                                wire = owner.wire["kube"]
+                                if (
+                                    not owner.client_completions
+                                    and not wire["pending"]
+                                    and wire["barriers"]
+                                ):
+                                    return
+                        finally:
+                            owner.io_lock.release()
+                    time.sleep(0.02)
+                self.fail("owner did not settle the client completion before the deadline")
 
-            with patch("inference_platform.inf037b_capture.require_group_leader"):
+            with (
+                patch("inference_platform.inf037b_capture.require_group_leader"),
+                patch("os._exit", side_effect=IntegrityError("test_fenced")) as exit_process,
+            ):
                 descriptor = owner.run(
-                    periodic=[("clock", 1000, lambda: None)],
+                    periodic=[],
                     watches={},
-                    actions={"kube": client},
-                    stop_ns=time.monotonic_ns() + 1_000_000_000,
+                    actions={"kube": client, "clock": lambda: None},
+                    stop_ns=time.monotonic_ns() + 6_000_000_000,
                 )
+            exit_process.assert_not_called()
             self.assertTrue(descriptor["transport_clean"])
             self.assertTrue(owner.group_tick_intervals_ms)
             self.assertEqual(

@@ -78,6 +78,7 @@ func (e *unsupportedParameterError) Error() string { return "unsupported paramet
 
 type Config struct {
 	LogAdmissionTiming     bool
+	StreamingObservations  bool
 	MaxRequestBytes        int64
 	MaxEventBytes          int
 	MaxConcurrent          int
@@ -775,6 +776,10 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		err      error
 	}
 	upstreamResults := make(chan upstreamResult, 1)
+	var predispatchNS int64
+	if g.config.StreamingObservations {
+		predispatchNS = time.Since(started).Nanoseconds()
+	}
 	go func() {
 		result := upstreamResult{}
 		closed := func() {
@@ -884,6 +889,10 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	response.Header().Set("Content-Type", "text/event-stream")
 	response.Header().Set("Cache-Control", "no-cache")
 	response.Header().Set("X-Inference-Backend", backend.ID)
+	if g.config.StreamingObservations {
+		response.Header().Set("X-Inf060-Gateway-Predispatch-Ns", strconv.FormatInt(predispatchNS, 10))
+		response.Header().Set("X-Inf060-Backend-Pod-Uid", selection.BackendGeneration)
+	}
 	response.WriteHeader(http.StatusOK)
 	terminal.committed = true
 	finished := firstValidated.kind == eventFinish

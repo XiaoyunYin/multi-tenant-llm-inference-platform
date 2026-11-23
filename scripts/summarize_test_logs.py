@@ -142,6 +142,16 @@ def summarize_directory(directory):
             continue
         try:
             result["framework_logs"][name] = summarize(text)
+            if re.fullmatch(r"scripts-shard-\d+\.log", name):
+                finished = {}
+                for line in text.splitlines():
+                    if line.startswith('{"module_finish":'):
+                        event = json.loads(line)
+                        module = event["module_finish"]
+                        if module in finished:
+                            raise ValueError("test_summary:duplicate_module_finish")
+                        finished[module] = event["tests"]
+                result["framework_logs"][name]["completed_modules"] = finished
         except ValueError as error:
             if str(error) != "test_summary:no_framework_summary":
                 raise

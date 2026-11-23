@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -193,6 +194,32 @@ func TestGatewayStreamsBeforeCompletionAndAddsUsageProvenance(t *testing.T) {
 	}
 	if snapshot := gateway.Metrics(); snapshot.Completed != 1 || snapshot.Active != 0 {
 		t.Fatalf("unexpected metrics: %+v", snapshot)
+	}
+}
+
+func TestStreamingObservationsAreOptIn(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
+			config := DefaultConfig()
+			config.StreamingObservations = enabled
+			_, server := newTestGateway(t, config, streamHandler(contentEvent+finishEvent+usageEvent+doneEvent))
+			resp := requestGateway(t, server.Client(), server.URL)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("unexpected status %d", resp.StatusCode)
+			}
+			span := resp.Header.Get("X-Inf060-Gateway-Predispatch-Ns")
+			identity := resp.Header.Get("X-Inf060-Backend-Pod-Uid")
+			if !enabled {
+				if span != "" || identity != "" {
+					t.Fatal("disabled mode exposed streaming observations")
+				}
+				return
+			}
+			if elapsed, err := strconv.ParseInt(span, 10, 64); err != nil || elapsed < 0 || identity == "" {
+				t.Fatalf("invalid streaming observations %q %q", span, identity)
+			}
+		})
 	}
 }
 

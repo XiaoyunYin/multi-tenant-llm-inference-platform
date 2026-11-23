@@ -7,6 +7,10 @@ variable "gpu_enabled" {
   type        = bool
   default     = true
 }
+variable "cpu_clock_rehearsal" {
+  type    = bool
+  default = false
+}
 variable "offline_validation" {
   type    = bool
   default = true
@@ -51,9 +55,9 @@ variable "pins" {
   validation {
     condition = !var.enable_session || (
       can(regex("^1\\.[0-9]+$", var.pins.kubernetes_version)) &&
-      can(regex("^1\\.[0-9]+\\.[0-9]+-[0-9]{8}$", var.pins.gpu_release)) &&
+      (var.cpu_clock_rehearsal || can(regex("^1\\.[0-9]+\\.[0-9]+-[0-9]{8}$", var.pins.gpu_release))) &&
       can(regex("^1\\.[0-9]+\\.[0-9]+-[0-9]{8}$", var.pins.cpu_release)) &&
-      startswith(var.pins.gpu_release, "${var.pins.kubernetes_version}.") &&
+      (var.cpu_clock_rehearsal || startswith(var.pins.gpu_release, "${var.pins.kubernetes_version}.")) &&
       startswith(var.pins.cpu_release, "${var.pins.kubernetes_version}.") &&
       can(regex("^arn:aws:resource-groups:us-east-1:[0-9]{12}:group/${var.session_id}-capacity$", var.pins.capacity_group_arn)) &&
       can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", var.pins.operator_role_arn)) &&
@@ -75,7 +79,7 @@ variable "admission" {
   default = { quota_vcpus = 0, cumulative_usd = 0, bringup_max_usd = 0, measurement_usd = 0, remaining_usd = 0, checkpoint_record = "" }
   validation {
     condition = !var.enable_session || (
-      var.admission.quota_vcpus >= 8 &&
+      var.admission.quota_vcpus >= (var.cpu_clock_rehearsal ? 32 : 8) &&
       var.admission.cumulative_usd >= 0 && var.admission.bringup_max_usd > 0 &&
       var.admission.measurement_usd > 0 && var.admission.remaining_usd > 0 &&
       var.admission.cumulative_usd + var.admission.bringup_max_usd + var.admission.measurement_usd + var.admission.remaining_usd <= 300 &&
@@ -83,7 +87,7 @@ variable "admission" {
         var.admission.cumulative_usd + var.admission.bringup_max_usd + var.admission.measurement_usd < 150 ||
       can(regex("^DEC-[0-9]{3}:.+$", var.admission.checkpoint_record)))
     )
-    error_message = "Need two-node GPU quota, complete positive session/remainder estimates within $300, and a recorded decision if either cumulative session maximum reaches $150. This input is not approval."
+    error_message = "Need session vCPU quota, complete positive session/remainder estimates within $300, and a recorded decision if either cumulative session maximum reaches $150. This input is not approval."
   }
 }
 variable "gpu_change_path" {

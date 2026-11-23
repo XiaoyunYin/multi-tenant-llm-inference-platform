@@ -189,6 +189,10 @@ class Host:
         self.log = None
         self.frozen = None
         self.lock = threading.RLock()
+        self.freeze_lock = threading.Lock()
+        self.freeze_started = None
+        self.freeze_finished = None
+        self.freeze_failed = False
         self.cancelled = False
 
     def _archive_entries(self):
@@ -233,6 +237,130 @@ class Host:
                 info = tarfile.TarInfo("truncated.json")
                 info.size = len(content)
                 stream.addfile(info, io.BytesIO(content))
+
+    def _build_archive(self):
+        archive = self.root / "receipts.tar.gz"
+        temporary_archive = self.root / "receipts.tar.gz.tmp"
+        # Raw logs and receipts only; fixture construction scratch is not
+        # part of the export. Existing files survive a failed runner.
+        entries = self._archive_entries()
+        self._write_archive(temporary_archive, entries)
+        limit = (
+            512 * CHUNK
+            if self.manifest
+            and self.manifest.get("role") in {"routine_tests", "descriptive_operator"}
+            else EXPORT_MAX_BYTES
+        )
+        bounded = temporary_archive.stat().st_size > limit
+        if (
+            bounded
+            and self.manifest
+            and self.manifest.get("role") == "descriptive_operator"
+        ):
+            raise ValueError("descriptive:receipt_export_limit")
+        truncated = []
+        if bounded:
+            for source, arcname in entries:
+                if (
+                    source.is_file()
+                    and not source.is_symlink()
+                    and source.stat().st_size > EXPORT_FILE_MAX_BYTES
+                ):
+                    truncated.append(
+                        {
+                            "path": arcname,
+                            "original_bytes": source.stat().st_size,
+                            "sha256": digest(source),
+                            "dropped": False,
+                        }
+                    )
+            self._write_archive(temporary_archive, entries, truncated=truncated)
+            droppable = sorted(
+                (
+                    item
+                    for item in truncated
+                    if (
+                        Path(item["path"]).suffix.lower()
+                        in {".log", ".out", ".err", ".stdout", ".stderr"}
+                        or ".log." in Path(item["path"]).name.lower()
+                    )
+                    and Path(item["path"]).suffix.lower() != ".json"
+                    and "receipt" not in Path(item["path"]).name.lower()
+                ),
+                key=lambda item: (-item["original_bytes"], item["path"]),
+            )
+            for item in droppable:
+                if temporary_archive.stat().st_size <= EXPORT_MAX_BYTES:
+                    break
+                item["dropped"] = True
+                self._write_archive(temporary_archive, entries, truncated=truncated)
+            if temporary_archive.stat().st_size > EXPORT_MAX_BYTES:
+                # Keep the best bounded attempt for diagnosis even when
+                # non-log evidence alone cannot fit the transfer bound.
+                os.replace(temporary_archive, archive)
+                raise ValueError("receipt_archive_exceeds_32_mib_after_cut_logs")
+        os.replace(temporary_archive, archive)
+        return {
+            "bytes": archive.stat().st_size,
+            "sha256": digest(archive),
+            "bounded": bounded,
+            "truncated_files": truncated,
+        }
+
+    def background_freeze(self):
+        # Preserve the sealed Gate A and descriptive_operator archive protocol.
+        return (self.manifest or {}).get("role") == "routine_tests"
+
+    def _freeze_status(self):
+        # Caller holds only freeze_lock, never the lock used for runner I/O.
+        if self.freeze_finished is not None:
+            if self.freeze_failed:
+                return {
+                    "state": "failed",
+                    "reason": "archive_build_failed",
+                    "freeze_elapsed_s": self.freeze_finished - self.freeze_started,
+                }
+            return {
+                "state": "ready",
+                **self.frozen,
+                "freeze_elapsed_s": self.freeze_finished - self.freeze_started,
+            }
+        for name in ("receipts.tar.gz.tmp", "receipts.tar.gz"):
+            try:
+                written = (self.root / name).stat().st_size
+            except FileNotFoundError:
+                continue
+            break
+        else:
+            written = 0
+        return {
+            "state": "archiving",
+            "bytes_written": written,
+            "freeze_elapsed_s": time.monotonic() - self.freeze_started,
+        }
+
+    def _finish_freeze(self):
+        try:
+            with self.lock:
+                self.cancel()
+            result = self._build_archive()
+        except Exception:
+            result = None
+        with self.freeze_lock:
+            self.frozen = result
+            self.freeze_failed = result is None
+            self.freeze_finished = time.monotonic()
+
+    def start_freeze(self):
+        with self.freeze_lock:
+            if self.freeze_started is None:
+                self.freeze_started = time.monotonic()
+                try:
+                    threading.Thread(target=self._finish_freeze, daemon=True).start()
+                except RuntimeError:
+                    self.freeze_failed = True
+                    self.freeze_finished = time.monotonic()
+            return self._freeze_status()
 
     def status(self):
         result = {
@@ -282,6 +410,9 @@ class Host:
                 }
             except (OSError, ValueError):
                 result["runner_status"] = {"status": "UNREADABLE"}
+        if self.freeze_started is not None:
+            with self.freeze_lock:
+                result["freeze"] = self._freeze_status()
         return result
 
     def _verify_gate_a_staging(self):
@@ -389,80 +520,11 @@ class Host:
         if path == "/cancel":
             return self.cancel()
         if path == "/freeze":
+            if self.background_freeze():
+                return self.start_freeze()
             self.cancel()
             if self.frozen is None:
-                archive = self.root / "receipts.tar.gz"
-                temporary_archive = self.root / "receipts.tar.gz.tmp"
-                # Raw logs and receipts only; fixture construction scratch is not
-                # part of the export. Existing files survive a failed runner.
-                entries = self._archive_entries()
-                self._write_archive(temporary_archive, entries)
-                limit = (
-                    512 * CHUNK
-                    if self.manifest
-                    and self.manifest.get("role")
-                    in {"routine_tests", "descriptive_operator"}
-                    else EXPORT_MAX_BYTES
-                )
-                bounded = temporary_archive.stat().st_size > limit
-                if (
-                    bounded
-                    and self.manifest
-                    and self.manifest.get("role") == "descriptive_operator"
-                ):
-                    raise ValueError("descriptive:receipt_export_limit")
-                truncated = []
-                if bounded:
-                    for source, arcname in entries:
-                        if (
-                            source.is_file()
-                            and not source.is_symlink()
-                            and source.stat().st_size > EXPORT_FILE_MAX_BYTES
-                        ):
-                            truncated.append(
-                                {
-                                    "path": arcname,
-                                    "original_bytes": source.stat().st_size,
-                                    "sha256": digest(source),
-                                    "dropped": False,
-                                }
-                            )
-                    self._write_archive(temporary_archive, entries, truncated=truncated)
-                    droppable = sorted(
-                        (
-                            item
-                            for item in truncated
-                            if (
-                                Path(item["path"]).suffix.lower()
-                                in {".log", ".out", ".err", ".stdout", ".stderr"}
-                                or ".log." in Path(item["path"]).name.lower()
-                            )
-                            and Path(item["path"]).suffix.lower() != ".json"
-                            and "receipt" not in Path(item["path"]).name.lower()
-                        ),
-                        key=lambda item: (-item["original_bytes"], item["path"]),
-                    )
-                    for item in droppable:
-                        if temporary_archive.stat().st_size <= EXPORT_MAX_BYTES:
-                            break
-                        item["dropped"] = True
-                        self._write_archive(
-                            temporary_archive, entries, truncated=truncated
-                        )
-                    if temporary_archive.stat().st_size > EXPORT_MAX_BYTES:
-                        # Keep the best bounded attempt for diagnosis even when
-                        # non-log evidence alone cannot fit the transfer bound.
-                        os.replace(temporary_archive, archive)
-                        raise ValueError(
-                            "receipt_archive_exceeds_32_mib_after_cut_logs"
-                        )
-                os.replace(temporary_archive, archive)
-                self.frozen = {
-                    "bytes": archive.stat().st_size,
-                    "sha256": digest(archive),
-                    "bounded": bounded,
-                    "truncated_files": truncated,
-                }
+                self.frozen = self._build_archive()
             return self.frozen
         if path.startswith("/archive/"):
             if self.frozen is None:
@@ -474,6 +536,28 @@ class Host:
                 stream.seek(offset)
                 block = stream.read(CHUNK)
             return block
+        if path.startswith("/inf060-snapshot/"):
+            # This response is authenticated by the existing loopback handler.
+            # Only the frozen, scoped projection is reachable through it.
+            import re
+
+            match = re.fullmatch(
+                r"/inf060-snapshot/(0\.25|1|3|8|final)/([0-9]{1,8})", path
+            )
+            if not match or not (self.manifest or {}).get("descriptive", {}).get(
+                "streaming"
+            ):
+                raise ValueError("streaming_snapshot_binding")
+            label, offset = match[1], int(match[2])
+            archive = (
+                self.root / "descriptive-private" / ("snapshot-" + label + ".tar.gz")
+            )
+            size = archive.stat().st_size
+            if archive.is_symlink() or not 0 <= offset < size <= 64 * 1024**2:
+                raise ValueError("streaming_snapshot_limit")
+            with archive.open("rb") as stream:
+                stream.seek(offset)
+                return stream.read(CHUNK)
         if self.cancelled or time.time() >= self.deadline:
             raise TimeoutError("host_work_deadline")
         if path == "/manifest":
@@ -768,8 +852,14 @@ def server(host, port=22280):
                 data = self.rfile.read(size)
                 if len(data) != size:
                     raise ValueError("short_request")
-                with host.lock:
+                if host.background_freeze() and (
+                    self.path == "/freeze"
+                    or (self.path == "/status" and host.freeze_started is not None)
+                ):
                     result = host.dispatch(self.path, data, self.headers)
+                else:
+                    with host.lock:
+                        result = host.dispatch(self.path, data, self.headers)
                 body = (
                     result if isinstance(result, bytes) else json.dumps(result).encode()
                 )

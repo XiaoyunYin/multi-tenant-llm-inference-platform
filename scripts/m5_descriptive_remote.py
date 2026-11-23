@@ -137,14 +137,22 @@ class EKSClusterPorts(ClusterPorts):
         ] = self.startup_seconds
         return result
 
-    def images(self):
+    def prepare_images(self):
+        self.campaign.build()
+
+    def check_pushed_image(self, role, digest, ecr):
+        pass
+
+    def image_registry(self):
         import boto3
 
-        self.campaign.build()
+        return boto3.client("ecr", region_name="us-east-1")
+
+    def images(self):
+        self.prepare_images()
         repository = self.binding["repository_url"]
-        auth = boto3.client("ecr", region_name="us-east-1").get_authorization_token()[
-            "authorizationData"
-        ][0]
+        ecr = self.image_registry()
+        auth = ecr.get_authorization_token()["authorizationData"][0]
         user, password = (
             base64.b64decode(auth["authorizationToken"]).decode().split(":", 1)
         )
@@ -176,6 +184,7 @@ class EKSClusterPorts(ClusterPorts):
                     json.loads(self.call(["docker", "image", "inspect", tag]))[0],
                     repository,
                 )
+                self.check_pushed_image(role, result[role], ecr)
         finally:
             self.call(["docker", "logout", repository.split("/")[0]])
         self.client_image = result["client"]
@@ -308,10 +317,9 @@ class EKSClusterPorts(ClusterPorts):
         self.k("delete", "configmap/model-stager")
         return inventories[0]
 
-    def provision(self):
+    def configure_kubeconfig(self):
         import boto3
 
-        self.call(["systemctl", "start", "docker"])
         cluster = boto3.client("eks", region_name="us-east-1").describe_cluster(
             name=self.cluster
         )["cluster"]
@@ -357,6 +365,10 @@ class EKSClusterPorts(ClusterPorts):
                 }
             )
         )
+
+    def provision(self):
+        self.call(["systemctl", "start", "docker"])
+        self.configure_kubeconfig()
         namespace = self.output / "namespace.json"
         namespace.write_text(
             json.dumps(
@@ -383,18 +395,16 @@ class EKSClusterPorts(ClusterPorts):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "phase",
-        choices=(
-            "provision",
-            "smoke",
-            "load",
-            "gateway_rollout",
-            "replica_rollout",
-            "export",
-            "retrieve",
-        ),
+    historical = (
+        "provision",
+        "smoke",
+        "load",
+        "gateway_rollout",
+        "replica_rollout",
+        "export",
+        "retrieve",
     )
+    parser.add_argument("phase")
     args = parser.parse_args()
     manifest = json.loads(Path("/opt/dec077/runtime.json").read_bytes())
     from inference_platform.m5_payload_guard import install_read_guard
@@ -402,7 +412,24 @@ def main():
     install_read_guard(ROOT, manifest["source_payload"]["paths"])
     # Secrets/kubeconfig never enter the host agent's archive walk, even when
     # a phase fails before export. Only explicitly frozen files are copied out.
-    ports = EKSClusterPorts(Path("/opt/dec077/descriptive-private"), manifest)
+    from m5_descriptive_eks import is_streaming_phase, phase_budget_name
+
+    streaming = manifest["descriptive"].get("streaming")
+    if manifest["descriptive"].get("cpu_clock_rehearsal"):
+        from inf060_eks_cpu_remote import CpuClockPorts
+
+        port_type = CpuClockPorts
+    elif streaming:
+        from inf060_eks_remote import StreamingClusterPorts
+
+        port_type = StreamingClusterPorts
+    else:
+        port_type = EKSClusterPorts
+    if args.phase not in historical and not (
+        streaming and is_streaming_phase(args.phase)
+    ):
+        raise ValueError("descriptive:remote_phase")
+    ports = port_type(Path("/opt/dec077/descriptive-private"), manifest)
     receipts = Path("/opt/dec077/results/runner/descriptive")
     receipts.mkdir(exist_ok=True)
     ports.phase_logs = receipts
@@ -417,7 +444,8 @@ def main():
         "environment": {name: os.environ.get(name) for name in host_environment()},
     }
     remaining = (
-        phase_deadline(ports.original_end, ports.timing, args.phase) - time.time()
+        phase_deadline(ports.original_end, ports.timing, phase_budget_name(args.phase))
+        - time.time()
     )
     if remaining <= 0:
         raise TimeoutError("descriptive:retrieval_cleanup_reserve")
@@ -430,7 +458,17 @@ def main():
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
         try:
-            if args.phase in {"gateway_rollout", "replica_rollout"}:
+            if args.phase.startswith("stream-window-"):
+                result = ports.stream_window(args.phase.removeprefix("stream-window-"))
+            elif args.phase.startswith("stream-snapshot-"):
+                result = ports.stream_freeze(
+                    args.phase.removeprefix("stream-snapshot-")
+                )
+            elif args.phase in {"stream-final", "stream-partial"}:
+                result = ports.stream_freeze(
+                    "final", complete=args.phase == "stream-final"
+                )
+            elif args.phase in {"gateway_rollout", "replica_rollout"}:
                 result = ports.rollout(
                     "gateway" if args.phase == "gateway_rollout" else "vllm"
                 )
@@ -439,13 +477,21 @@ def main():
             else:
                 result = getattr(ports, args.phase)()
         except Exception as error:
-            print(
-                stderr_tail(
-                    type(error).__name__ + ":" + str(error), secrets=(ports.credential,)
-                ),
-                file=sys.stderr,
-                flush=True,
-            )
+            if streaming:
+                from inf060_eks_remote import diagnostic
+
+                record = diagnostic(args.phase, str(error), error)
+                ports.results.setdefault("stream_diagnostics", []).append(record)
+                print(json.dumps(record), file=sys.stderr, flush=True)
+            else:
+                print(
+                    stderr_tail(
+                        type(error).__name__ + ":" + str(error),
+                        secrets=(ports.credential,),
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
             raise
         finally:
             try:

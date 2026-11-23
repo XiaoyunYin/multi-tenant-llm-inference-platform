@@ -18,8 +18,8 @@ ABORT_LINE = re.compile(
 )
 
 
-def _validated_completion_count(data: bytes) -> int:
-    """Read the usage event from the batch in which the strict decoder accepted it."""
+def _validated_frames(data: bytes):
+    """Project fields from a batch after strict SSE validation."""
     frames = data.replace(b"\r\n", b"\n").split(b"\n\n")
     for frame in reversed(frames[:-1]):
         fields = frame.split(b"\n")
@@ -28,9 +28,13 @@ def _validated_completion_count(data: bytes) -> int:
         )
         if payload and payload != b"[DONE]":
             # SSEDecoder has already validated all complete frames in this batch.
-            value = sse_json_loads(payload)
-            if value["choices"] == [] and "usage" in value:
-                return value["usage"]["completion_tokens"]
+            yield sse_json_loads(payload)
+
+
+def _validated_completion_count(data: bytes) -> int:
+    for value in _validated_frames(data):
+        if value["choices"] == [] and "usage" in value:
+            return value["usage"]["completion_tokens"]
     raise ValueError("inf060_validated_usage_missing")
 
 
@@ -40,13 +44,16 @@ def observe_stream(
     cancel_assigned: bool,
     close: Callable[[], None],
     clock_ns: Callable[[], int] = time.perf_counter_ns,
+    details: bool = False,
 ) -> dict:
     """Decode gateway SSE. A finish observed in the same read takes precedence."""
     decoder = SSEDecoder()
     content_reads = []
     bytes_read = 0
     close_ns = None
+    done_ns = None
     token_count = None
+    finish_reason = None
     for read_index, chunk in enumerate(chunks):
         now = clock_ns()
         bytes_read += len(chunk)
@@ -56,11 +63,21 @@ def observe_stream(
         previous = len(decoder.content)
         pending = decoder.buffer
         had_usage = decoder.usage
+        had_finish = decoder.finish
+        had_done = decoder.done
         decoder.feed(chunk, [now // 1_000_000, (now + 999_999) // 1_000_000])
+        if decoder.done and not had_done:
+            done_ns = now
         decoded = len(decoder.content) - previous
         content_reads.extend([(read_index, now, decoded >= 2)] * decoded)
         if decoder.errors:
             break
+        if details and decoder.finish and not had_finish:
+            finish_reason = next(
+                value["choices"][0]["finish_reason"]
+                for value in _validated_frames(pending + chunk)
+                if value["choices"] and value["choices"][0].get("finish_reason") is not None
+            )
         if decoder.usage and not had_usage:
             token_count = _validated_completion_count(pending + chunk)
         if (
@@ -96,12 +113,13 @@ def observe_stream(
         else:
             cancel_status = "not_sent_unfinished"
 
-    return {
+    result = {
         "cancel_assigned": cancel_assigned,
         "cancel_status": cancel_status,
         "cancel_close_monotonic_ns": close_ns,
         "complete": complete,
         "content_event_count": len(content_reads),
+        "first_content_monotonic_ns": content_reads[0][1] if content_reads else None,
         "completion_tokens": token_count,
         "token_itl_eligible": bool(token_gaps),
         "token_itl_ns": token_gaps,
@@ -109,6 +127,14 @@ def observe_stream(
         "same_read_content_pairs": same_read_pairs,
         "coalesced_read_excluded_gaps": coalesced_read_gaps,
     }
+    if details:
+        result.update(
+            content_events=[[read, instant] for read, instant, _ in content_reads],
+            finish_reason=finish_reason,
+            validated_done=complete,
+            done_ns=done_ns if complete else None,
+        )
+    return result
 
 
 def summarize_same_read_by_level(

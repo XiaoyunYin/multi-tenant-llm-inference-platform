@@ -5,6 +5,14 @@ import re
 
 
 def operator_ecr_actions(source):
+    # The routine writer uses the original M5 repository. Its policy is
+    # the false branch when the composed root also supports the CPU clock.
+    source = re.sub(
+        r"(?ms)^(\s*policy\s*=\s*)var\.cpu_clock_rehearsal\s*\?\s*"
+        r"jsonencode\(\{.*?^\s*\]\s*\}\)\s*:\s*(?=jsonencode\(\{)",
+        r"\1",
+        source,
+    )
     result = {}
     for actions, resource in re.findall(
         r'\{\s*Effect\s*=\s*"Allow",\s*Action\s*=\s*(\[[^\]]+\]),\s*Resource\s*=\s*([^}]+)\}',
