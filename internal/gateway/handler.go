@@ -138,6 +138,9 @@ type Gateway struct {
 	client           *http.Client
 	tenants          *TenantRegistry
 	admission        admission.Coordinator
+	usage            usageLedger
+	usagePins        admission.UsagePins
+	usageOwner       string
 	logger           *slog.Logger
 	metrics          Metrics
 	semaphore        chan struct{}
@@ -244,6 +247,10 @@ func New(config Config, registry *Registry, client *http.Client, logger *slog.Lo
 	}
 	if gateway.admission == nil {
 		return nil, errors.New("admission coordinator is required")
+	}
+	if ledger, ok := gateway.admission.(usageLedger); ok && ledger.UsageMeteringEnabled() {
+		gateway.usage = ledger
+		gateway.usageOwner = newID("owner")
 	}
 	managed, _ := gateway.admission.(interface{ ManagedCredentials() bool })
 	if (gateway.tenants.managed != nil) != (managed != nil && managed.ManagedCredentials()) {
@@ -568,6 +575,16 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		g.writeError(response, http.StatusForbidden, "model_not_allowed", requestID, false)
 		return
 	}
+	if g.usage != nil {
+		pins := g.usagePins
+		pins.Model = decoded.Model
+		if !admission.ValidUsagePins(pins) {
+			terminal = requestTerminal{cause: terminalRejected, code: "invalid_request"}
+			g.metrics.rejected.Add(1)
+			g.writeError(response, http.StatusBadRequest, "invalid_request", requestID, false)
+			return
+		}
+	}
 	if decoded.MaxTokens == nil || *decoded.MaxTokens > tenant.MaxOutputTokens {
 		maxTokens := tenant.MaxOutputTokens
 		decoded.MaxTokens = &maxTokens
@@ -663,6 +680,15 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		g.writeError(response, status, code, requestID, true)
 		return
 	}
+	var usage *meteredAttempt
+	if g.usage != nil {
+		usage = g.beginMeteredAttempt(tenant.ID, reservationID, requestID, decoded.Model)
+		defer func() {
+			if usage != nil {
+				g.finishUsage(usage, terminal)
+			}
+		}()
+	}
 	if g.draining.Load() {
 		g.bestEffortRelease(tenant.ID, reservationID, requestID)
 		<-g.semaphore
@@ -699,6 +725,10 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			time.Sleep(cancellationPropagationWindow)
 		}
 		g.bestEffortRelease(tenant.ID, reservationID, requestID)
+		if usage != nil {
+			g.finishUsage(usage, terminal)
+			usage = nil
+		}
 		g.activeMu.Lock()
 		delete(g.active, executionID)
 		g.signalActiveChangeLocked()
@@ -754,6 +784,19 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	// Propagate only the gateway-owned W3C trace context. In particular, do not
 	// forward client baggage or tracestate into the backend trust boundary.
 	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(upstream.Header))
+	if usage != nil && g.registry.CanDispatch(backend) {
+		intentCtx, cancel := context.WithTimeout(ctx, g.config.AdmissionTimeout)
+		err := g.usage.BeginUsageDispatch(intentCtx, usage.identity, usage.pins)
+		cancel()
+		if err != nil {
+			terminal = admissionUnavailableTerminal()
+			terminal.backendID = backend.ID
+			g.metrics.rejected.Add(1)
+			g.metrics.admissionUnavailable.Add(1)
+			g.writeError(response, http.StatusServiceUnavailable, terminal.code, requestID, true)
+			return
+		}
+	}
 	if !g.registry.CanDispatch(backend) {
 		discoveryUnknown := g.registry.DiscoveryUnknown()
 		code := postAdmissionUnavailableCode(g.config.FixedModeTerminalCodes, discoveryUnknown)
@@ -946,6 +989,13 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			finished = true
 		}
 		if validated.kind == eventUsage {
+			if usage != nil && g.recordRuntimeUsage(usage, event.data) != nil {
+				terminal = requestTerminal{cause: terminalStreamInterrupted, code: "stream_interrupted", backendID: backend.ID, committed: true}
+				g.metrics.failed.Add(1)
+				g.metrics.partial.Add(1)
+				g.interrupt(response, requestID, "generation stream interrupted")
+				return
+			}
 			usageSeen = true
 		}
 		if err := g.writeValidated(response, validated); err != nil {

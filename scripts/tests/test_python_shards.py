@@ -14,6 +14,13 @@ spec.loader.exec_module(runner)
 
 
 class ShardTests(unittest.TestCase):
+    def test_routine_can_request_durable_redis_without_benchmarks(self):
+        from inference_platform.routine_aws_tests import selection
+
+        self.assertEqual(selection({"redis_aof": True}), {"redis_aof": True})
+        with self.assertRaisesRegex(ValueError, "routine:redis_aof"):
+            selection({"redis_aof": "yes"})
+
     def test_routine_script_shards_can_be_selected_without_double_discovery(self):
         from inference_platform.routine_aws_tests import selection
 

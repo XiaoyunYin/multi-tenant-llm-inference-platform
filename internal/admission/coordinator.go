@@ -204,7 +204,7 @@ func (c *RedisCoordinator) Admit(ctx context.Context, request Request) (Result, 
 			keys = append(keys, c.keyPrefix+"unused")
 			args = append(args, "", "", "")
 		}
-		keys = append(keys, c.keyPrefix+"usage:admitted")
+		keys = append(keys, c.keyPrefix+"usage:admitted", c.keyPrefix+"usage:admitted-at")
 		args = append(args, request.RequestID)
 	}
 	value, err := c.admitScript.Run(

@@ -377,6 +377,13 @@ func runWithMode(checkConfig bool) int {
 		}
 		serviceOptions = append(serviceOptions, gateway.WithRoutingKeyTokenizer(tokenizer))
 	}
+	if meterMode == "on" {
+		serviceOptions = append(serviceOptions, gateway.WithUsagePins(
+			os.Getenv("ADMISSION_METERING_MODEL_PIN"),
+			os.Getenv("ADMISSION_METERING_ENGINE_PIN"),
+			os.Getenv("ADMISSION_METERING_TOKENIZER_PIN"),
+		))
+	}
 	service, err := gateway.New(gatewayConfig, registry, upstreamClient, logger, serviceOptions...)
 	if err != nil {
 		logger.Error("cannot create gateway", "error", err)

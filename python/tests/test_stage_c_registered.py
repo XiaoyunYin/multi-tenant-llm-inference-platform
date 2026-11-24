@@ -158,8 +158,9 @@ class RegisteredDigestTest(unittest.TestCase):
         )
         # Discovery and expiry outcomes are outside the fixed static Stage C
         # path; its emitted terminal vocabulary must remain registration-bound.
-        # The three slice 3a additions are also included in the producer scan.
-        self.assertEqual(len(constructors), 42)
+        # Include the metering-only model validation and stream interruption
+        # constructors. Both reuse codes from the registered vocabulary.
+        self.assertEqual(len(constructors), 44)
         self.assertEqual(
             codes - {"discovery_unknown", "capacity_reports_expired"},
             set(GATEWAY_CODES),

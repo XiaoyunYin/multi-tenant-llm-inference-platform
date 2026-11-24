@@ -110,35 +110,26 @@ func TestMeteredAdmissionObligationAcrossGateways(t *testing.T) {
 				}
 			}
 			report, err := second.ReconcileUsage(context.Background(), 10)
-			if err != nil || report.Admitted != 1 || report.Terminal != 0 || len(report.Missing) != 1 || len(report.Orphaned) != 0 || len(report.Mismatched) != 0 {
+			if err != nil || report.Admitted != 1 || len(report.Orphaned) != 0 || len(report.Mismatched) != 0 {
 				t.Fatalf("cohort report: %+v, %v", report, err)
-			}
-			if expected := expectedKey.Load(); expected != nil && *expected != report.Missing[0] {
-				t.Fatal("journal join does not match the granted tenant and reservation")
 			}
 			expectedCalls := int64(0)
 			if scenario == "duplicate grant" {
 				expectedCalls = 1
+				if report.Terminal != 1 || len(report.Missing) != 0 || len(report.Rows) != 1 ||
+					!report.Rows[0].DispatchIntent || report.Rows[0].TenantID+":"+report.Rows[0].ReservationID != *expectedKey.Load() {
+					t.Fatalf("closed cohort: %+v", report)
+				}
+			} else {
+				if report.Terminal != 0 || len(report.Missing) != 1 {
+					t.Fatalf("open cohort: %+v", report)
+				}
+				if expected := expectedKey.Load(); expected != nil && *expected != report.Missing[0] {
+					t.Fatal("journal join does not match the granted tenant and reservation")
+				}
 			}
 			if dispatched.Load() != expectedCalls {
 				t.Fatalf("upstream dispatches %d, want %d", dispatched.Load(), expectedCalls)
-			}
-			if scenario == "duplicate grant" {
-				ctx := context.Background()
-				prefix := strings.TrimSuffix(second.CredentialKey(""), "credential:")
-				key := report.Missing[0]
-				requestID, err := client.HGet(ctx, prefix+"usage:admitted", key).Result()
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := client.HSet(ctx, prefix+"usage:terminal", key, requestID).Err(); err != nil {
-					t.Fatal(err)
-				}
-				closed, err := second.ReconcileUsage(ctx, 10)
-				if err != nil || closed.Admitted != 1 || closed.Terminal != 1 ||
-					len(closed.Missing)+len(closed.Mismatched)+len(closed.Orphaned) != 0 {
-					t.Fatalf("closed cohort: %+v, %v", closed, err)
-				}
 			}
 		})
 	}

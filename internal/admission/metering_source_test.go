@@ -22,6 +22,8 @@ func TestMeteredAdmissionSourceReplacements(t *testing.T) {
 		"if not prior_usage then return {'config_mismatch', 0, 0} end",
 		"if prior_usage then return {'released', 0, 0} end",
 		"redis.call('HSET', usage_key, ARGV[2], usage_id)",
+		"redis.call('HGET', KEYS[12], ARGV[2])",
+		"redis.call('HSET', KEYS[12], ARGV[2], now_ms)",
 	} {
 		if count := strings.Count(metered, guard); count != 1 {
 			t.Errorf("metered guard %q appears %d times", guard, count)
