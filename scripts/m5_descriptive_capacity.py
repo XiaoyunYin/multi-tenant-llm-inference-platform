@@ -45,11 +45,17 @@ def select_capacity(ports, *, clock=time.monotonic, sleep=time.sleep, epoch=time
     if spacing < 60 or budget < 0:
         raise ValueError("descriptive:capacity_wait_inputs")
     start = clock()
+    components = timing.get("streaming_components")
+    transfers = (
+        components["archive_transfers_s"] + components["in_session_transfer_probe_s"]
+        if components
+        else timing["retrieval_reserve_seconds"]
+    )
     reserved = (
         timing["minimum_workload_seconds"]
         + timing["initial_startup_budget_seconds"]
         + timing["source_upload_budget_seconds"]
-        + timing["retrieval_reserve_seconds"]
+        + transfers
         + timing["cleanup_reserve_seconds"]
         + timing["remaining_infrastructure_seconds"]
     )

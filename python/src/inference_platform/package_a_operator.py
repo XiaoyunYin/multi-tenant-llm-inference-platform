@@ -1637,21 +1637,28 @@ class Ports(Operator):
     def retrieve(self, end):
         started = time.time()
         routine = self.manifest.get("role") == "routine_tests"
+        start_reconnects = getattr(self, "reconnects", 0)
+        # Match the standalone routine host's role limit. The two write passes
+        # cover the original compression and a truncation rewrite.
+        limit = ROUTINE_RECEIPT_MAX_BYTES if routine else EXPORT_MAX_BYTES
+        write_end = min(end, started + transfer_seconds(limit))
         archive_bytes = None
         bytes_written = 0
 
-        def unavailable(reason, status="unreachable"):
+        def unavailable(reason, status="unreachable", **details):
             result = {
                 "complete": False,
                 "status": status,
                 "reason": reason,
                 "elapsed_s": time.time() - started,
+                **details,
             }
             if routine:
                 result.update(
                     freeze_elapsed_s=time.time() - started,
                     archive_bytes=archive_bytes,
                     bytes_written=bytes_written,
+                    reconnect_count=getattr(self, "reconnects", 0) - start_reconnects,
                 )
             save(self.runtime / "retrieval.json", result)
             return result
@@ -1665,19 +1672,11 @@ class Ports(Operator):
             self.host = ids[0] if ids else None
         if self.host is None:
             return {"complete": True, "no_host_or_receipts": True}
-        reachability_end = min(end, started + transfer_seconds(EXPORT_MAX_BYTES))
         try:
-            meta = json.loads(self.request("/freeze", b"", end=reachability_end)[0])
+            meta = json.loads(self.request("/freeze", b"", end=write_end)[0])
         except TimeoutError:
             return unavailable("freeze_unanswered")
         if routine:
-            # Match the standalone host's fixed routine role policy. This is
-            # not a required input of the shared Ports manifest.
-            limit = ROUTINE_RECEIPT_MAX_BYTES
-            # Reserve two write passes at the existing conservative byte rate:
-            # the original compression and a truncation rewrite. All polling
-            # and any further rewrites share the original absolute cutoff.
-            write_end = min(end, started + transfer_seconds(limit))
             while meta.get("state") == "archiving":
                 bytes_written = meta["bytes_written"]
                 remaining = write_end - time.time()
@@ -1691,7 +1690,7 @@ class Ports(Operator):
                 except TimeoutError:
                     return unavailable("archive_poll_unanswered")
             if meta.get("state") == "failed":
-                return unavailable(meta["reason"], "failed")
+                return unavailable(meta["reason"], "failed", exception=meta.get("exception"))
             if meta.get("state") not in (None, "ready"):
                 raise ValueError("archive_freeze_state")
             archive_bytes = meta["bytes"]
@@ -1702,6 +1701,7 @@ class Ports(Operator):
                 "archive_bytes": archive_bytes,
                 "host_freeze_elapsed_s": meta.get("freeze_elapsed_s"),
                 "freeze_elapsed_s": time.time() - started,
+                "reconnect_count": getattr(self, "reconnects", 0) - start_reconnects,
             }
             save(self.runtime / "retrieval.json", {**meta, "complete": False})
         # An acknowledged freeze gets the full byte-based transfer/reconnect
@@ -1716,6 +1716,8 @@ class Ports(Operator):
                 stream.write(data)
         if sha(destination) != meta["sha256"] or destination.stat().st_size != meta["bytes"]:
             raise ValueError("archive_final_binding")
+        if routine:
+            meta["reconnect_count"] = getattr(self, "reconnects", 0) - start_reconnects
         save(self.runtime / "retrieval.json", {**meta, "complete": True})
         return {**meta, "complete": True}
 

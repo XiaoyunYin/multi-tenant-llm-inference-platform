@@ -12,8 +12,8 @@ import json
 import math
 import os
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -192,7 +192,7 @@ class Host:
         self.freeze_lock = threading.Lock()
         self.freeze_started = None
         self.freeze_finished = None
-        self.freeze_failed = False
+        self.freeze_failed = None
         self.cancelled = False
 
     def _archive_entries(self):
@@ -317,7 +317,7 @@ class Host:
             if self.freeze_failed:
                 return {
                     "state": "failed",
-                    "reason": "archive_build_failed",
+                    **self.freeze_failed,
                     "freeze_elapsed_s": self.freeze_finished - self.freeze_started,
                 }
             return {
@@ -340,16 +340,39 @@ class Host:
         }
 
     def _finish_freeze(self):
+        failure = None
         try:
             with self.lock:
                 self.cancel()
             result = self._build_archive()
-        except Exception:
+        except Exception as exc:
             result = None
+            failure = self._freeze_failure(exc)
         with self.freeze_lock:
             self.frozen = result
-            self.freeze_failed = result is None
+            self.freeze_failed = failure
             self.freeze_finished = time.monotonic()
+
+    def _freeze_failure(self, exc):
+        allowed = {
+            "receipt_archive_exceeds_32_mib_after_cut_logs",
+            "descriptive:receipt_export_limit",
+        }
+        reason = "archive_build_failed"
+        if (
+            isinstance(exc, ValueError)
+            and len(exc.args) == 1
+            and isinstance(exc.args[0], str)
+        ):
+            if exc.args[0] in allowed:
+                reason = exc.args[0]
+        record = {"reason": reason, "exception": type(exc).__name__}
+        if self.token:
+            return {
+                key: value.replace(self.token, "[redacted]")
+                for key, value in record.items()
+            }
+        return record
 
     def start_freeze(self):
         with self.freeze_lock:
@@ -357,8 +380,8 @@ class Host:
                 self.freeze_started = time.monotonic()
                 try:
                     threading.Thread(target=self._finish_freeze, daemon=True).start()
-                except RuntimeError:
-                    self.freeze_failed = True
+                except RuntimeError as exc:
+                    self.freeze_failed = self._freeze_failure(exc)
                     self.freeze_finished = time.monotonic()
             return self._freeze_status()
 
@@ -558,6 +581,16 @@ class Host:
             with archive.open("rb") as stream:
                 stream.seek(offset)
                 return stream.read(CHUNK)
+        if path.startswith("/inf060-transfer/") and (
+            (self.manifest or {}).get("role") == "routine_tests"
+            and self.manifest.get("routine_selection", {}).get(
+                "inf060_streaming_inputs"
+            )
+        ):
+            offset = int(path.rsplit("/", 1)[1])
+            if offset % CHUNK or not 0 <= offset < 64 * CHUNK:
+                raise ValueError("streaming_probe_offset")
+            return hashlib.shake_256(f"inf060-transfer:{offset}".encode()).digest(CHUNK)
         if self.cancelled or time.time() >= self.deadline:
             raise TimeoutError("host_work_deadline")
         if path == "/manifest":

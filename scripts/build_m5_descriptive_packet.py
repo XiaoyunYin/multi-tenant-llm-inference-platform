@@ -18,15 +18,6 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from inference_platform.m5_descriptive_operator import session_timing
-from inference_platform.package_a_operator import python_hashes
-from inference_platform.inf060_eks_receipts import schedule_digest
-from inference_platform.inf060_eks_schedule import (
-    TENANTS,
-    SEED,
-    WINDOW_SECONDS,
-    WINDOW_WAIT_SECONDS,
-)
 from inf060_eks_cpu_plan import (
     IMAGE_ARCHIVE,
     NODE_COUNT,
@@ -42,14 +33,34 @@ from inf060_eks_cpu_plan import (
     policy_actions,
     verify_cpu_plan,
 )
+from inf060_eks_gpu_plan import (
+    GPU_SESSION,
+    provider_inputs,
+    require_streaming_quota,
+    streaming_quota,
+    verify_gpu_binding,
+    verify_gpu_streaming_plan,
+    write_gpu_streaming_module,
+)
+from inference_platform.eks_deployment import MODEL, REVISION, VLLM_IMAGE
+from inference_platform.inf060_eks_packet import CORPUS_NAME, seal_timing, transfer_rate
+from inference_platform.inf060_eks_receipts import schedule_digest
+from inference_platform.inf060_eks_schedule import (
+    LEVELS,
+    SEED,
+    TENANTS,
+    WINDOW_SECONDS,
+    WINDOW_WAIT_SECONDS,
+)
+from inference_platform.m5_descriptive_operator import session_timing
+from inference_platform.package_a_operator import python_hashes
+from m5_descriptive_capacity import zone_pairs
 from m5_descriptive_eks import (
     validate_cleanup_policy,
     validate_cleanup_resource_tags,
     verify_plan,
 )
-
 from m5_descriptive_payload import produce, transfer_bound
-from m5_descriptive_capacity import zone_pairs
 
 ROOT = Path(__file__).resolve().parents[1]
 E10_ARCHIVE = (
@@ -98,7 +109,9 @@ def cpu_zones(offerings):
     return [{"zone": zones[0], "control_plane_zone": zones[1]}]
 
 
-def refresh(directory, profile, *, cpu_clock=False):
+def refresh(directory, profile, *, cpu_clock=False, gpu_streaming=False):
+    if cpu_clock and gpu_streaming:
+        raise ValueError("streaming_variant_conflict")
     import boto3
 
     directory.mkdir(parents=True, exist_ok=False)
@@ -136,7 +149,7 @@ def refresh(directory, profile, *, cpu_clock=False):
     lambda_limits = lambda_settings["AccountLimit"]
     lambda_function_count = lambda_settings["AccountUsage"]["FunctionCount"]
     validate_lambda_limits(lambda_limits, lambda_function_count)
-    session = SESSION if cpu_clock else "m5-desc-r379"
+    session = GPU_SESSION if gpu_streaming else SESSION if cpu_clock else "m5-desc-r379"
     bucket = (
         session + "-" + hashlib.sha256(identity["Account"].encode()).hexdigest()[:12]
     )
@@ -323,6 +336,9 @@ def refresh(directory, profile, *, cpu_clock=False):
         "prices": prices,
         "sources": rows,
     }
+    if gpu_streaming:
+        value["streaming_quota"] = streaming_quota(sdk)
+        require_streaming_quota(value["streaming_quota"])
     write(directory / "refresh.json", value)
     return value
 
@@ -425,7 +441,17 @@ def source_bundle(destination, commit):
     return destination
 
 
-def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
+def prepare(
+    directory,
+    commit,
+    refresh_path,
+    startup_path,
+    *,
+    cpu_images=None,
+    streaming_inputs=None,
+    provider_preview=False,
+    provider_results=None,
+):
     directory = directory.resolve()
     current = (
         subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip()
@@ -445,6 +471,15 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
         if r["operation"] == "describe_instance_type_offerings"
     )
     cpu_clock = cpu_images is not None
+    gpu_streaming = streaming_inputs is not None
+    if cpu_clock and gpu_streaming:
+        raise ValueError("streaming_variant_conflict")
+    if (provider_preview or provider_results) and not gpu_streaming:
+        raise ValueError("streaming_provider_variant")
+    if provider_preview and provider_results:
+        raise ValueError("streaming_provider_mode")
+    if gpu_streaming:
+        require_streaming_quota(live["streaming_quota"])
     expected_quota = "standard_quota_vcpus" if cpu_clock else "gpu_quota_vcpus"
     offering = json.loads(
         (refresh_path.parent / offering_source["response"]).read_bytes()
@@ -466,7 +501,7 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
     directory.mkdir(parents=True, exist_ok=False)
     bundle = source_bundle(directory / "source.bundle", commit)
     upload_bound = transfer_bound(bundle.stat().st_size)
-    session = SESSION if cpu_clock else "m5-desc-r379"
+    session = GPU_SESSION if gpu_streaming else SESSION if cpu_clock else "m5-desc-r379"
     bucket = session + "-" + hashlib.sha256(live["account"].encode()).hexdigest()[:12]
     group = (
         f"arn:aws:resource-groups:us-east-1:{live['account']}:group/{session}-capacity"
@@ -497,6 +532,8 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
                 ROOT / "infra/terraform/eks/.terraform.lock.hcl",
                 target / ".terraform.lock.hcl",
             )
+    if gpu_streaming:
+        write_gpu_streaming_module(directory / "eks" / "main.tf")
     cleanup_zip = directory / "cleanup.zip"
     with zipfile.ZipFile(cleanup_zip, "w", zipfile.ZIP_DEFLATED) as archive:
         item = zipfile.ZipInfo("m5_descriptive_cleanup.py", (2026, 1, 1, 0, 0, 0))
@@ -516,9 +553,18 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
             raise ValueError("descriptive:live_input_changed")
         shutil.copyfile(source, directory / "live-inputs" / source.name)
     plans = []
+    requested = []
+    delegated = (
+        json.loads((provider_results / "provider-plans.json").read_bytes())
+        if provider_results
+        else None
+    )
 
     def plan(root, variables):
         write(root / "input.tfvars.json", variables)
+        requested.append(root.name)
+        if provider_preview:
+            return None
         env = {
             **os.environ,
             "AWS_PROFILE": "admin-learning",
@@ -538,6 +584,8 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
             ),
             ("show", ["show", "-json", "create.tfplan"]),
         ):
+            if delegated and stage in {"plan", "show"}:
+                continue
             write(
                 root / (stage + ".command.json"),
                 {"argv": [str(terraform), "-chdir=" + str(root), *argv]},
@@ -554,6 +602,13 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
                     env=env,
                     timeout=900,
                 )
+        if delegated:
+            binding = delegated["plans"][root.name]
+            for file in ("create.tfplan", "show.stdout"):
+                source = provider_results / root.name / file
+                if sha(source) != binding[file]:
+                    raise ValueError("streaming_provider_result_digest")
+                shutil.copyfile(source, root / file)
         result = json.loads((root / "show.stdout").read_bytes())
         plans.append(
             {
@@ -583,19 +638,22 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
             "session": session,
             "account": live["account"],
             "state_bucket": bucket,
-            "zip_path": str(cleanup_zip.resolve()),
+            "zip_path": "../cleanup.zip"
+            if gpu_streaming
+            else str(cleanup_zip.resolve()),
             "zip_sha256_base64": cleanup_hash,
         },
     )
-    policy = next(
-        r["change"]["after"]["policy"]
-        for r in backstop["resource_changes"]
-        if r["type"] == "aws_iam_role_policy"
-    )
-    validate_cleanup_policy(json.loads(policy), session)
-    policy_hash = hashlib.sha256(
-        json.dumps(json.loads(policy), sort_keys=True).encode()
-    ).hexdigest()
+    if not provider_preview:
+        policy = next(
+            r["change"]["after"]["policy"]
+            for r in backstop["resource_changes"]
+            if r["type"] == "aws_iam_role_policy"
+        )
+        validate_cleanup_policy(json.loads(policy), session)
+        policy_hash = hashlib.sha256(
+            json.dumps(json.loads(policy), sort_keys=True).encode()
+        ).hexdigest()
     alternatives = []
     for pair in zones:
         first, second = pair["zone"], pair["control_plane_zone"]
@@ -625,9 +683,28 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
                 ),
             },
         )
-        operator_policy = verify_cpu_plan(result) if cpu_clock else verify_plan(result)
-        validate_cleanup_resource_tags(result, session, json.loads(policy))
+        if not provider_preview:
+            operator_policy = (
+                verify_cpu_plan(result) if cpu_clock else verify_plan(result)
+            )
+            if gpu_streaming:
+                verify_gpu_streaming_plan(result)
+            validate_cleanup_resource_tags(result, session, json.loads(policy))
         alternatives.append({**pair, "directory": target.name})
+    if provider_preview or delegated:
+        request = {
+            "source_commit": commit,
+            "roots": requested,
+            "inputs": provider_inputs(directory, requested),
+        }
+        write(directory / "provider-request.json", request)
+        if provider_preview:
+            return request
+        if delegated["request"] != request or delegated["applied"] is not False:
+            raise ValueError("streaming_provider_request_binding")
+        if set(delegated["plans"]) != set(requested):
+            raise ValueError("streaming_provider_plan_set")
+        write(directory / "provider-plans.json", delegated)
     write(directory / "plans.json", plans)
     startup = (
         {
@@ -643,7 +720,14 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
             directory, cpu_images, commit, live["operator_ami"]
         )
         upload_bound += transfer_bound(inputs["bundle_bytes"])
+    if gpu_streaming:
+        inputs, corpus, laptop_transfer = streaming_input(
+            directory, streaming_inputs, commit
+        )
+        upload_bound += transfer_bound(inputs["bundle_bytes"])
     timing = session_timing(startup["seconds"], upload_bound)
+    if gpu_streaming:
+        timing = seal_timing(timing, laptop_rate=transfer_rate(laptop_transfer))
     if cpu_clock:
         workload = 3 * WINDOW_WAIT_SECONDS + 956
         available = (
@@ -778,6 +862,47 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
         ],
         "files": {},
     }
+    if gpu_streaming:
+        host["gate_a_inputs"] = inputs
+        manifest["descriptive"]["gpu_streaming"] = True
+        manifest["descriptive"]["streaming"] = {
+            "laptop_transfer": laptop_transfer,
+            "corpus": corpus,
+            "gpu_hourly_usd": 2 * live["prices"]["g6.xlarge"],
+            "conditions": {
+                "source": commit,
+                "artifact_path": "inf060-gpu-eks-streaming",
+                "model": MODEL,
+                "revision": REVISION,
+                "engine_version": "0.29.0",
+                "image_digest": VLLM_IMAGE.split("@")[1],
+                "engine_flags": ["--enable-log-requests", "--max-log-len", "0"],
+                "gpu_type": "g6.xlarge/L4",
+                "gpu_count": 2,
+                "capacity_type": "on-demand",
+                "zone": None,
+                "policy": "round_robin",
+                "tenants": list(TENANTS),
+                "seed": SEED,
+                "run_count": 1,
+                "schedule_sha256": schedule_digest(),
+                "pins": {
+                    **SERVICE_IMAGES,
+                    "corpus_sha256": corpus["sha256"],
+                    "logging_sha256": sha(ROOT / "deploy/inf060/vllm-logging.json"),
+                    "tokenizer_files": corpus["tokenizer_files"],
+                },
+                "limits": {
+                    "window_seconds": WINDOW_SECONDS,
+                    "window_labels": list(LEVELS),
+                },
+            },
+        }
+        manifest["payload_transfer"]["bytes"] += inputs["bundle_bytes"]
+        manifest["sequence"][6:7] = [
+            "policy and corpus readbacks; cold and resumed operator-to-pod transfer gate",
+            "smoke, warm-up and four guarded windows; freeze and verify each checkpoint and final",
+        ]
     if cpu_clock:
         host["gate_a_inputs"] = inputs
         manifest["descriptive"]["cpu_clock_rehearsal"] = {
@@ -841,8 +966,58 @@ def prepare(directory, commit, refresh_path, startup_path, *, cpu_images=None):
         from inf060_eks_cpu_plan import verify_cpu_binding
 
         verify_cpu_binding(directory, manifest)
+    if gpu_streaming:
+        verify_gpu_binding(directory, manifest)
     write(directory / "manifest.json", manifest)
     return manifest
+
+
+def streaming_input(directory, producer, commit):
+    corpus = json.loads((producer / "streaming-corpus.json").read_bytes())
+    transfer = json.loads((producer / "inf060-ssm-transfer.json").read_bytes())
+    if corpus["source"] != transfer["source"]:
+        raise ValueError("streaming_input_source")
+    subprocess.run(
+        [
+            "git",
+            "diff",
+            "--exit-code",
+            corpus["source"],
+            commit,
+            "--",
+            "python/src/inference_platform/inf060_eks_packet.py",
+            "python/src/inference_platform/inf060_eks_schedule.py",
+            "python/src/inference_platform/stage_c_tokenizer.py",
+            "python/src/inference_platform/stage_c_prompts.py",
+            "python/uv.lock",
+        ],
+        cwd=ROOT,
+        check=True,
+    )
+    source = producer / CORPUS_NAME
+    facts = {"bytes": source.stat().st_size, "sha256": sha(source)}
+    if any(corpus[key] != value for key, value in facts.items()):
+        raise ValueError("streaming_corpus_digest")
+    shutil.copyfile(source, directory / CORPUS_NAME)
+    write(
+        directory / "streaming-input-receipt.json",
+        {"corpus": corpus, "transfer": transfer},
+    )
+    bundle = directory / "streaming-inputs.tar"
+    with tarfile.open(bundle, "x") as output, source.open("rb") as stream:
+        member = tarfile.TarInfo(CORPUS_NAME)
+        member.size = facts["bytes"]
+        output.addfile(member, stream)
+    return (
+        {
+            "bundle_path": bundle.name,
+            "bundle_sha256": sha(bundle),
+            "bundle_bytes": bundle.stat().st_size,
+            "inventory": {CORPUS_NAME: facts},
+        },
+        corpus,
+        transfer,
+    )
 
 
 def cpu_image_input(directory, images, commit, operator_ami):
@@ -878,15 +1053,24 @@ def main():
     refreshed.add_argument("--directory", type=Path, required=True)
     refreshed.add_argument("--profile", default="admin-learning")
     refreshed.add_argument("--cpu-clock", action="store_true")
+    refreshed.add_argument("--gpu-streaming", action="store_true")
     prepared = sub.add_parser("prepare")
     prepared.add_argument("--directory", type=Path, required=True)
     prepared.add_argument("--commit", required=True)
     prepared.add_argument("--refresh", type=Path, required=True)
     prepared.add_argument("--startup-evidence", type=Path)
     prepared.add_argument("--cpu-images", type=Path)
+    prepared.add_argument("--streaming-inputs", type=Path)
+    prepared.add_argument("--provider-preview", action="store_true")
+    prepared.add_argument("--provider-results", type=Path)
     args = parser.parse_args()
     if args.mode == "refresh":
-        value = refresh(args.directory, args.profile, cpu_clock=args.cpu_clock)
+        value = refresh(
+            args.directory,
+            args.profile,
+            cpu_clock=args.cpu_clock,
+            gpu_streaming=args.gpu_streaming,
+        )
         print(
             json.dumps(
                 {
@@ -903,7 +1087,21 @@ def main():
             args.refresh,
             args.startup_evidence,
             cpu_images=args.cpu_images,
+            streaming_inputs=args.streaming_inputs,
+            provider_preview=args.provider_preview,
+            provider_results=args.provider_results,
         )
+        if args.provider_preview:
+            print(
+                json.dumps(
+                    {
+                        "complete": True,
+                        "planned_roots": value["roots"],
+                        "applied": False,
+                    }
+                )
+            )
+            return
         print(
             json.dumps(
                 {

@@ -17,12 +17,12 @@ import time
 from pathlib import Path
 
 from inference_platform import kind_rollout
+from inference_platform.command_diagnostics import checked_process, stderr_tail
 from inference_platform.eks_deployment import MODEL, REVISION, VLLM_IMAGE
 from inference_platform.m5_descriptive import resources
 from inference_platform.m5_descriptive_client import pushed_digest
 from inference_platform.m5_descriptive_cluster import ClusterPorts
 from inference_platform.m5_descriptive_operator import phase_deadline
-from inference_platform.command_diagnostics import checked_process, stderr_tail
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -468,6 +468,8 @@ def main():
                 result = ports.stream_freeze(
                     "final", complete=args.phase == "stream-final"
                 )
+            elif args.phase == "stream-transfer-probe":
+                result = ports.stream_transfer_probe()
             elif args.phase in {"gateway_rollout", "replica_rollout"}:
                 result = ports.rollout(
                     "gateway" if args.phase == "gateway_rollout" else "vllm"

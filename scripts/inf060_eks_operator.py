@@ -7,6 +7,13 @@ import tarfile
 import time
 from pathlib import Path
 
+from inference_platform.inf060_eks_packet import (
+    ARCHIVE_BYTES,
+    TRANSFER_SECONDS,
+    bound,
+    require_window_budget,
+    transfer_rate,
+)
 from inference_platform.inf060_eks_receipts import (
     ARCHIVE_LIMIT,
     EXPANDED_LIMIT,
@@ -52,7 +59,7 @@ def extract_verified(archive, dest, expected):
         raise
 
 
-def retrieve(host, label, expected, dest, deadline, account_hash=None):
+def retrieve(host, label, expected, dest, deadline, account_hash=None, on_bytes=None):
     if not 0 < expected["bytes"] <= ARCHIVE_LIMIT:
         raise ValueError("streaming_archive_limit")
     start = time.monotonic()
@@ -62,6 +69,8 @@ def retrieve(host, label, expected, dest, deadline, account_hash=None):
             data, headers = host.request(
                 f"/inf060-snapshot/{label}/{offset}", end=deadline
             )
+            if on_bytes is not None:
+                on_bytes(len(data))
             if (
                 not 0 < len(data) <= expected["bytes"] - offset
                 or hashlib.sha256(data).hexdigest() != headers["X-Chunk-SHA256"]
@@ -114,6 +123,14 @@ def execute_streaming(ports, output):
     failed = None
     started = time.monotonic()
     lifecycle = output / "operation.json"
+    timing = ports.manifest["timing"]
+    descriptive = ports.manifest["descriptive"]
+    gpu = descriptive.get("gpu_streaming")
+    rates = {"laptop": None, "pod": None}
+    probe = {}
+    checkpoint_bounds = 0
+    pod_bytes = 0
+    laptop_bytes = 0
 
     def run(name, callback, *args):
         stamp = time.monotonic()
@@ -132,18 +149,37 @@ def execute_streaming(ports, output):
             lifecycle.write_bytes(payload({"phases": phases, "transfers": transfers}))
 
     def collect(label, phase, deadline):
+        nonlocal checkpoint_bounds, pod_bytes
         try:
             expected = run(phase, ports.remote, phase)
+            transfer_window = 956
+            if gpu:
+                transfer_window = bound(expected["bytes"], rates["laptop"])
+                pod_bytes = expected.get("pod_receipt_bytes", pod_bytes)
+                if label != "final":
+                    charge = transfer_window + bound(
+                        max(1, expected.get("pod_window_bytes", 0)), rates["pod"]
+                    )
+                    final_bound = sum(
+                        bound(ARCHIVE_BYTES, rate) for rate in rates.values()
+                    )
+                    if checkpoint_bounds + charge + final_bound > TRANSFER_SECONDS:
+                        raise TimeoutError("streaming_checkpoint_transfer_reserve")
+                    checkpoint_bounds += charge
             destination = output / ("results-" + label)
-            record, manifest = run(
-                "retrieve-" + label,
-                retrieve,
+            args = (
                 ports.host,
                 label,
                 expected,
                 destination,
-                min(deadline, time.time() + 956),
+                min(deadline, time.time() + transfer_window),
                 hashlib.sha256(ports.manifest["account"].encode()).hexdigest(),
+            )
+            record, manifest = run(
+                "retrieve-" + label,
+                retrieve,
+                *args,
+                *((count_laptop_bytes,) if gpu else ()),
             )
             transfers[label] = record
             return destination, manifest
@@ -154,15 +190,54 @@ def execute_streaming(ports, output):
             }
             raise
 
+    def count_laptop_bytes(size):
+        nonlocal laptop_bytes
+        laptop_bytes += size
+
     destination = None
     last_snapshot = None
     teardown, inventory = {}, {}
-    timing = ports.manifest["timing"]
-    cpu_clock = ports.manifest["descriptive"].get("cpu_clock_rehearsal")
+    cpu_clock = descriptive.get("cpu_clock_rehearsal")
     levels = ("8",) if cpu_clock else LEVELS
     try:
+        if gpu:
+            rates["laptop"] = transfer_rate(descriptive["streaming"]["laptop_transfer"])
         run("provision", ports.provision)
+        if gpu:
+            probe = run(
+                "operator-pod-transfer-probe", ports.remote, "stream-transfer-probe"
+            )
+            rates["pod"] = transfer_rate(probe)
+            final_bounds = {
+                hop: bound(ARCHIVE_BYTES, rate) for hop, rate in rates.items()
+            }
+            if (
+                sum(final_bounds.values()) > TRANSFER_SECONDS
+                or ports.end - time.time()
+                < timing["minimum_workload_seconds"]
+                + sum(final_bounds.values())
+                + timing["cleanup_reserve_seconds"]
+            ):
+                raise TimeoutError("streaming_post_probe_budget")
+            (output / "transfer-gate.json").write_bytes(
+                payload(
+                    {
+                        "probe": probe,
+                        "rates": rates,
+                        "worst_final_seconds": final_bounds,
+                    }
+                )
+            )
         for label in ("smoke", "warmup", *levels):
+            if gpu and label in LEVELS:
+                run(
+                    "guard-" + label,
+                    require_window_budget,
+                    label,
+                    ports.end - time.time(),
+                    rates["laptop"],
+                    rates["pod"],
+                )
             run("window-" + label, ports.remote, "stream-window-" + label)
             if label in LEVELS:
                 last_snapshot, _ = collect(
@@ -223,6 +298,16 @@ def execute_streaming(ports, output):
         cleanup["supplemental_counts"] = {
             key: len(value) for key, value in proof.get("extra", {}).items()
         }
+        if gpu:
+            totals = {
+                "laptop_operator_archive_bytes": laptop_bytes,
+                "operator_pod_receipt_bytes": pod_bytes,
+                "operator_pod_probe_bytes": sum(
+                    row["bytes"] for row in probe.get("passes", {}).values()
+                ),
+                "checkpoint_transfer_bound_s": checkpoint_bounds,
+            }
+            transfers["totals"] = totals
         for name, value in (
             ("retrieval", transfers),
             ("teardown", cleanup),

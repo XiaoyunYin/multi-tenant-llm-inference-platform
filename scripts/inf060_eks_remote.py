@@ -10,9 +10,26 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from inf060_diagnostics import EXCEPTIONS, scrub_line
+from inf060_probe_client import FORMAT, suppress
+from inference_platform.eks_deployment import MODEL, REVISION, VLLM_IMAGE
 from inference_platform.inf060_eks_client import generation
 from inference_platform.inf060_eks_clock import interval
-from inference_platform.inf060_eks_receipts import ARCHIVE_LIMIT, build, payload
+from inference_platform.inf060_eks_packet import (
+    CORPUS_NAME,
+    PHASE_WAITS,
+    PROBE_CHUNK_BYTES,
+    bound,
+    file_sha,
+    measure_transfer,
+    transfer_rate,
+)
+from inference_platform.inf060_eks_receipts import (
+    ARCHIVE_LIMIT,
+    EXPANDED_LIMIT,
+    build,
+    payload,
+)
 from inference_platform.inf060_eks_resources import client_job, serving_resources
 from inference_platform.inf060_eks_schedule import LEVELS, TENANTS, WINDOW_WAIT_SECONDS
 from inference_platform.inf060_streaming_probe import (
@@ -21,9 +38,6 @@ from inference_platform.inf060_streaming_probe import (
     SentCancel,
     join_abort_rows,
 )
-
-from inf060_diagnostics import EXCEPTIONS, scrub_line
-from inf060_probe_client import FORMAT, suppress
 from m5_descriptive_remote import EKSClusterPorts
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +167,8 @@ def diagnostic(phase, check, exc=None, raw=b""):
 
 
 class StreamingClusterPorts(EKSClusterPorts):
+    corpus_path = Path("/opt/dec077/gate-a-inputs") / CORPUS_NAME
+
     def policy_agent(self):
         node = json.loads(
             self.k("-n", "kube-system", "get", "daemonset", "aws-node", "-o", "json")
@@ -172,28 +188,117 @@ class StreamingClusterPorts(EKSClusterPorts):
 
     def deploy(self, source):
         agent = self.policy_agent()
+        if self.binding.get("gpu_streaming") and agent["enabled"]:
+            self.wait(
+                lambda: (
+                    self.policy_agent() == {"enabled": True, "desired": 4, "ready": 4}
+                ),
+                seconds=120,
+            )
+            agent = self.policy_agent()
         if (
             not agent["enabled"]
             or not agent["desired"]
             or agent["ready"] != agent["desired"]
         ):
             raise ValueError("stream_network_policy")
-        return super().deploy(source)
+        result = super().deploy(source)
+        if self.binding.get("gpu_streaming"):
+            replicas = sorted(self.streams().items())
+            if len(replicas) != 2:
+                raise ValueError("stream_generation")
+            policy = self.prove_policy(replicas)
+            self.results.setdefault("stream_diagnostics", []).append(
+                {"phase": "gpu-streaming-policy", "agent": agent, "policy": policy}
+            )
+            if not policy["passed"]:
+                raise ValueError("stream_network_policy")
+            self.stage_corpus()
+        return result
 
     def render_manifest(self, source):
-        return serving_resources(
+        logging = ROOT / "deploy/inf060/vllm-logging.json"
+        if self.binding.get("gpu_streaming"):
+            pins = self.binding["streaming"]["conditions"]["pins"]
+            if file_sha(logging) != pins["logging_sha256"]:
+                raise ValueError("streaming_logging_config")
+        rendered = serving_resources(
             super().render_manifest(source),
             self.client_image,
-            (ROOT / "deploy/inf060/vllm-logging.json").read_text(encoding="utf-8"),
+            logging.read_text(encoding="utf-8"),
         )
+        if self.binding.get("gpu_streaming"):
+            stateful = next(
+                item
+                for item in rendered["items"]
+                if item["kind"] == "StatefulSet" and item["metadata"]["name"] == "vllm"
+            )
+            self.check_engine(stateful["spec"]["template"]["spec"]["containers"][0])
+        return rendered
+
+    @staticmethod
+    def check_engine(engine):
+        if engine["image"] != VLLM_IMAGE:
+            raise ValueError("streaming_engine_digest")
+        args = engine["args"]
+        if (
+            not args
+            or args[0] != MODEL
+            or "--revision" not in args
+            or args[args.index("--revision") + 1 : args.index("--revision") + 2]
+            != [REVISION]
+        ):
+            raise ValueError("streaming_model_revision")
+        if (
+            "--enable-log-requests" not in args
+            or "--max-log-len" not in args
+            or args[args.index("--max-log-len") + 1 : args.index("--max-log-len") + 2]
+            != ["0"]
+        ):
+            raise ValueError("streaming_logging_flags")
+
+    def engine_generation(self, pod, alias):
+        engine = next(c for c in pod["spec"]["containers"] if c["name"] == "vllm")
+        self.check_engine(engine)
+        digest = next(
+            c["imageID"].split("@")[-1]
+            for c in pod["status"]["containerStatuses"]
+            if c["name"] == "vllm"
+        )
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise ValueError("streaming_engine_readback")
+        return {
+            "generation": alias,
+            "image_id": digest,
+            "image": VLLM_IMAGE,
+            "command": engine["command"],
+            "args": engine["args"],
+            "env": {
+                row["name"]: row["value"]
+                for row in engine["env"]
+                if row["name"]
+                in {
+                    "VLLM_WORKER_MULTIPROC_METHOD",
+                    "HF_HUB_OFFLINE",
+                    "VLLM_LOGGING_CONFIG_PATH",
+                    "VLLM_LOGGING_LEVEL",
+                    "VLLM_LOGGING_COLOR",
+                    "NO_COLOR",
+                    "TZ",
+                }
+            },
+        }
 
     def client_job(self):
+        settings = {
+            "namespace": self.namespace,
+            "host": "streaming-ingress." + self.namespace + ".svc",
+        }
+        if self.binding.get("gpu_streaming"):
+            settings["corpus_sha256"] = self.binding["streaming"]["corpus"]["sha256"]
         return client_job(
             super().client_job(),
-            {
-                "namespace": self.namespace,
-                "host": "streaming-ingress." + self.namespace + ".svc",
-            },
+            settings,
         )
 
     def client_credentials(self):
@@ -233,6 +338,13 @@ class StreamingClusterPorts(EKSClusterPorts):
             identities = self.results.setdefault("stream_generations", [])
             if identity not in identities:
                 identities.append(identity)
+                if self.binding.get("gpu_streaming"):
+                    self.results.setdefault("stream_diagnostics", []).append(
+                        {
+                            "phase": "engine-generation",
+                            **self.engine_generation(pod, len(identities)),
+                        }
+                    )
             result[name] = {
                 "alias": identities.index(identity) + 1,
                 "ip": pod["status"]["podIP"],
@@ -240,7 +352,7 @@ class StreamingClusterPorts(EKSClusterPorts):
             }
         return result
 
-    def private_k(self, *args, limit, seconds=120):
+    def private_k(self, *args, limit, seconds=120, stdin=None):
         argv = [
             str(self.campaign.kubectl),
             "--kubeconfig",
@@ -255,6 +367,7 @@ class StreamingClusterPorts(EKSClusterPorts):
             result = subprocess.run(
                 argv,
                 stdout=stream,
+                stdin=stdin,
                 stderr=subprocess.DEVNULL,
                 timeout=seconds,
                 check=False,
@@ -264,7 +377,149 @@ class StreamingClusterPorts(EKSClusterPorts):
             stream.seek(0)
             return stream.read(limit + 1)
 
+    def from_client(self, code, *args):
+        return json.loads(
+            self.k(
+                "exec",
+                self.client_pod,
+                "-c",
+                "client",
+                "--",
+                "python",
+                "-c",
+                code,
+                *args,
+            )
+        )
+
+    def prove_policy(self, replicas):
+        from rehearse_inf060_kind import PEER_PROBE
+
+        pods = json.loads(self.k("get", "pods", "-l", "app=vllm", "-o", "json"))[
+            "items"
+        ]
+        engine_nodes = {row["spec"]["nodeName"] for row in pods}
+        node = self.client_placement["node"]
+        if len(engine_nodes) != 2 or node in engine_nodes:
+            raise ValueError("cpu_clock:cross_node_placement")
+        ips = [row["ip"] for _, row in replicas]
+        allowed = self.from_client(PEER_PROBE, *ips)
+        self.k(
+            "run",
+            "unlabelled-peer",
+            "--restart=Never",
+            "--image=" + self.client_image,
+            "--overrides="
+            + json.dumps(
+                {"spec": {"nodeName": node, "automountServiceAccountToken": False}}
+            ),
+            "--command",
+            "--",
+            "python",
+            "-c",
+            PEER_PROBE,
+            *ips,
+        )
+        self.k(
+            "wait",
+            "--for=jsonpath={.status.phase}=Succeeded",
+            "pod/unlabelled-peer",
+            "--timeout=90s",
+        )
+        peer = json.loads(self.k("get", "pod/unlabelled-peer", "-o", "json"))
+        if peer["spec"]["nodeName"] != node or "inf060-role" in peer["metadata"].get(
+            "labels", {}
+        ):
+            raise ValueError("cpu_clock:denied_peer_placement")
+        denied = json.loads(self.k("logs", "unlabelled-peer"))
+        return {
+            "allowed": allowed,
+            "denied": denied,
+            "passed": allowed == [{"engine": True, "clock": True}] * 2
+            and denied == [{"engine": True, "clock": False}] * 2,
+        }
+
+    def stage_corpus(self):
+        expected = self.binding["streaming"]["corpus"]
+        if (
+            self.corpus_path.stat().st_size != expected["bytes"]
+            or file_sha(self.corpus_path) != expected["sha256"]
+        ):
+            raise ValueError("streaming_corpus_digest")
+        command = ["python", "-m", "inference_platform.inf060_eks_client"]
+        with self.corpus_path.open("rb") as input_file:
+            self.private_k(
+                "exec",
+                "-i",
+                self.client_pod,
+                "-c",
+                "client",
+                "--",
+                *command,
+                "receive-corpus",
+                expected["sha256"],
+                limit=0,
+                stdin=input_file,
+            )
+        fact = json.loads(
+            self.private_k(
+                "exec",
+                self.client_pod,
+                "-c",
+                "client",
+                "--",
+                *command,
+                "verify-corpus",
+                limit=512,
+            )
+        )
+        if fact != {"sha256": expected["sha256"], "verified": True}:
+            raise ValueError("streaming_corpus_digest")
+        self.results.setdefault("stream_diagnostics", []).append(
+            {"phase": "corpus", **fact}
+        )
+
+    def stream_transfer_probe(self):
+        if not self.binding.get("gpu_streaming"):
+            raise ValueError("streaming_probe_variant")
+        end = min(
+            self.deadline,
+            time.monotonic()
+            + self.timing["streaming_components"]["in_session_transfer_probe_s"],
+        )
+
+        def read(offset):
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("streaming_pod_transfer_probe")
+            return self.private_k(
+                "exec",
+                self.client_pod,
+                "-c",
+                "result-reader",
+                "--",
+                "python",
+                "-m",
+                "inference_platform.inf060_eks_client",
+                "probe-chunk",
+                str(offset),
+                limit=PROBE_CHUNK_BYTES,
+                seconds=min(remaining, 120),
+            )
+
+        # Each chunk opens a fresh exec stream. The resumed pass restarts
+        # the reader at the verified midpoint without replaying the prefix.
+        receipt = measure_transfer(read, lambda: None)
+        receipt["transport"] = "kubectl-exec-offset-chunks"
+        self.results["streaming_pod_rate"] = transfer_rate(receipt)
+        self.results.setdefault("stream_diagnostics", []).append(
+            {"phase": "operator-pod-transfer", **receipt}
+        )
+        return receipt
+
     def client_file(self, name, limit):
+        if self.binding.get("gpu_streaming") and not name.endswith("-status.json"):
+            return self.streamed_client_file(name, limit)
         return self.private_k(
             "exec",
             self.client_pod,
@@ -275,6 +530,55 @@ class StreamingClusterPorts(EKSClusterPorts):
             "/results/" + name,
             limit=limit,
         )
+
+    def streamed_client_file(self, name, limit):
+        # Use the same offset-sized exec transport as the pre-smoke gate.
+        path = "/results/" + name
+        command = [
+            "exec",
+            self.client_pod,
+            "-c",
+            "result-reader",
+            "--",
+            "python",
+            "-c",
+        ]
+        raw_size = self.private_k(
+            *command,
+            "from pathlib import Path;import sys;print(Path(sys.argv[1]).stat().st_size)",
+            path,
+            limit=32,
+            seconds=10,
+        )
+        size = int(raw_size)
+        if not 0 <= size <= limit:
+            raise ValueError("stream_capture")
+        if size == 0:
+            return b""
+        rate = self.results.get("streaming_pod_rate", 150_000)
+        end = min(self.deadline, time.monotonic() + bound(size, rate))
+        data = bytearray()
+        for offset in range(0, size, PROBE_CHUNK_BYTES):
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("streaming_pod_receipt_deadline")
+            length = min(PROBE_CHUNK_BYTES, size - offset)
+            chunk = self.private_k(
+                *command,
+                "import sys;f=open(sys.argv[1],'rb');f.seek(int(sys.argv[2]));sys.stdout.buffer.write(f.read(int(sys.argv[3])))",
+                path,
+                str(offset),
+                str(length),
+                limit=length,
+                seconds=min(remaining, 120),
+            )
+            self.results["streaming_pod_receipt_bytes"] = self.results.get(
+                "streaming_pod_receipt_bytes", 0
+            ) + len(chunk)
+            if len(chunk) != length:
+                raise ValueError("stream_capture")
+            data.extend(chunk)
+        return bytes(data)
 
     def engine_cpu(self, name):
         try:
@@ -470,7 +774,12 @@ class StreamingClusterPorts(EKSClusterPorts):
                 return None
             return finish
 
-        self.wait(status, seconds=WINDOW_WAIT_SECONDS)
+        wait = (
+            PHASE_WAITS[label]
+            if self.binding.get("gpu_streaming")
+            else WINDOW_WAIT_SECONDS
+        )
+        self.wait(status, seconds=wait)
         result = self.observe(label, backends, engine_cpu)
         (self.output / ("window-" + label + ".json")).write_bytes(payload(result))
         del self.results["active_stream"]
@@ -527,18 +836,31 @@ class StreamingClusterPorts(EKSClusterPorts):
             directory = self.output / "snapshot-final-partial"
             build(directory, conditions, windows, diagnostics)
         archive = self.output / ("snapshot-" + label + ".tar.gz")
+        files = sorted(directory.iterdir())
+        if sum(path.stat().st_size for path in files) > EXPANDED_LIMIT:
+            raise ValueError("streaming_expanded_limit")
         with tarfile.open(archive, "x:gz") as tar:
-            for path in sorted(directory.iterdir()):
+            for path in files:
                 tar.add(path, arcname=path.name, recursive=False)
         size = archive.stat().st_size
         if size > ARCHIVE_LIMIT:
             raise ValueError("stream_receipt")
         with archive.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        hop_bytes = {}
+        if self.binding.get("gpu_streaming"):
+            total = self.results.get("streaming_pod_receipt_bytes", 0)
+            hop_bytes = {
+                "pod_receipt_bytes": total,
+                "pod_window_bytes": total
+                - self.results.get("streaming_pod_checkpoint_bytes", 0),
+            }
+            self.results["streaming_pod_checkpoint_bytes"] = total
         return {
             "bytes": size,
             "sha256": digest,
             "manifest_sha256": hashlib.sha256(
                 (directory / "manifest.json").read_bytes()
             ).hexdigest(),
+            **hop_bytes,
         }

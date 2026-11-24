@@ -17,6 +17,13 @@ import tarfile
 import time
 from pathlib import Path
 
+from inf060_eks_cpu_plan import CPU_MARKER, standard_quota_readback, verify_cpu_binding
+from inf060_eks_gpu_plan import (
+    GPU_MARKER,
+    require_streaming_quota,
+    streaming_quota,
+    verify_gpu_binding,
+)
 from inference_platform.m5_descriptive_operator import (
     execute,
     file_digest,
@@ -26,11 +33,10 @@ from inference_platform.m5_infra_safety import verify_gpu_plan, wait_terminated
 from inference_platform.package_a_operator import Ports
 from inference_platform.r1_cloud_operator import stop_forward
 from inference_platform.r1_lifecycle import Production
+from m5_descriptive_capacity import select_capacity
 from m5_descriptive_cleanup import missing, pages
 from m5_descriptive_diagnostics import collect, write_cost
 from m5_descriptive_inventory import gpu_states, inventory
-from m5_descriptive_capacity import select_capacity
-from inf060_eks_cpu_plan import CPU_MARKER, standard_quota_readback, verify_cpu_binding
 from package_a_host import host_environment
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +78,7 @@ def phase_command(phase, *, isolated=False):
 def is_streaming_phase(phase):
     return (
         re.fullmatch(
-            r"stream-(?:window-(?:smoke|warmup|0\.25|1|3|8)|snapshot-(?:0\.25|1|3|8)|final|partial)",
+            r"stream-(?:window-(?:smoke|warmup|0\.25|1|3|8)|snapshot-(?:0\.25|1|3|8)|final|partial|transfer-probe)",
             phase,
         )
         is not None
@@ -183,6 +189,8 @@ def require_review(text, manifest, digest):
     marker = (
         CPU_MARKER
         if manifest.get("descriptive", {}).get("cpu_clock_rehearsal")
+        else GPU_MARKER
+        if manifest.get("descriptive", {}).get("gpu_streaming")
         else "M5 DESCRIPTIVE EKS PLAN APPROVED"
     )
     lines = re.findall(
@@ -446,6 +454,8 @@ class EKSports:
         ):
             if not standard_quota_readback(self.sdk)["fits"]:
                 raise ValueError("cpu_clock:standard_quota_busy")
+        if not recovering and self.manifest.get("descriptive", {}).get("gpu_streaming"):
+            self.check_streaming_quota("init")
         self.capacity = Capacity(self, recovering=recovering)
         self.owned_vpcs = []
         self.main_root = None
@@ -489,6 +499,19 @@ class EKSports:
 
     def tf(self, root, *args):
         remaining = self.end - time.time() if args[0] != "destroy" else 1800
+        if (
+            args[0] == "apply"
+            and root.name.startswith("zone-")
+            and self.manifest.get("descriptive", {}).get("gpu_streaming")
+        ):
+            components = self.manifest["timing"]["streaming_components"]
+            infrastructure = {"apply_through_staging_s", "capacity_wait_s"}
+            reserved = sum(
+                seconds
+                for name, seconds in components.items()
+                if name not in infrastructure
+            )
+            remaining = min(remaining - reserved, components["apply_through_staging_s"])
         if remaining <= 0:
             raise TimeoutError("descriptive:terraform_original_deadline")
         name = root.name + "-" + args[0] + "-" + str(time.time_ns())
@@ -609,9 +632,16 @@ class EKSports:
             time.sleep(min(1, max(0, stop - time.monotonic())))
         raise TimeoutError("descriptive:targeted_reservation_deadline")
 
+    def check_streaming_quota(self, stage):
+        result = streaming_quota(self.sdk)
+        (self.directory / ("streaming-quota-" + stage + ".json")).write_text(
+            json.dumps(result, sort_keys=True)
+        )
+        require_streaming_quota(result)
+
     def host_runtime(self, outputs):
         """Preserve the session cutoff across the agent's work-deadline rewrite."""
-        return {
+        runtime = {
             **self.manifest["host_manifest"],
             "deadline_epoch": self.end,
             "descriptive": {
@@ -620,6 +650,15 @@ class EKSports:
                 "repository_url": outputs["repository_url"]["value"],
             },
         }
+        if runtime["descriptive"].get("gpu_streaming"):
+            selected = json.loads((self.directory / "selected-plan.json").read_bytes())
+            binding = copy.deepcopy(runtime["descriptive"]["streaming"])
+            binding["conditions"]["zone"] = [
+                selected["zone"],
+                selected["control_plane_zone"],
+            ]
+            runtime["descriptive"]["streaming"] = binding
+        return runtime
 
     def host_work_deadline(self):
         return phase_deadline(self.end, self.manifest["timing"], "provision")
@@ -656,6 +695,9 @@ class EKSports:
                 raise ValueError("cpu_clock:standard_quota_busy")
         self.main_root = self.directory / selected["directory"]
         (self.directory / "selected-plan.json").write_text(json.dumps(selected))
+        gpu_streaming = self.manifest["descriptive"].get("gpu_streaming")
+        if gpu_streaming:
+            self.check_streaming_quota("before-apply")
         self.tf(self.main_root, "apply", "-input=false", "create.tfplan")
         outputs = subprocess.check_output(
             [
@@ -678,7 +720,7 @@ class EKSports:
         work_end = self.host_work_deadline()
         self.host.bootstrap(work_end)
         self.host.upload(work_end)
-        if cpu:
+        if cpu or gpu_streaming:
             self.host.upload_gate_a_inputs(work_end)
         self.host.run_checks(work_end)
         self.bootstrap_complete = True
@@ -1041,6 +1083,8 @@ def run_packet(args):
     verify_packet_files(args.packet, manifest)
     if manifest["descriptive"].get("cpu_clock_rehearsal"):
         verify_cpu_binding(args.packet, manifest)
+    if manifest["descriptive"].get("gpu_streaming"):
+        verify_gpu_binding(args.packet, manifest)
     ports = EKSports(args.packet, profile=args.profile, recovering=args.cleanup_only)
     if args.cleanup_only:
         try:

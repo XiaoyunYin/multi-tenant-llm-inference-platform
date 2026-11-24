@@ -14,7 +14,7 @@ from inf060_eks_cpu_plan import (
     check_pushed_content,
 )
 from inf060_eks_remote import StreamingClusterPorts
-from rehearse_inf060_kind import CLOCK_PROBE, PEER_PROBE, fallback_clock
+from rehearse_inf060_kind import CLOCK_PROBE, fallback_clock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,66 +133,6 @@ class CpuClockPorts(StreamingClusterPorts):
             }
         }
         return result
-
-    def from_client(self, code, *args):
-        return json.loads(
-            self.k(
-                "exec",
-                self.client_pod,
-                "-c",
-                "client",
-                "--",
-                "python",
-                "-c",
-                code,
-                *args,
-            )
-        )
-
-    def prove_policy(self, replicas):
-        pods = json.loads(self.k("get", "pods", "-l", "app=vllm", "-o", "json"))[
-            "items"
-        ]
-        engine_nodes = {row["spec"]["nodeName"] for row in pods}
-        node = self.client_placement["node"]
-        if len(engine_nodes) != 2 or node in engine_nodes:
-            raise ValueError("cpu_clock:cross_node_placement")
-        ips = [row["ip"] for _, row in replicas]
-        allowed = self.from_client(PEER_PROBE, *ips)
-        self.k(
-            "run",
-            "unlabelled-peer",
-            "--restart=Never",
-            "--image=" + self.client_image,
-            "--overrides="
-            + json.dumps(
-                {"spec": {"nodeName": node, "automountServiceAccountToken": False}}
-            ),
-            "--command",
-            "--",
-            "python",
-            "-c",
-            PEER_PROBE,
-            *ips,
-        )
-        self.k(
-            "wait",
-            "--for=jsonpath={.status.phase}=Succeeded",
-            "pod/unlabelled-peer",
-            "--timeout=90s",
-        )
-        peer = json.loads(self.k("get", "pod/unlabelled-peer", "-o", "json"))
-        if peer["spec"]["nodeName"] != node or "inf060-role" in peer["metadata"].get(
-            "labels", {}
-        ):
-            raise ValueError("cpu_clock:denied_peer_placement")
-        denied = json.loads(self.k("logs", "unlabelled-peer"))
-        return {
-            "allowed": allowed,
-            "denied": denied,
-            "passed": allowed == [{"engine": True, "clock": True}] * 2
-            and denied == [{"engine": True, "clock": False}] * 2,
-        }
 
     def provision(self):
         result = super().provision()

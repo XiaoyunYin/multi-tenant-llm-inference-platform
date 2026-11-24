@@ -146,8 +146,18 @@ def check_pushed_content(manifest, facts):
 
 
 def standard_quota_readback(sdk):
+    return quota_readback(
+        sdk,
+        STANDARD_QUOTA_CODE,
+        REQUIRED_VCPUS,
+        families="acdhimrtz",
+        excluded=("dl", "hpc", "inf", "mac", "trn"),
+    )
+
+
+def quota_readback(sdk, code, required, *, families, excluded=(), all_lifecycles=False):
     quota = sdk.client("service-quotas").get_service_quota(
-        ServiceCode="ec2", QuotaCode=STANDARD_QUOTA_CODE
+        ServiceCode="ec2", QuotaCode=code
     )["Quota"]["Value"]
     ec2 = sdk.client("ec2")
     instances = pages(
@@ -160,10 +170,13 @@ def standard_quota_readback(sdk):
         row["InstanceType"]
         for reservation in instances
         for row in reservation["Instances"]
-        if not row.get("InstanceLifecycle")
-        and row.get("Placement", {}).get("Tenancy") != "host"
-        and row["InstanceType"][0] in "acdhimrtz"
-        and not row["InstanceType"].startswith(("dl", "hpc", "inf", "mac", "trn"))
+        if (
+            all_lifecycles
+            or not row.get("InstanceLifecycle")
+            and row.get("Placement", {}).get("Tenancy") != "host"
+        )
+        and row["InstanceType"][0] in families
+        and not row["InstanceType"].startswith(excluded)
     )
     vcpus = {}
     types = sorted(occupied)
@@ -187,8 +200,8 @@ def standard_quota_readback(sdk):
     return {
         "quota_vcpus": quota,
         "running_vcpus": running,
-        "required_vcpus": REQUIRED_VCPUS,
-        "fits": running + REQUIRED_VCPUS <= quota,
+        "required_vcpus": required,
+        "fits": running + required <= quota,
     }
 
 

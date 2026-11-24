@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 
 from .eks_deployment import MODEL
 from .inf060_eks_clock import ClockRefusal, ClockStream, bracket, wall_mapping
+from .inf060_eks_packet import CORPUS_NAME, load_corpus, probe_block
 from .inf060_eks_schedule import (
     DRAIN_SECONDS,
     REQUEST_CAP_SECONDS,
@@ -244,9 +245,12 @@ def run_window(task, cfg, results):
     duration = {"smoke": SMOKE_SECONDS, "warmup": WARMUP_SECONDS}.get(label, WINDOW_SECONDS)
     rows = schedule(label)
     context = ssl.create_default_context(cafile="/ca/tls.crt")
-    corpus = dict(
-        zip((row["alias"] for row in rows), prompts(rows, pinned_tokenizer()), strict=True)
-    )
+    if "corpus_sha256" in cfg:
+        corpus = load_corpus(results / CORPUS_NAME, cfg["corpus_sha256"], (label,))
+    else:
+        corpus = dict(
+            zip((row["alias"] for row in rows), prompts(rows, pinned_tokenizer()), strict=True)
+        )
     end = time.monotonic() + task["deadline_epoch"] - time.time()
     if end - time.monotonic() < duration + DRAIN_SECONDS:
         raise TimeoutError("streaming_window_budget")
@@ -422,15 +426,35 @@ def serve(root):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("serve", "submit"))
+    parser.add_argument(
+        "mode", choices=("serve", "submit", "verify-corpus", "receive-corpus", "probe-chunk")
+    )
     parser.add_argument("task", nargs="?")
     args = parser.parse_args()
     if args.mode == "serve":
         serve(ROOT)
-    else:
+    elif args.mode == "submit":
         pending = ROOT / "stream-task.tmp"
         pending.write_text(args.task)
         pending.replace(ROOT / "stream-task.json")
+    elif args.mode == "receive-corpus":
+        import shutil
+        import sys
+
+        temporary = ROOT / (CORPUS_NAME + ".part")
+        with temporary.open("xb") as output:
+            shutil.copyfileobj(sys.stdin.buffer, output)
+        load_corpus(temporary, args.task, ())
+        temporary.replace(ROOT / CORPUS_NAME)
+    elif args.mode == "verify-corpus":
+        cfg = json.loads(os.environ["INF060_SETTINGS"])
+        digest = cfg["corpus_sha256"]
+        load_corpus(ROOT / CORPUS_NAME, digest, ())
+        print(json.dumps({"sha256": digest, "verified": True}))
+    else:
+        import sys
+
+        sys.stdout.buffer.write(probe_block(int(args.task)))
 
 
 if __name__ == "__main__":

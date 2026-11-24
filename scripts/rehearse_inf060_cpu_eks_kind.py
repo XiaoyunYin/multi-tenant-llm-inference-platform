@@ -3,8 +3,11 @@
 import argparse
 import base64
 import hashlib
+import ipaddress
 import json
+import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -168,7 +171,7 @@ def kube(campaign, kubeconfig, *args, seconds=180):
     return command(campaign.kubectl, "--kubeconfig", kubeconfig, *args, seconds=seconds)
 
 
-def configure(campaign, work, kubeconfig):
+def configure(campaign, work, kubeconfig, *, roles=None):
     campaign.install_tools()
     command(
         "docker",
@@ -183,7 +186,8 @@ def configure(campaign, work, kubeconfig):
     )
     config = kind_config()
     config["nodes"] = [{"role": "control-plane"}] + [
-        {"role": "worker", "labels": {"m5-role": "cpu"}} for _ in range(NODE_COUNT)
+        {"role": "worker", "labels": {"m5-role": role}}
+        for role in (roles if roles is not None else ["cpu"] * NODE_COUNT)
     ]
     config["networking"] = {"disableDefaultCNI": True, "podSubnet": "192.168.0.0/16"}
     config_file = work / "kind.json"
@@ -203,15 +207,24 @@ def configure(campaign, work, kubeconfig):
         seconds=360,
     )
     command("docker", "network", "connect", "kind", REGISTRY)
+    registry_host = REGISTRY
+    if roles is not None:
+        [container] = json.loads(command("docker", "inspect", REGISTRY))
+        registry_host = str(
+            ipaddress.IPv4Address(
+                container["NetworkSettings"]["Networks"]["kind"]["IPAddress"]
+            )
+        )
     hosts = work / "hosts.toml"
     hosts.write_text(
-        f'server = "http://{REGISTRY}:5000"\n'
-        f'[host."http://{REGISTRY}:5000"]\n  capabilities = ["pull", "resolve"]\n',
+        f'server = "http://{registry_host}:5000"\n'
+        f'[host."http://{registry_host}:5000"]\n  capabilities = ["pull", "resolve"]\n',
         encoding="utf-8",
     )
-    for node in (
+    nodes = (
         command(campaign.kind, "get", "nodes", "--name", CLUSTER).decode().splitlines()
-    ):
+    )
+    for node in nodes:
         target = f"/etc/containerd/certs.d/localhost:{REGISTRY_PORT}"
         command("docker", "exec", node, "mkdir", "-p", target)
         command("docker", "cp", hosts, node + ":" + target + "/hosts.toml")
@@ -223,22 +236,136 @@ def configure(campaign, work, kubeconfig):
         manifest = response.read(1024**2)
     if hashlib.sha256(manifest).hexdigest() != CALICO_SHA256:
         raise ValueError("cpu_clock:kind_calico_binding")
+    if roles is not None:
+        # Seed kubelet's CRI store before the bootstrap CNI needs networking.
+        image_line = re.compile(rb"(?m)^([ \t]*image:[ \t]*)([^\s#]+)")
+        images = sorted(
+            {match[2].decode().strip("'\"") for match in image_line.finditer(manifest)}
+        )
+        if not images:
+            raise ValueError("streaming_kind_calico_images")
+        image_archive = work / "calico-amd64.tar"
+        try:
+            for image in images:
+                command("docker", "pull", "--platform=linux/amd64", image, seconds=300)
+            command(
+                "docker",
+                "image",
+                "save",
+                "--platform=linux/amd64",
+                "-o",
+                image_archive,
+                *images,
+                seconds=480,
+            )
+            for node in nodes:
+                importer = [
+                    "docker",
+                    "exec",
+                    "--privileged",
+                    "-i",
+                    node,
+                    "ctr",
+                    "--namespace",
+                    "k8s.io",
+                    "images",
+                    "import",
+                ]
+                local = (
+                    ["--local"] if b"--local" in command(*importer, "--help") else []
+                )
+                # Stream the single-platform archive, as kind's loader does.
+                with image_archive.open("rb") as archive:
+                    subprocess.run(
+                        [*importer, *local, "--platform=linux/amd64", "-"],
+                        stdin=archive,
+                        capture_output=True,
+                        check=True,
+                        timeout=480,
+                    )
+                for image in images:
+                    command(
+                        "docker", "exec", node, "crictl", "inspecti", image, seconds=15
+                    )
+        except subprocess.CalledProcessError as exc:
+            if exc.stderr:
+                print(exc.stderr.decode(errors="replace")[-2048:], flush=True)
+            raise
+        manifest = re.sub(
+            rb"(?m)^([ \t]*imagePullPolicy:[ \t]*)(Always|IfNotPresent)[ \t]*$",
+            rb"\g<1>Never",
+            manifest,
+        )
+        print(
+            json.dumps(
+                {"calico_local_images": len(images), "cri_nodes_verified": len(nodes)}
+            ),
+            flush=True,
+        )
     path = work / "calico.yaml"
     path.write_bytes(manifest)
     kube(campaign, kubeconfig, "create", "-f", path)
-    kube(
-        campaign,
-        kubeconfig,
-        "wait",
-        "--for=condition=Ready",
-        "nodes",
-        "--all",
-        "--timeout=240s",
-        seconds=265,
-    )
+    readiness = 360 if roles is not None else 240
+    try:
+        kube(
+            campaign,
+            kubeconfig,
+            "wait",
+            "--for=condition=Ready",
+            "nodes",
+            "--all",
+            f"--timeout={readiness}s",
+            seconds=readiness + 25,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        if roles is not None:
+            try:
+                pods = json.loads(
+                    kube(
+                        campaign,
+                        kubeconfig,
+                        "-n",
+                        "kube-system",
+                        "get",
+                        "pods",
+                        "-o",
+                        "json",
+                        seconds=15,
+                    )
+                )
+                states = [
+                    row.get("state", {}).get("waiting", {}).get("reason", "not_waiting")
+                    for pod in pods["items"]
+                    for row in (
+                        pod["status"].get("initContainerStatuses", [])
+                        + pod["status"].get("containerStatuses", [])
+                    )
+                ]
+                allowed = {
+                    "not_waiting",
+                    "ContainerCreating",
+                    "PodInitializing",
+                    "ErrImagePull",
+                    "ImagePullBackOff",
+                    "CrashLoopBackOff",
+                }
+                print(
+                    json.dumps(
+                        {
+                            "kind_readiness_container_states": [
+                                state if state in allowed else "other_waiting"
+                                for state in states
+                            ]
+                        }
+                    ),
+                    flush=True,
+                )
+            except (OSError, ValueError, subprocess.SubprocessError):
+                print('{"kind_readiness_container_states":"unavailable"}', flush=True)
+        raise
 
 
-def deploy_agent(campaign, kubeconfig, work, *, enabled):
+def deploy_agent(campaign, kubeconfig, work, *, enabled, gpu_fixture=False):
     labels = {"app": "r420-policy-agent"}
     path = work / "aws-node.json"
     write(
@@ -252,7 +379,28 @@ def deploy_agent(campaign, kubeconfig, work, *, enabled):
                 "template": {
                     "metadata": {"labels": labels},
                     "spec": {
-                        "nodeSelector": {"m5-role": "cpu"},
+                        **(
+                            {
+                                "affinity": {
+                                    "nodeAffinity": {
+                                        "requiredDuringSchedulingIgnoredDuringExecution": {
+                                            "nodeSelectorTerms": [
+                                                {
+                                                    "matchExpressions": [
+                                                        {
+                                                            "key": "m5-role",
+                                                            "operator": "Exists",
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                            if gpu_fixture
+                            else {"nodeSelector": {"m5-role": "cpu"}}
+                        ),
                         "containers": [
                             {
                                 "name": "aws-eks-nodeagent",
