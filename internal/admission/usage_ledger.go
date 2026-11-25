@@ -49,15 +49,34 @@ type UsageCount struct {
 
 type UsageTerminal struct {
 	UsageAttempt
-	AdmittedUnixMS  *int64           `json:"admitted_unix_ms,omitempty"`
-	Pins            UsagePins        `json:"pins"`
-	DispatchIntent  bool             `json:"dispatch_intent"`
-	StreamCommitted bool             `json:"stream_committed"`
-	Outcome         string           `json:"outcome"`
-	Version         int              `json:"version"`
-	Checkpoint      *UsageCheckpoint `json:"checkpoint,omitempty"`
-	Prompt          UsageCount       `json:"prompt"`
-	Completion      UsageCount       `json:"completion"`
+	AdmittedUnixMS          *int64                  `json:"admitted_unix_ms,omitempty"`
+	AdmissionDeadlineUnixMS *int64                  `json:"admission_deadline_unix_ms,omitempty"`
+	Pins                    UsagePins               `json:"pins"`
+	DispatchIntent          bool                    `json:"dispatch_intent"`
+	StreamCommitted         bool                    `json:"stream_committed"`
+	Outcome                 string                  `json:"outcome"`
+	Version                 int                     `json:"version"`
+	Checkpoint              *UsageCheckpoint        `json:"checkpoint,omitempty"`
+	Prompt                  UsageCount              `json:"prompt"`
+	Completion              UsageCount              `json:"completion"`
+	Correction              *UsageCorrectionReceipt `json:"correction,omitempty"`
+	History                 []UsageTerminal         `json:"history,omitempty"`
+}
+
+// UsageCorrection carries a reviewed engine observation and binds its evidence.
+// The previous outcome remains the record of the original client stream.
+type UsageCorrection struct {
+	UsageAttempt
+	ExpectedVersion int             `json:"expected_version"`
+	Checkpoint      UsageCheckpoint `json:"checkpoint"`
+	EvidenceSHA256  string          `json:"evidence_sha256"`
+	Reason          string          `json:"reason"`
+}
+
+type UsageCorrectionReceipt struct {
+	ArrivalUnixMS  int64  `json:"arrival_unix_ms"`
+	EvidenceSHA256 string `json:"evidence_sha256"`
+	Reason         string `json:"reason"`
 }
 
 type usageEvent struct {
@@ -69,17 +88,38 @@ type usageEvent struct {
 }
 
 var (
-	ErrUsageConflict = errors.New("metering event conflicts with the ledger")
-	ErrUsageBinding  = errors.New("metering event lacks a matching admitted attempt or dispatch")
-	usageOwner       = regexp.MustCompile(`^owner_[0-9a-f]{32}$`)
-	usageModel       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./:-]{0,191}$`)
-	usagePin         = regexp.MustCompile(`^(?:[0-9a-f]{40}|sha256:[0-9a-f]{64})?$`)
+	ErrUsageConflict     = errors.New("metering event conflicts with the ledger")
+	ErrUsageBinding      = errors.New("metering event lacks a matching admitted attempt or dispatch")
+	ErrUsageWindowClosed = errors.New("metering correction window is closed or unverified")
+	usageOwner           = regexp.MustCompile(`^owner_[0-9a-f]{32}$`)
+	usageModel           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./:-]{0,191}$`)
+	usagePin             = regexp.MustCompile(`^(?:[0-9a-f]{40}|sha256:[0-9a-f]{64})?$`)
+	usageDigest          = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
+
+//go:embed scripts/usage_common.lua
+var usageCommonLua string
 
 //go:embed scripts/usage.lua
 var usageLua string
 
-var updateUsage = redis.NewScript(usageLua)
+//go:embed scripts/usage_maintenance.lua
+var usageMaintenanceLua string
+
+var (
+	updateUsage   = redis.NewScript(usageCommonLua + "\n" + usageLua)
+	maintainUsage = redis.NewScript(usageCommonLua + "\n" + usageMaintenanceLua)
+)
+
+func (c *RedisCoordinator) usageKeys() []string {
+	return []string{
+		c.keyPrefix + "usage:admitted", c.keyPrefix + "usage:admitted-at",
+		c.keyPrefix + "usage:progress", c.keyPrefix + "usage:terminal",
+		c.keyPrefix + "usage:events", c.keyPrefix + "usage:discrepancies",
+		c.keyPrefix + "usage:deadlines", c.keyPrefix + "usage:open-deadlines",
+		c.keyPrefix + "usage:retired",
+	}
+}
 
 func (c *RedisCoordinator) UsageMeteringEnabled() bool { return c.config.Metering }
 
@@ -92,21 +132,28 @@ func (c *RedisCoordinator) BeginUsageDispatch(ctx context.Context, attempt Usage
 	if !ValidUsagePins(pins) {
 		return ErrUsageBinding
 	}
-	_, err := c.recordUsage(ctx, "dispatch", "dispatch", usageEvent{UsageAttempt: attempt, Pins: &pins})
+	_, err := c.recordUsage(ctx, attempt, "dispatch", "dispatch", usageEvent{UsageAttempt: attempt, Pins: &pins})
 	return err
 }
 
 func (c *RedisCoordinator) CheckpointUsage(ctx context.Context, attempt UsageAttempt, point UsageCheckpoint) error {
-	if point.Sequence < 1 || point.Sequence > 1<<31-1 || (point.Runtime == nil && point.Estimate == nil) {
+	if !validUsageCheckpoint(point) {
 		return ErrUsageBinding
+	}
+	_, err := c.recordUsage(ctx, attempt, "checkpoint", "checkpoint:"+strconv.FormatInt(point.Sequence, 10), usageEvent{UsageAttempt: attempt, Checkpoint: &point})
+	return err
+}
+
+func validUsageCheckpoint(point UsageCheckpoint) bool {
+	if point.Sequence < 1 || point.Sequence > 1<<31-1 || (point.Runtime == nil && point.Estimate == nil) {
+		return false
 	}
 	for _, counts := range []*UsageTokens{point.Runtime, point.Estimate} {
 		if counts != nil && (counts.Prompt < 0 || counts.Completion < 0 || counts.Prompt > 1<<31-1 || counts.Completion > 1<<31-1) {
-			return ErrUsageBinding
+			return false
 		}
 	}
-	_, err := c.recordUsage(ctx, "checkpoint", "checkpoint:"+strconv.FormatInt(point.Sequence, 10), usageEvent{UsageAttempt: attempt, Checkpoint: &point})
-	return err
+	return true
 }
 
 func (c *RedisCoordinator) FinalizeUsage(ctx context.Context, attempt UsageAttempt, pins UsagePins, outcome string, committed bool) (UsageTerminal, error) {
@@ -119,7 +166,22 @@ func (c *RedisCoordinator) FinalizeUsage(ctx context.Context, attempt UsageAttem
 	if !ValidUsagePins(pins) || (outcome == "completed" && !committed) {
 		return UsageTerminal{}, ErrUsageBinding
 	}
-	value, err := c.recordUsage(ctx, "terminal", "terminal:1", usageEvent{UsageAttempt: attempt, Pins: &pins, Outcome: outcome, StreamCommitted: committed})
+	return parseUsageTerminal(c.recordUsage(ctx, attempt, "terminal", "terminal:1", usageEvent{UsageAttempt: attempt, Pins: &pins, Outcome: outcome, StreamCommitted: committed}))
+}
+
+// CorrectUsage accepts one absolute, verified runtime observation by CAS. It
+// does not upgrade incomplete client output to a completed stream.
+func (c *RedisCoordinator) CorrectUsage(ctx context.Context, correction UsageCorrection) (UsageTerminal, error) {
+	if correction.ExpectedVersion < 1 || correction.ExpectedVersion >= 1<<31-1 ||
+		!usageDigest.MatchString(correction.EvidenceSHA256) || !validUsageCheckpoint(correction.Checkpoint) ||
+		correction.Checkpoint.Runtime == nil || (correction.Reason != "verified_engine_usage" && correction.Reason != "verified_usage_recount") {
+		return UsageTerminal{}, ErrUsageBinding
+	}
+	return parseUsageTerminal(c.recordUsage(ctx, correction.UsageAttempt, "correction",
+		"correction:"+strconv.Itoa(correction.ExpectedVersion), correction))
+}
+
+func parseUsageTerminal(value string, err error) (UsageTerminal, error) {
 	if err != nil {
 		return UsageTerminal{}, err
 	}
@@ -130,23 +192,18 @@ func (c *RedisCoordinator) FinalizeUsage(ctx context.Context, attempt UsageAttem
 	return terminal, nil
 }
 
-func (c *RedisCoordinator) recordUsage(ctx context.Context, operation, id string, event usageEvent) (string, error) {
-	if !c.config.Metering || validateIdentity(event.TenantID, event.ReservationID) != nil ||
-		!requestIDPattern.MatchString(event.RequestID) || !usageOwner.MatchString(event.OwnerEpoch) {
+func (c *RedisCoordinator) recordUsage(ctx context.Context, attempt UsageAttempt, operation, id string, payload any) (string, error) {
+	if !c.config.Metering || validateIdentity(attempt.TenantID, attempt.ReservationID) != nil ||
+		!requestIDPattern.MatchString(attempt.RequestID) || !usageOwner.MatchString(attempt.OwnerEpoch) {
 		return "", ErrUsageBinding
 	}
-	body, err := json.Marshal(event)
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
-	key := event.TenantID + ":" + event.ReservationID
-	keys := []string{
-		c.keyPrefix + "usage:admitted", c.keyPrefix + "usage:admitted-at",
-		c.keyPrefix + "usage:progress", c.keyPrefix + "usage:terminal",
-		c.keyPrefix + "usage:events", c.keyPrefix + "usage:discrepancies",
-	}
-	reply, err := updateUsage.Run(ctx, c.client, keys, key, event.RequestID, event.OwnerEpoch,
-		operation, key+"|"+event.OwnerEpoch+"|"+id, fmt.Sprintf("%x", sha256.Sum256(body)), body).StringSlice()
+	key := attempt.TenantID + ":" + attempt.ReservationID
+	reply, err := updateUsage.Run(ctx, c.client, c.usageKeys(), key, attempt.RequestID, attempt.OwnerEpoch,
+		operation, key+"|"+attempt.OwnerEpoch+"|"+id, fmt.Sprintf("%x", sha256.Sum256(body)), body).StringSlice()
 	if err != nil {
 		return "", fmt.Errorf("persist metered usage: %w", err)
 	}
@@ -158,7 +215,27 @@ func (c *RedisCoordinator) recordUsage(ctx context.Context, operation, id string
 		return reply[1], nil
 	case "conflict":
 		return "", ErrUsageConflict
+	case "window_closed":
+		return "", ErrUsageWindowClosed
 	default:
 		return "", ErrUsageBinding
 	}
+}
+
+// PrepareUsageMaintenance indexes retained slice 1 and 2a obligations once at
+// metered gateway startup. New admissions write that index at grant time.
+func (c *RedisCoordinator) PrepareUsageMaintenance(ctx context.Context) error {
+	if !c.config.Metering {
+		return ErrUsageBinding
+	}
+	return maintainUsage.Run(ctx, c.client, c.usageKeys(), "migrate", 10000, c.config.LeaseDuration.Milliseconds()).Err()
+}
+
+// SweepUsage finalizes at most limit overdue open obligations. Release and
+// reservation expiry continue to use the original admission scripts.
+func (c *RedisCoordinator) SweepUsage(ctx context.Context, limit int) (int, error) {
+	if !c.config.Metering || limit < 1 || limit > 128 {
+		return 0, ErrUsageBinding
+	}
+	return maintainUsage.Run(ctx, c.client, c.usageKeys(), "sweep", limit).Int()
 }

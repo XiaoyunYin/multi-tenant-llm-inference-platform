@@ -23,10 +23,15 @@ type afterGrant struct {
 	after func(context.Context, admission.Request) error
 }
 
+var fixtureUnknownDecision = errors.New("fixture unknown grant reply")
+
 func (c afterGrant) Admit(ctx context.Context, request admission.Request) (admission.Result, error) {
 	result, err := c.RedisCoordinator.Admit(ctx, request)
 	if err == nil && result.Decision == admission.Allowed {
 		if err := c.after(ctx, request); err != nil {
+			if errors.Is(err, fixtureUnknownDecision) {
+				return admission.Result{Decision: admission.Decision(255)}, nil
+			}
 			return admission.Result{}, err
 		}
 	}
@@ -38,7 +43,7 @@ func TestMeteredAdmissionObligationAcrossGateways(t *testing.T) {
 		runMeteringCrashGateway(t, namespace)
 		return
 	}
-	for _, scenario := range []string{"lost reply", "duplicate grant", "pre-dispatch crash", "denial"} {
+	for _, scenario := range []string{"lost reply", "unknown decision", "duplicate grant", "pre-dispatch crash", "denial"} {
 		t.Run(scenario, func(t *testing.T) {
 			client, config := gatewayRedis(t)
 			config.Metering = true
@@ -70,6 +75,8 @@ func TestMeteredAdmissionObligationAcrossGateways(t *testing.T) {
 				switch scenario {
 				case "lost reply":
 					return errors.New("fixture lost reply after journal commit")
+				case "unknown decision":
+					return fixtureUnknownDecision
 				case "duplicate grant":
 					value, err := second.Admit(ctx, request)
 					if err != nil || value.Decision != admission.Allowed || !value.Idempotent {
@@ -102,7 +109,7 @@ func TestMeteredAdmissionObligationAcrossGateways(t *testing.T) {
 				crashMeteringGateway(t, config.Namespace)
 			} else {
 				want := http.StatusOK
-				if scenario == "lost reply" {
+				if scenario == "lost reply" || scenario == "unknown decision" {
 					want = http.StatusServiceUnavailable
 				}
 				if got := managedRequest(t, gatewayURL, testCredential, managedBody); got != want {
@@ -119,6 +126,15 @@ func TestMeteredAdmissionObligationAcrossGateways(t *testing.T) {
 				if report.Terminal != 1 || len(report.Missing) != 0 || len(report.Rows) != 1 ||
 					!report.Rows[0].DispatchIntent || report.Rows[0].TenantID+":"+report.Rows[0].ReservationID != *expectedKey.Load() {
 					t.Fatalf("closed cohort: %+v", report)
+				}
+			} else if scenario == "lost reply" || scenario == "unknown decision" {
+				if len(report.Rows) != 1 || report.Terminal != 1 || len(report.Missing) != 0 ||
+					report.Rows[0].DispatchIntent || report.Rows[0].StreamCommitted ||
+					report.Rows[0].Outcome != "rejected" ||
+					report.Rows[0].Prompt.Source != "no_dispatch" ||
+					report.Totals["tenant-test"].Prompt.KnownZeroRows != 1 ||
+					report.Totals["tenant-test"].Completion.KnownZeroRows != 1 {
+					t.Fatalf("lost grant reply did not settle at exact zero: %+v", report)
 				}
 			} else {
 				if report.Terminal != 0 || len(report.Missing) != 1 {

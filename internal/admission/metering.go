@@ -17,8 +17,16 @@ local usage_id = ARGV[22]
 local prior_usage
 if ARGV[15] == 'admit' then
   prior_usage = redis.call('HGET', usage_key, ARGV[2])
-  -- Preflight the timestamp hash before the first grant mutates either hash.
   redis.call('HGET', KEYS[12], ARGV[2])
+  redis.call('ZSCORE', KEYS[13], ARGV[2])
+  redis.call('ZSCORE', KEYS[14], ARGV[2])
+  redis.call('HLEN', KEYS[16])
+  if redis.call('HEXISTS', KEYS[15], ARGV[2]) == 1 then
+    redis.call('HSETNX', KEYS[16], ARGV[2] .. '|retired-admit|' .. usage_id, cjson.encode({
+      tenant_id = string.match(ARGV[2], '^([^:]+):'), attempt_key = ARGV[2], cause = 'retired_key_reused'
+    }))
+    return {'released', 0, 0}
+  end
   if prior_usage and prior_usage ~= usage_id then return {'config_mismatch', 0, 0} end
 end
 `
@@ -35,7 +43,14 @@ var meteringReplacements = []string{
 	globalConfigExpiry + "redis.call('PEXPIRE', KEYS[6], ARGV[9])\nredis.call('PEXPIRE', KEYS[2], ARGV[9])",
 	"redis.call('PEXPIRE', KEYS[6], ARGV[9])\nredis.call('PEXPIRE', KEYS[2], ARGV[9])",
 	"if reservation_state == 'active' then", "if reservation_state == 'active' then\n  if not prior_usage then return {'config_mismatch', 0, 0} end",
-	"local new_rate_count = ", "if prior_usage then return {'released', 0, 0} end\nredis.call('HSET', usage_key, ARGV[2], usage_id)\nredis.call('HSET', KEYS[12], ARGV[2], now_ms)\nlocal new_rate_count = ",
+	"local new_rate_count = ", `
+if prior_usage then return {'released', 0, 0} end
+local usage_deadline = now_ms + tonumber(ARGV[23])
+redis.call('HSET', usage_key, ARGV[2], usage_id)
+redis.call('HSET', KEYS[12], ARGV[2], now_ms)
+redis.call('ZADD', KEYS[13], usage_deadline, ARGV[2])
+redis.call('ZADD', KEYS[14], usage_deadline, ARGV[2])
+local new_rate_count = `,
 }
 
 // Select the original script directly for every mode-off operation. The metered
@@ -85,6 +100,8 @@ type UsageFieldTotals struct {
 	UnknownRows           int
 	ObservedPartialRows   int
 	ObservedPartialTokens int64
+	QuarantinedRows       int
+	QuarantinedTokens     int64
 	EstimateRows          int
 	EstimateTokens        int64
 }
@@ -106,6 +123,9 @@ func (total *UsageFieldTotals) add(count UsageCount, estimate *int64) {
 	case "observed_partial":
 		total.ObservedPartialRows++
 		total.ObservedPartialTokens += *count.Tokens
+	case "quarantined":
+		total.QuarantinedRows++
+		total.QuarantinedTokens += *count.Tokens
 	case "unknown":
 		total.UnknownRows++
 	}
@@ -117,7 +137,7 @@ func (total *UsageFieldTotals) add(count UsageCount, estimate *int64) {
 
 func validUsageCount(count UsageCount) bool {
 	switch count.Classification {
-	case "exact", "observed_partial":
+	case "exact", "observed_partial", "quarantined":
 		return count.Tokens != nil && *count.Tokens >= 0 && *count.Tokens <= 1<<31-1
 	case "unknown":
 		return count.Tokens == nil
@@ -178,7 +198,7 @@ func (c *RedisCoordinator) ReconcileUsage(ctx context.Context, limit int) (Usage
 		}
 		var row UsageTerminal
 		var cause string
-		if json.Unmarshal([]byte(value), &row) != nil || row.Version != 1 ||
+		if json.Unmarshal([]byte(value), &row) != nil || row.Version < 1 ||
 			!validUsageCount(row.Prompt) || !validUsageCount(row.Completion) {
 			cause = "terminal_record_invalid"
 		} else if row.TenantID != tenant {
@@ -190,6 +210,14 @@ func (c *RedisCoordinator) ReconcileUsage(ctx context.Context, limit int) (Usage
 			result.Mismatched = append(result.Mismatched, key)
 			report(tenant, key, cause)
 			continue
+		}
+		// Slice 2a stored disagreements as partial. Keep archived source
+		// bytes and project the distinct classification for current totals.
+		if row.Prompt.Tokens != nil && row.Completion.Tokens != nil &&
+			row.Checkpoint != nil && row.Checkpoint.Runtime != nil && row.Checkpoint.Estimate != nil &&
+			*row.Checkpoint.Runtime != *row.Checkpoint.Estimate {
+			row.Prompt.Classification = "quarantined"
+			row.Completion.Classification = "quarantined"
 		}
 		result.Rows = append(result.Rows, row)
 		total := result.Totals[tenant]
@@ -230,7 +258,10 @@ func (c *RedisCoordinator) ReconcileUsage(ctx context.Context, limit int) (Usage
 		if a.AttemptKey != b.AttemptKey {
 			return a.AttemptKey < b.AttemptKey
 		}
-		return a.Cause < b.Cause
+		if a.Cause != b.Cause {
+			return a.Cause < b.Cause
+		}
+		return a.TenantID < b.TenantID
 	})
 	return result, nil
 }

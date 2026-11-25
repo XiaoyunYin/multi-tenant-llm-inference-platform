@@ -133,6 +133,7 @@ type Gateway struct {
 	measurement      *MeasurementRecorder
 	config           Config
 	registry         *Registry
+	canDispatch      func(*Registry, *Backend) bool
 	backendSelection *BackendSelectionBoundary
 	routingTokenizer RoutingKeyTokenizer
 	client           *http.Client
@@ -229,7 +230,8 @@ func New(config Config, registry *Registry, client *http.Client, logger *slog.Lo
 	}
 	gateway := &Gateway{
 		config: config, registry: registry, backendSelection: NewBackendSelectionBoundary(NewRoundRobinRouter(), NewRandomTieBreaker()), client: client, logger: logger,
-		semaphore: make(chan struct{}, config.MaxConcurrent), active: make(map[uint64]context.CancelCauseFunc), changed: make(chan struct{}),
+		canDispatch: (*Registry).CanDispatch,
+		semaphore:   make(chan struct{}, config.MaxConcurrent), active: make(map[uint64]context.CancelCauseFunc), changed: make(chan struct{}),
 		tracer: otel.Tracer("multi-tenant-llm-inference-platform/gateway"),
 	}
 	backendIDs := make([]string, 0)
@@ -642,7 +644,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		return
 	}
 	if admissionErr != nil {
-		g.bestEffortRelease(tenant.ID, reservationID, requestID)
+		g.finishUncertainAdmission(tenant.ID, reservationID, requestID, decoded.Model)
 		<-g.semaphore
 		if request.Context().Err() != nil {
 			terminal = requestTerminal{cause: terminalClientCancelled, code: "client_cancelled"}
@@ -658,7 +660,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	if admissionResult.Decision != admission.Allowed {
 		code := admissionResult.Decision.Code()
 		if code == "" {
-			g.bestEffortRelease(tenant.ID, reservationID, requestID)
+			g.finishUncertainAdmission(tenant.ID, reservationID, requestID, decoded.Model)
 			<-g.semaphore
 			terminal = requestTerminal{cause: terminalRejected, code: "admission_unavailable"}
 			g.metrics.rejected.Add(1)
@@ -784,7 +786,11 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	// Propagate only the gateway-owned W3C trace context. In particular, do not
 	// forward client baggage or tracestate into the backend trust boundary.
 	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(upstream.Header))
-	if usage != nil && g.registry.CanDispatch(backend) {
+	if usage != nil {
+		if !g.canDispatch(g.registry, backend) {
+			g.rejectPostAdmissionUnavailable(response, requestID, &terminal)
+			return
+		}
 		intentCtx, cancel := context.WithTimeout(ctx, g.config.AdmissionTimeout)
 		err := g.usage.BeginUsageDispatch(intentCtx, usage.identity, usage.pins)
 		cancel()
@@ -797,19 +803,8 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			return
 		}
 	}
-	if !g.registry.CanDispatch(backend) {
-		discoveryUnknown := g.registry.DiscoveryUnknown()
-		code := postAdmissionUnavailableCode(g.config.FixedModeTerminalCodes, discoveryUnknown)
-		if discoveryUnknown {
-			g.metrics.discoveryUnknownAfterAdmit.Add(1)
-		} else {
-			// The code covers removal/replacement and health/readiness flips
-			// between selection and dispatch; the selected pointer cannot serve.
-			g.metrics.backendChangedAfterAdmit.Add(1)
-		}
-		terminal = requestTerminal{cause: terminalRejected, code: code}
-		g.metrics.rejected.Add(1)
-		g.writeError(response, http.StatusServiceUnavailable, code, requestID, true)
+	if !g.canDispatch(g.registry, backend) {
+		g.rejectPostAdmissionUnavailable(response, requestID, &terminal)
 		return
 	}
 	firstDeadline := time.Now().Add(g.config.FirstItemTimeout)
@@ -1003,6 +998,21 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			return
 		}
 	}
+}
+
+func (g *Gateway) rejectPostAdmissionUnavailable(response http.ResponseWriter, requestID string, terminal *requestTerminal) {
+	discoveryUnknown := g.registry.DiscoveryUnknown()
+	code := postAdmissionUnavailableCode(g.config.FixedModeTerminalCodes, discoveryUnknown)
+	if discoveryUnknown {
+		g.metrics.discoveryUnknownAfterAdmit.Add(1)
+	} else {
+		// The selected backend can become unavailable after routing because
+		// membership, health or readiness changed.
+		g.metrics.backendChangedAfterAdmit.Add(1)
+	}
+	g.metrics.rejected.Add(1)
+	*terminal = requestTerminal{cause: terminalRejected, code: code}
+	g.writeError(response, http.StatusServiceUnavailable, code, requestID, true)
 }
 
 func (g *Gateway) decodeRequest(response http.ResponseWriter, request *http.Request, maxRequestBytes int64) (*chatRequest, error) {

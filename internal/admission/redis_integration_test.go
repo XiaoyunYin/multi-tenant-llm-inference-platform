@@ -344,6 +344,7 @@ func TestRedisCoordinatorRefreshesNamespaceStateTTLs(t *testing.T) {
 	const stateTTL = 6 * time.Second // 3 * max(one-second lease, two-second tombstone)
 	const refreshDelay = 80 * time.Millisecond
 	time.Sleep(refreshDelay)
+	start := time.Now()
 	if result, err := coordinator.Admit(ctx, request); err != nil || result.Decision != Allowed || !result.Idempotent {
 		t.Fatalf("TTL refresh admission failed: %+v %v", result, err)
 	}
@@ -351,8 +352,12 @@ func TestRedisCoordinatorRefreshesNamespaceStateTTLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const ttlPrecisionAndSchedulingTolerance = 50 * time.Millisecond
-	if secondTTL < stateTTL-ttlPrecisionAndSchedulingTolerance {
-		t.Fatalf("state TTL was not refreshed near its configured bound: before=%dms after=%dms; expected at least %dms after %s delay", firstTTL.Milliseconds(), secondTTL.Milliseconds(), (stateTTL - ttlPrecisionAndSchedulingTolerance).Milliseconds(), refreshDelay)
+	elapsed := time.Since(start)
+	// Redis PTTL is reported in whole milliseconds. Include the measured
+	// admission and read time, then independently exclude the unrefreshed TTL.
+	minimumTTL := stateTTL - elapsed - 2*time.Millisecond
+	if secondTTL < minimumTTL || secondTTL <= firstTTL-refreshDelay {
+		t.Fatalf("state TTL did not demonstrate refresh: before=%s after=%s minimum=%s unrefreshed_bound=%s elapsed=%s",
+			firstTTL, secondTTL, minimumTTL, firstTTL-refreshDelay, elapsed)
 	}
 }

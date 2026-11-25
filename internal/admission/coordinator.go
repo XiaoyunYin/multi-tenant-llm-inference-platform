@@ -71,14 +71,15 @@ type Coordinator interface {
 }
 
 type RedisConfig struct {
-	Metering           bool
-	ManagedCredentials bool
-	MeasurementCapture bool // Secured, untrimmed Redis Stream; default off.
-	Namespace          string
-	GlobalCapacity     int64
-	LeaseDuration      time.Duration
-	TombstoneTTL       time.Duration
-	DynamicCapacity    *DynamicCapacityConfig // nil explicitly retains configured GlobalCapacity.
+	Metering             bool
+	ManagedCredentials   bool
+	MeasurementCapture   bool // Secured, untrimmed Redis Stream; default off.
+	Namespace            string
+	GlobalCapacity       int64
+	LeaseDuration        time.Duration
+	UsageExecutionWindow time.Duration // Metered processing bound starting at the Redis grant.
+	TombstoneTTL         time.Duration
+	DynamicCapacity      *DynamicCapacityConfig // nil explicitly retains configured GlobalCapacity.
 }
 
 // Values are deployment inputs, frozen in slice 4, never inferred from traffic.
@@ -139,6 +140,14 @@ func NewRedisCoordinator(client redis.Scripter, config RedisConfig) (*RedisCoord
 	}
 	if config.TombstoneTTL < config.LeaseDuration {
 		return nil, errors.New("tombstone duration must be at least the lease duration")
+	}
+	if config.Metering {
+		if config.UsageExecutionWindow == 0 {
+			config.UsageExecutionWindow = config.LeaseDuration
+		}
+		if config.UsageExecutionWindow < time.Millisecond || config.UsageExecutionWindow > config.LeaseDuration {
+			return nil, errors.New("metered execution window must fit inside the admission lease")
+		}
 	}
 	stateTTL := config.TombstoneTTL
 	if config.LeaseDuration > stateTTL {
@@ -204,8 +213,10 @@ func (c *RedisCoordinator) Admit(ctx context.Context, request Request) (Result, 
 			keys = append(keys, c.keyPrefix+"unused")
 			args = append(args, "", "", "")
 		}
-		keys = append(keys, c.keyPrefix+"usage:admitted", c.keyPrefix+"usage:admitted-at")
-		args = append(args, request.RequestID)
+		keys = append(keys, c.keyPrefix+"usage:admitted", c.keyPrefix+"usage:admitted-at",
+			c.keyPrefix+"usage:deadlines", c.keyPrefix+"usage:open-deadlines",
+			c.keyPrefix+"usage:retired", c.keyPrefix+"usage:discrepancies")
+		args = append(args, request.RequestID, c.config.UsageExecutionWindow.Milliseconds())
 	}
 	value, err := c.admitScript.Run(
 		ctx,

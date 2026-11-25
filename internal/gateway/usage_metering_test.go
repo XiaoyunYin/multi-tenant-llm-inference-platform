@@ -185,11 +185,12 @@ func TestMeterDuplicateReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	quarantined, err := two.FinalizeUsage(ctx, mismatched, pins, "completed", true)
-	if err != nil || quarantined.Prompt.Classification != "observed_partial" {
+	if err != nil || quarantined.Prompt.Classification != "quarantined" {
 		t.Fatalf("estimate mismatch was counted as exact: %+v %v", quarantined, err)
 	}
 	totals := meterReport(t, one).Totals[attempt.TenantID]
-	if totals.Prompt.ExactTokens != 12 || totals.Prompt.ObservedPartialTokens != 10 ||
+	if totals.Prompt.ExactTokens != 12 || totals.Prompt.ObservedPartialTokens != 0 ||
+		totals.Prompt.QuarantinedRows != 1 || totals.Prompt.QuarantinedTokens != 10 ||
 		totals.Prompt.EstimateTokens != 23 || totals.Discrepancies != 2 {
 		t.Fatalf("estimate mismatch totals: %+v", totals)
 	}
@@ -336,20 +337,47 @@ func TestMeterCohortReconciliation(t *testing.T) {
 	if status := managedRequest(t, stopped.URL, testCredential, managedBody); status != 503 {
 		t.Fatalf("intent refusal status %d", status)
 	}
+	original := make(chan admission.Request, 1)
+	lost := afterGrant{one, func(_ context.Context, request admission.Request) error {
+		original <- request
+		return errors.New("fixture lost reply after journal commit")
+	}}
+	_, lostServer := newTestGatewayWithAdmission(t, DefaultConfig(), nil, testTenantRegistry(t), lost, backend)
+	if status := managedRequest(t, lostServer.URL, testCredential, managedBody); status != 503 {
+		t.Fatalf("lost reply status %d", status)
+	}
+	firstAttempt := <-original
+	retried := make(chan admission.Request, 1)
+	retry := afterGrant{two, func(_ context.Context, request admission.Request) error {
+		retried <- request
+		return nil
+	}}
+	_, retryServer := newTestGatewayWithAdmission(t, DefaultConfig(), nil, testTenantRegistry(t), retry, backend)
+	if status := managedRequest(t, retryServer.URL, testCredential, managedBody); status != 200 {
+		t.Fatalf("client retry status %d", status)
+	}
+	secondAttempt := <-retried
+	if firstAttempt.ReservationID == secondAttempt.ReservationID || firstAttempt.RequestID == secondAttempt.RequestID {
+		t.Fatal("client retry reused a server attempt")
+	}
 	report := meterReport(t, two)
 	sums := report.Totals["tenant-test"]
-	if report.Admitted != 5 || report.Terminal != 5 || len(report.Rows) != 5 || len(report.Discrepancies) != 0 ||
-		sums.Prompt.ExactTokens != 8 || sums.Completion.ExactTokens != 2 ||
-		sums.Prompt.UnknownRows != 1 || sums.Prompt.KnownZeroRows != 1 ||
+	if report.Admitted != 7 || report.Terminal != 7 || len(report.Rows) != 7 || len(report.Discrepancies) != 0 ||
+		sums.Prompt.ExactTokens != 12 || sums.Completion.ExactTokens != 3 ||
+		sums.Prompt.UnknownRows != 1 || sums.Prompt.KnownZeroRows != 2 ||
 		sums.Prompt.ObservedPartialTokens != 4 || sums.Completion.ObservedPartialTokens != 1 {
 		t.Fatalf("closed cohort: %+v", report)
 	}
-	var sawCancel bool
+	var sawCancel, sawLostReply, sawRetry bool
 	for _, row := range report.Rows {
 		sawCancel = sawCancel || row.Outcome == "client_cancelled" && row.StreamCommitted && row.DispatchIntent
+		sawLostReply = sawLostReply || row.ReservationID == firstAttempt.ReservationID &&
+			row.RequestID == firstAttempt.RequestID && row.Prompt.Source == "no_dispatch"
+		sawRetry = sawRetry || row.ReservationID == secondAttempt.ReservationID &&
+			row.RequestID == secondAttempt.RequestID && row.Outcome == "completed" && row.DispatchIntent
 	}
-	if !sawCancel {
-		t.Fatalf("missing cancelled stream: %+v", report.Rows)
+	if !sawCancel || !sawLostReply || !sawRetry {
+		t.Fatalf("missing cancellation or retry row: %+v", report.Rows)
 	}
 	unsettled := meterGrant(t, two)
 	prefix := strings.TrimSuffix(two.CredentialKey(""), "credential:")
@@ -369,7 +397,7 @@ func TestMeterCohortReconciliation(t *testing.T) {
 	for _, item := range disputed.Discrepancies {
 		causes[item.Cause] = item.AttemptKey
 	}
-	if len(disputed.Rows) != 4 || len(disputed.Discrepancies) != 3 || len(disputed.Orphaned) != 1 ||
+	if len(disputed.Rows) != 6 || len(disputed.Discrepancies) != 3 || len(disputed.Orphaned) != 1 ||
 		causes["terminal_tenant_mismatch"] != key || causes["terminal_without_admission"] != disputed.Orphaned[0] ||
 		causes["terminal_missing_without_intent"] != unsettled.TenantID+":"+unsettled.ReservationID {
 		t.Fatalf("mutated cohort: %+v", disputed)

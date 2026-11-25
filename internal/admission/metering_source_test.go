@@ -24,6 +24,9 @@ func TestMeteredAdmissionSourceReplacements(t *testing.T) {
 		"redis.call('HSET', usage_key, ARGV[2], usage_id)",
 		"redis.call('HGET', KEYS[12], ARGV[2])",
 		"redis.call('HSET', KEYS[12], ARGV[2], now_ms)",
+		"redis.call('ZADD', KEYS[13], usage_deadline, ARGV[2])",
+		"redis.call('ZADD', KEYS[14], usage_deadline, ARGV[2])",
+		"redis.call('HEXISTS', KEYS[15], ARGV[2])",
 	} {
 		if count := strings.Count(metered, guard); count != 1 {
 			t.Errorf("metered guard %q appears %d times", guard, count)

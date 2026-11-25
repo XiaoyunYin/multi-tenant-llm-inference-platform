@@ -28,9 +28,12 @@ import (
 const defaultBackends = "fake-backend-a=http://127.0.0.1:8001,fake-backend-b=http://127.0.0.1:8002"
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--usage" {
+		os.Exit(runGateway(false, os.Args[2:]))
+	}
 	check := len(os.Args) == 2 && os.Args[1] == "--check-config"
 	if len(os.Args) > 1 && !check {
-		fmt.Fprintln(os.Stderr, "usage: gateway [--check-config]")
+		fmt.Fprintln(os.Stderr, "usage: gateway [--check-config | --usage <export|retire|correct> ...]")
 		os.Exit(2)
 	}
 	os.Exit(runWithMode(check))
@@ -41,6 +44,10 @@ func run() int { return runWithMode(false) }
 // Configuration checking follows the launch parser/constructors, without starting
 // listeners, health pollers, metrics collectors, or contacting Redis/backends.
 func runWithMode(checkConfig bool) int {
+	return runGateway(checkConfig, nil)
+}
+
+func runGateway(checkConfig bool, usageArgs []string) int {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	shutdownTelemetry, err := telemetry.ConfigureTracing(context.Background(), "inference-gateway")
 	if err != nil {
@@ -175,6 +182,10 @@ func runWithMode(checkConfig bool) int {
 		logger.Error("ADMISSION_METERING_MODE must be off or on with Redis admission")
 		return 2
 	}
+	if usageArgs != nil && meterMode != "on" {
+		logger.Error("usage maintenance requires metered Redis")
+		return 2
+	}
 	authMode := envOrDefault("TENANT_AUTH_MODE", "static")
 	if authMode != "static" && (authMode != "managed" || admissionMode != "redis") {
 		logger.Error("TENANT_AUTH_MODE must be static or managed with Redis admission")
@@ -207,7 +218,8 @@ func runWithMode(checkConfig bool) int {
 			MeasurementCapture: os.Getenv("GATEWAY_MEASUREMENT_PATH") != "",
 			Namespace:          envOrDefault("ADMISSION_NAMESPACE", "mti:local:v1"),
 			GlobalCapacity:     globalCapacity, LeaseDuration: leaseDuration, TombstoneTTL: tombstoneTTL,
-			DynamicCapacity: dynamicCapacity,
+			UsageExecutionWindow: min(leaseDuration, gatewayConfig.TotalTimeout+gatewayConfig.AdmissionTimeout),
+			DynamicCapacity:      dynamicCapacity,
 		})
 	case "memory-test":
 		if dynamicCapacity != nil {
@@ -232,6 +244,9 @@ func runWithMode(checkConfig bool) int {
 	}
 	if redisClient != nil {
 		defer redisClient.Close()
+	}
+	if usageArgs != nil {
+		return runUsageCommand(coordinator.(*admission.RedisCoordinator), usageArgs)
 	}
 
 	tenantConfig, err := os.Open(tenantConfigPath)
@@ -392,6 +407,14 @@ func runWithMode(checkConfig bool) int {
 	if checkConfig {
 		logger.Info("gateway configuration valid", "backends", len(backends))
 		return 0
+	}
+	if meterMode == "on" {
+		stop, err := startUsageSweep(coordinator.(*admission.RedisCoordinator), logger)
+		if err != nil {
+			logger.Error("cannot prepare metering recovery")
+			return 1
+		}
+		defer stop()
 	}
 	service.SetMeasurementRecorder(measurement)
 	profiler, _, err := diagnostics.Start(profileAddress)

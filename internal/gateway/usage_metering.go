@@ -42,9 +42,21 @@ func (g *Gateway) beginMeteredAttempt(tenant, reservation, request, model string
 }
 
 func (g *Gateway) finishUsage(attempt *meteredAttempt, terminal requestTerminal) {
+	g.writeUsageTerminal(attempt, terminal.cause.String(), terminal.committed, false)
+}
+
+func (g *Gateway) finishUncertainAdmission(tenant, reservation, request, model string) {
+	g.bestEffortRelease(tenant, reservation, request)
+	if g.usage != nil {
+		g.writeUsageTerminal(g.beginMeteredAttempt(tenant, reservation, request, model), "rejected", false, true)
+	}
+}
+
+func (g *Gateway) writeUsageTerminal(attempt *meteredAttempt, outcome string, committed, allowAbsent bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), g.config.ReleaseTimeout)
 	defer cancel()
-	if _, err := g.usage.FinalizeUsage(ctx, attempt.identity, attempt.pins, terminal.cause.String(), terminal.committed); err != nil {
+	_, err := g.usage.FinalizeUsage(ctx, attempt.identity, attempt.pins, outcome, committed)
+	if err != nil && !(allowAbsent && errors.Is(err, admission.ErrUsageBinding)) {
 		g.logger.Error("metering terminal write unavailable", "request_id", attempt.identity.RequestID)
 	}
 }

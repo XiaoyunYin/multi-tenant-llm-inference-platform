@@ -14,6 +14,29 @@ spec.loader.exec_module(runner)
 
 
 class ShardTests(unittest.TestCase):
+    def test_routine_go_precheck_requires_race_and_followup(self):
+        from inference_platform.routine_aws_tests import selection
+
+        packages = ["./internal/gateway", "./internal/admission"]
+        config = {
+            "go_precheck_packages": packages,
+            "go_race": True,
+            "go_packages": ["./..."],
+        }
+        self.assertEqual(selection(config)["go_precheck_packages"], packages)
+        for missing in ("go_race", "go_packages"):
+            with (
+                self.subTest(missing=missing),
+                self.assertRaisesRegex(
+                    ValueError, "routine:go_precheck_requires_race_and_full_go"
+                ),
+            ):
+                selection(
+                    {key: value for key, value in config.items() if key != missing}
+                )
+        with self.assertRaisesRegex(ValueError, "routine:go_package"):
+            selection({**config, "go_precheck_packages": ["./../another-repo"]})
+
     def test_routine_can_request_durable_redis_without_benchmarks(self):
         from inference_platform.routine_aws_tests import selection
 
