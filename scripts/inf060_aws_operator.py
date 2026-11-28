@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import re
+import secrets
 import shlex
 import shutil
 import subprocess
@@ -15,16 +16,21 @@ import sys
 import tarfile
 import time
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from inference_platform.r1_cloud_operator import Operator
 
+from inf060_apply import cloudtrail_create_readback
 import inf060_diagnostics as diagnostics
 import inf060_operator_packet as remote
 import inf060_probe_results as results
 import inf060_probe_spec as spec
+import inf061_packet as benchmark
 from inf060_operator_memory import record_launch_gate
 from inf060_probe_operator import checked_packet, synthetic_review
 from prepare_inf060_probe import ROOT, git
+from inference_platform.session_stop import stop_forward
 
 
 def tagged_inventory(ports, session):
@@ -66,12 +72,13 @@ def tagged_inventory(ports, session):
     return {**counts, "empty": not any(counts.values())}
 
 
-def cleanup_branch(independent, *, witness=None, preapply=None):
-    remote.require_zero(independent, state=False)
+def cleanup_branch(independent, *, witness=None, preapply=None, capacity=False):
+    remote.require_zero(independent, state=False, capacity=capacity)
     if witness is not None:
         spec.check(witness.get("destroy_completed") is True, "gpu_destroy_unverified")
-        remote.require_zero(witness.get("inventory", {}))
+        remote.require_zero(witness.get("inventory", {}), capacity=capacity)
         return "verified_gpu_teardown"
+    spec.check(not capacity, "capacity_teardown_witness_required")
     spec.check(
         preapply is not None
         and preapply.get("service_terminal") is True
@@ -122,6 +129,7 @@ def rehearse_principal(stack, manifest):
         manifest["session"],
         spec.AMI,
         role=row["Arn"],
+        zone=manifest["zone"],
     )
     require_allowed(result)
     spec.save(
@@ -261,11 +269,12 @@ class OperatorStack:
         self.packet, self.run, self.profile = packet, run, profile
         self.tf = ROOT / ".tools/terraform/1.16.2/terraform.exe"
         self.tfdir = run / "terraform"
+        self.timer = spec.load(packet / "manifest.json")["operator_host"]["timer_s"]
         self.ports = Operator(
             ROOT,
             {"aws_profile": profile, "region": spec.REGION},
             run / "observer",
-            time.time() + remote.TIMER + 600,
+            time.time() + self.timer + 600,
         )
 
     def terraform(self, *args, timeout=600):
@@ -440,7 +449,7 @@ class OperatorStack:
         ]
         intent = {
             "host": host,
-            "end": time.time() + remote.TIMER,
+            "end": time.time() + self.timer,
             "comment": "INF060-" + self.run.name,
         }
         with (self.run / "dispatch.json").open("x") as output:
@@ -448,7 +457,7 @@ class OperatorStack:
             output.flush()
             os.fsync(output.fileno())
         parameters = self.ports._write_ssm_parameters(
-            {"commands": script, "executionTimeout": [str(remote.TIMER)]}
+            {"commands": script, "executionTimeout": [str(self.timer)]}
         )
         try:
             value = self.ports.aws(
@@ -470,7 +479,7 @@ class OperatorStack:
         sub = {
             "host": host,
             "command": value["Command"]["CommandId"],
-            "end": time.time() + remote.TIMER,
+            "end": time.time() + self.timer,
         }
         spec.save(self.run / "submission.json", sub)
         return sub
@@ -588,6 +597,80 @@ def retrieve_results(stack, submission, result):
     )
 
 
+def retrieve_benchmark(stack, submission, result):
+    binding = (result or {}).get("benchmark", {})
+    if binding.get("status") != "available":
+        return {"status": "results_unavailable", "reason": "missing_benchmark_binding"}
+    destination = stack.run / "inf061-receipts.tar.gz"
+    partial = destination.with_suffix(".partial")
+    child = None
+    try:
+        spec.check(
+            0 < binding["bytes"] <= benchmark.EXPORT_MAX, "benchmark_transfer_size"
+        )
+        end = min(submission["end"], time.time() + 600)
+        root = remote.PACKET
+        key = secrets.token_urlsafe(32)
+        stack.ports.ssm(
+            submission["host"],
+            [
+                "set -eu; umask 077",
+                f"printf %s {shlex.quote(key)} > {root}/inf061-transfer.key",
+                f"systemd-run --unit inf061-receipt --property RuntimeMaxSec=600 "
+                f"/usr/bin/python3 {remote.ROOT}/scripts/inf061_packet.py "
+                f"{root}/inf061-receipts.tar.gz {root}/inf061-transfer.key",
+            ],
+            timeout_s=30,
+            step="inf061.start_receipt_server",
+        )
+        stack.ports.inputs["ssm_remote_port"] = benchmark.RECEIPT_PORT
+        stack.ports.inputs["session_manager_plugin_path"] = (
+            ".cache/session-manager-plugin/bin/bin/session-manager-plugin.exe"
+        )
+        port, child = stack.ports.tunnel(submission["host"])
+        req = Request(
+            f"http://127.0.0.1:{port}/receipt",
+            headers={"Authorization": "Bearer " + key},
+        )
+        until = min(end, time.time() + 35)
+        while time.time() < until:
+            try:
+                response = urlopen(req, timeout=3)
+                break
+            except URLError:
+                if child.poll() is not None:
+                    raise
+                time.sleep(0.25)
+        else:
+            raise TimeoutError("inf061:receipt_forward")
+        with response, partial.open("xb") as stream:
+            count = 0
+            while time.time() < end and (chunk := response.read(256 * 1024)):
+                count += len(chunk)
+                spec.check(count <= binding["bytes"], "benchmark_transfer_oversize")
+                stream.write(chunk)
+        spec.check(
+            spec.facts(partial)
+            == {"bytes": binding["bytes"], "sha256": binding["sha256"]},
+            "benchmark_transfer_digest",
+        )
+        partial.replace(destination)
+        return {
+            "status": "verified",
+            "bytes": binding["bytes"],
+            "sha256": binding["sha256"],
+        }
+    except Exception as exc:
+        partial.unlink(missing_ok=True)
+        return {
+            "status": "results_unavailable",
+            "error": diagnostics.exception_record(exc),
+        }
+    finally:
+        if child:
+            stop_forward(child)
+
+
 def operate(
     packet,
     run,
@@ -606,6 +689,7 @@ def operate(
     manifest = spec.verify_packet(packet)
     remote.verify(packet, manifest)
     digest = spec.facts(packet / "manifest.json")["sha256"]
+    capacity = "capacity_hunt" in manifest
     marker = run / "operation.json"
     if recover:
         prior = spec.load(marker)
@@ -659,6 +743,12 @@ def operate(
                     "--tags",
                     "Key=Inf060Target,Value=" + manifest["session"],
                 ],
+            )
+        if capacity and not routine:
+            from inf061_capacity import active_reservations
+
+            spec.check(
+                not active_reservations(stack.ports.aws), "capacity_regional_not_empty"
             )
         host = stack.create(manifest)
         session = manifest["operator_host"]["session"]
@@ -749,15 +839,23 @@ def operate(
         sub = spec.load(run / "submission.json")
     status, result = stack.observe(sub)
     independent = tagged_inventory(stack.ports, manifest["session"])
+    if capacity:
+        from inf061_capacity import reservation_inventory
+
+        values = reservation_inventory(stack.ports.aws, manifest["session"])
+        independent.update(values)
+        independent["empty"] = independent["empty"] and not any(values.values())
     preapply = None
     try:
-        remote.require_zero(independent, state=False)
+        remote.require_zero(independent, state=False, capacity=capacity)
         if result is not None:
             spec.check(result["manifest_sha256"] == digest, "gpu_cleanup_readback")
         else:
             spec.check(status == "Failed", "gpu_remote_terminal_unproven")
             preapply = preapply_readback(stack.ports, sub["host"])
-        branch = cleanup_branch(independent, witness=result, preapply=preapply)
+        branch = cleanup_branch(
+            independent, witness=result, preapply=preapply, capacity=capacity
+        )
     except Exception as exc:
         spec.save(
             run / "teardown-incident.json",
@@ -780,8 +878,21 @@ def operate(
         },
     )
     diagnosed = retrieve_diagnostics(stack, sub, result)
-    reported = retrieve_results(stack, sub, result)
+    reported = (
+        retrieve_benchmark(stack, sub, result)
+        if benchmark.is_benchmark(manifest)
+        else retrieve_results(stack, sub, result)
+    )
     outer = stack.destroy(manifest["operator_host"]["session"])
+    if capacity:
+        group_name = manifest["session"] + "-capacity"
+        names = stack.ports.aws("resource-groups", "list-groups", [])[
+            "GroupIdentifiers"
+        ]
+        spec.check(
+            all(row["GroupName"] != group_name for row in names),
+            "capacity_group_destroy_unverified",
+        )
     elapsed = time.time() - spec.load(marker)["started_epoch"]
     summary = {
         "gpu": result,
@@ -803,6 +914,28 @@ def operate(
     if (run / "principal-simulation.json").exists():
         summary["principal_simulation"] = spec.load(run / "principal-simulation.json")
     spec.save(run / "verified.json", summary)
+    if (
+        benchmark.is_benchmark(manifest)
+        and not spec.load(marker)["mock"]
+        and (result is None or not result["supervisor_complete"])
+    ):
+        detail = ((result or {}).get("diagnostics", {}).get("preview") or {}).get(
+            "apply", {}
+        )
+        if detail.get("reason") != "gpu_capacity_unavailable":
+            started = spec.load(marker)["started_epoch"]
+            ended = time.time()
+            stack.ports.deadline = ended + 45
+
+            def lookup(service, operation, argv):
+                return stack.ports.aws(
+                    service, operation, argv, deadline=time.time() + 6
+                )
+
+            summary["cloudtrail_create_readback"] = cloudtrail_create_readback(
+                lookup, manifest["operator_host"]["session"] + "-cpu", started, ended
+            )
+            spec.save(run / "verified.json", summary)
     if routine and not early_exit and not failure and result is not None:
         spec.check((run / "observer-loss.json").exists(), "observer_loss_unverified")
     return summary

@@ -1,0 +1,137 @@
+{
+  "conditions": {
+    "client": "in-cluster CPU Job, TLS",
+    "denominator": "all scheduled requests, including cancelled and not dispatched",
+    "hardware": "2 x g6.xlarge with one L4 each when provisioned",
+    "max_output_tokens": 1,
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "per_level_drain_cap_s": 120,
+    "region": "us-east-1",
+    "revision": "a09a35458c702b33eeacc393d103063234e8bc28",
+    "run_count": 1,
+    "scaling": "fixed",
+    "vllm": "0.29.0",
+    "zone": "us-east-1c"
+  },
+  "results": {
+    "gateway_rollout": {
+      "app": "gateway",
+      "client": {
+        "levels": [
+          {
+            "client_records": {
+              "bytes": 3582641,
+              "path": "clients/gateway_rollout-level-4.jsonl",
+              "sha256": "aaf5fb79a5a670ad9948bf1ede6d3200cd3658eba159b2a989962994140c8189"
+            },
+            "concurrency": 4,
+            "load_and_drain_elapsed_s": 600.689146115,
+            "requested_seconds": 600,
+            "sampler_started_before_load": true,
+            "summary": {
+              "cancelled": 0,
+              "completed": 5890,
+              "completed_during_drain": 4,
+              "completed_in_window": 5886,
+              "completed_per_s": 9.81,
+              "elapsed_s": 600,
+              "failed_admission_unknown": 0,
+              "failed_no_content": 0,
+              "http_statuses": {
+                "200": 5890
+              },
+              "itl_ms": {
+                "n": 0,
+                "p50": null,
+                "p95": null
+              },
+              "not_dispatched": 0,
+              "outcomes": {
+                "completed": 5890
+              },
+              "partial": 0,
+              "rejected": 0,
+              "run": 5890,
+              "ttft_ms": {
+                "n": 5890,
+                "p50": 346.368266,
+                "p95": 811.984384
+              }
+            }
+          }
+        ],
+        "replacement": {
+          "first_serving": "not_applicable: gateway identity not exposed",
+          "ready_monotonic_ns": 3054972294223
+        }
+      },
+      "endpoint_excluded_observed_s": 0.5612616809999054,
+      "gateway_internal_exclusion": "unavailable; EndpointSlice observation only",
+      "max_surge": 0,
+      "old_generation_sha256": "bb635bd59ff8dff33ec929955d0f1eaff2bff4c5fae929718a4304a3745d95bc",
+      "replacement_health_observed_s": 7.4661517609997645,
+      "replacement_ready_observed_s": 7.0031344869998975
+    },
+    "vllm_rollout": {
+      "app": "vllm",
+      "client": {
+        "levels": [
+          {
+            "client_records": {
+              "bytes": 4802983,
+              "path": "clients/vllm_rollout-level-4.jsonl",
+              "sha256": "c18bcf307cf4cd4cef2c78f6bb62e9f14f4ec3d7997b363b1a24e4f5a9affe8d"
+            },
+            "concurrency": 4,
+            "load_and_drain_elapsed_s": 900.539332246,
+            "requested_seconds": 900,
+            "sampler_started_before_load": true,
+            "summary": {
+              "cancelled": 0,
+              "completed": 7892,
+              "completed_during_drain": 4,
+              "completed_in_window": 7888,
+              "completed_per_s": 8.764444444444445,
+              "elapsed_s": 900,
+              "failed_admission_unknown": 2,
+              "failed_no_content": 0,
+              "http_statuses": {
+                "200": 7892,
+                "502": 2
+              },
+              "itl_ms": {
+                "n": 0,
+                "p50": null,
+                "p95": null
+              },
+              "not_dispatched": 0,
+              "outcomes": {
+                "completed": 7892,
+                "failed_before_content": 2
+              },
+              "partial": 0,
+              "rejected": 0,
+              "run": 7894,
+              "ttft_ms": {
+                "n": 7892,
+                "p50": 397.851097,
+                "p95": 870.020966
+              }
+            }
+          }
+        ],
+        "replacement": {
+          "first_completed_after_ready_ns": 528820003,
+          "first_completed_backend_slot": 0,
+          "ready_monotonic_ns": 3834130113889
+        }
+      },
+      "endpoint_excluded_observed_s": 0.5304262619993096,
+      "gateway_internal_exclusion": "unavailable; EndpointSlice observation only",
+      "max_surge": 0,
+      "old_generation_sha256": "39f46fb63c2676e457719dc610902160c951f3f9ee5b9f11cd724d81f95aef37",
+      "replacement_health_observed_s": 180.86910416299997,
+      "replacement_ready_observed_s": 180.40774418299952
+    }
+  }
+}

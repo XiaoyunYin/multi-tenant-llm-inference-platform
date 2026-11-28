@@ -6,6 +6,10 @@ terraform {
 }
 provider "aws" { region = "us-east-1" }
 variable "session" { type = string }
+variable "session_seconds" {
+  type    = number
+  default = 18000
+}
 variable "source_commit" { type = string }
 variable "operator_ami" { type = string }
 variable "zones" { type = list(string) }
@@ -33,7 +37,7 @@ module "operator" {
   instance_type      = "m6i.2xlarge"
   session            = "dec077-${var.session}"
   source_commit      = var.source_commit
-  host_timer_seconds = 18000
+  host_timer_seconds = var.session_seconds
   root_gib           = 100
 }
 module "eks" {
@@ -62,7 +66,7 @@ module "eks" {
 resource "aws_iam_role_policy" "operator" {
   name = "${var.session}-descriptive"
   role = module.operator.role_name
-  policy = var.cpu_clock_rehearsal ? jsonencode({ Version = "2012-10-17", Statement = [
+  policy = var.cpu_clock_rehearsal || var.session_seconds > 18000 ? jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["eks:DescribeCluster"], Resource = "arn:aws:eks:us-east-1:${var.cpu_clock_account}:cluster/${var.session}" },
     { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
     { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:DescribeImages", "ecr:BatchGetImage"], Resource = "arn:aws:ecr:us-east-1:${var.cpu_clock_account}:repository/${var.session}" }

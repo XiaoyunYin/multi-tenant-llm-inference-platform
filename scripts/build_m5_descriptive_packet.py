@@ -18,7 +18,29 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from inf054_gpu_helm import (
+    BINDING as GPU_HELM_BINDING,
+)
+from inf054_gpu_helm import (
+    SESSION as GPU_HELM_SESSION,
+)
+from inf054_gpu_helm import (
+    SESSION_SECONDS as GPU_HELM_SECONDS,
+)
+from inf054_gpu_helm import (
+    WAIT_HOURLY_USD as GPU_HELM_WAIT_HOURLY_USD,
+)
+from inf054_gpu_helm import (
+    gpu_helm_estimate,
+    gpu_helm_forecast,
+    gpu_helm_timing,
+    require_regional_capacity,
+    verify_gpu_helm,
+)
 from inf060_eks_cpu_plan import (
+    HELM_SESSION,
+    HELM_TAPE,
+    HELM_TAPE_RECEIPT,
     IMAGE_ARCHIVE,
     NODE_COUNT,
     OPERATOR_TYPE,
@@ -31,6 +53,7 @@ from inf060_eks_cpu_plan import (
     canonical_digest,
     check_image_bindings,
     policy_actions,
+    require_helm_session,
     verify_cpu_plan,
 )
 from inf060_eks_gpu_plan import (
@@ -109,8 +132,20 @@ def cpu_zones(offerings):
     return [{"zone": zones[0], "control_plane_zone": zones[1]}]
 
 
-def refresh(directory, profile, *, cpu_clock=False, gpu_streaming=False):
-    if cpu_clock and gpu_streaming:
+def refresh(
+    directory,
+    profile,
+    *,
+    cpu_clock=False,
+    gpu_streaming=False,
+    cpu_helm=False,
+    cpu_helm_session=None,
+    gpu_helm=False,
+):
+    if cpu_helm_session is not None and not cpu_helm:
+        raise ValueError("inf054_cpu_helm_session_variant")
+    cpu_clock = cpu_clock or cpu_helm
+    if sum((bool(cpu_clock), bool(gpu_streaming), bool(gpu_helm))) > 1:
         raise ValueError("streaming_variant_conflict")
     import boto3
 
@@ -149,7 +184,17 @@ def refresh(directory, profile, *, cpu_clock=False, gpu_streaming=False):
     lambda_limits = lambda_settings["AccountLimit"]
     lambda_function_count = lambda_settings["AccountUsage"]["FunctionCount"]
     validate_lambda_limits(lambda_limits, lambda_function_count)
-    session = GPU_SESSION if gpu_streaming else SESSION if cpu_clock else "m5-desc-r379"
+    session = (
+        require_helm_session(cpu_helm_session or HELM_SESSION)
+        if cpu_helm
+        else GPU_HELM_SESSION
+        if gpu_helm
+        else GPU_SESSION
+        if gpu_streaming
+        else SESSION
+        if cpu_clock
+        else "m5-desc-r379"
+    )
     bucket = (
         session + "-" + hashlib.sha256(identity["Account"].encode()).hexdigest()[:12]
     )
@@ -207,7 +252,7 @@ def refresh(directory, profile, *, cpu_clock=False, gpu_streaming=False):
             for version in row["addonVersions"]
         ):
             raise ValueError("descriptive:addon_unavailable:" + name)
-    if cpu_clock:
+    if cpu_clock or gpu_helm:
         schema = read(
             "eks",
             "describe_addon_configuration",
@@ -336,9 +381,19 @@ def refresh(directory, profile, *, cpu_clock=False, gpu_streaming=False):
         "prices": prices,
         "sources": rows,
     }
-    if gpu_streaming:
+    if gpu_streaming or gpu_helm:
         value["streaming_quota"] = streaming_quota(sdk)
         require_streaming_quota(value["streaming_quota"])
+    if gpu_helm:
+        require_regional_capacity(sdk, session, selected=False)
+        value["session"] = session
+    if cpu_helm:
+        from inf060_eks_cpu_plan import standard_quota_readback
+
+        value["session"] = session
+        value["standard_headroom"] = standard_quota_readback(sdk)
+        if not value["standard_headroom"]["fits"]:
+            raise ValueError("inf054_standard_quota_busy")
     write(directory / "refresh.json", value)
     return value
 
@@ -448,9 +503,11 @@ def prepare(
     startup_path,
     *,
     cpu_images=None,
+    cpu_helm=False,
     streaming_inputs=None,
     provider_preview=False,
     provider_results=None,
+    gpu_helm_input=None,
 ):
     directory = directory.resolve()
     current = (
@@ -472,13 +529,18 @@ def prepare(
     )
     cpu_clock = cpu_images is not None
     gpu_streaming = streaming_inputs is not None
-    if cpu_clock and gpu_streaming:
+    gpu_helm = gpu_helm_input is not None
+    if sum((cpu_clock, gpu_streaming, gpu_helm)) > 1:
         raise ValueError("streaming_variant_conflict")
+    if gpu_helm != (live.get("session") == GPU_HELM_SESSION):
+        raise ValueError("inf054_gpu_live_session")
+    if cpu_helm and not cpu_clock:
+        raise ValueError("inf054_cpu_images_required")
     if (provider_preview or provider_results) and not gpu_streaming:
         raise ValueError("streaming_provider_variant")
     if provider_preview and provider_results:
         raise ValueError("streaming_provider_mode")
-    if gpu_streaming:
+    if gpu_streaming or gpu_helm:
         require_streaming_quota(live["streaming_quota"])
     expected_quota = "standard_quota_vcpus" if cpu_clock else "gpu_quota_vcpus"
     offering = json.loads(
@@ -488,6 +550,9 @@ def prepare(
     if zones != live["zone_pairs"]:
         raise ValueError("descriptive:live_zone_set_changed")
     hourly_rate, forecast_usd = forecast(live, cpu_clock=cpu_clock)
+    if gpu_helm:
+        forecast_usd = gpu_helm_forecast(hourly_rate)
+    session_seconds = GPU_HELM_SECONDS if gpu_helm else 18000
     descriptive_ledger = ROOT / "docs/evidence/m5-descriptive-eks/spend-ledger.json"
     prior = (
         json.loads(descriptive_ledger.read_bytes())["cumulative_product_estimate_usd"]
@@ -501,7 +566,17 @@ def prepare(
     directory.mkdir(parents=True, exist_ok=False)
     bundle = source_bundle(directory / "source.bundle", commit)
     upload_bound = transfer_bound(bundle.stat().st_size)
-    session = GPU_SESSION if gpu_streaming else SESSION if cpu_clock else "m5-desc-r379"
+    session = (
+        require_helm_session(live.get("session"))
+        if cpu_helm
+        else GPU_HELM_SESSION
+        if gpu_helm
+        else GPU_SESSION
+        if gpu_streaming
+        else SESSION
+        if cpu_clock
+        else "m5-desc-r379"
+    )
     bucket = session + "-" + hashlib.sha256(live["account"].encode()).hexdigest()[:12]
     group = (
         f"arn:aws:resource-groups:us-east-1:{live['account']}:group/{session}-capacity"
@@ -532,7 +607,7 @@ def prepare(
                 ROOT / "infra/terraform/eks/.terraform.lock.hcl",
                 target / ".terraform.lock.hcl",
             )
-    if gpu_streaming:
+    if gpu_streaming or gpu_helm:
         write_gpu_streaming_module(directory / "eks" / "main.tf")
     cleanup_zip = directory / "cleanup.zip"
     with zipfile.ZipFile(cleanup_zip, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -642,6 +717,7 @@ def prepare(
             if gpu_streaming
             else str(cleanup_zip.resolve()),
             "zip_sha256_base64": cleanup_hash,
+            **({"session_seconds": session_seconds} if gpu_helm else {}),
         },
     )
     if not provider_preview:
@@ -654,7 +730,7 @@ def prepare(
         policy_hash = hashlib.sha256(
             json.dumps(json.loads(policy), sort_keys=True).encode()
         ).hexdigest()
-    alternatives = []
+    alternatives, gpu_policies = [], {}
     for pair in zones:
         first, second = pair["zone"], pair["control_plane_zone"]
         target = directory / (PLAN_DIRECTORY if cpu_clock else "zone-" + first)
@@ -677,6 +753,14 @@ def prepare(
                 "prior_spend_usd": prior,
                 "session_forecast_usd": forecast_usd,
                 **(
+                    {
+                        "session_seconds": session_seconds,
+                        "cpu_clock_account": live["account"],
+                    }
+                    if gpu_helm
+                    else {}
+                ),
+                **(
                     {"cpu_clock_rehearsal": True, "cpu_clock_account": live["account"]}
                     if cpu_clock
                     else {}
@@ -687,8 +771,20 @@ def prepare(
             operator_policy = (
                 verify_cpu_plan(result) if cpu_clock else verify_plan(result)
             )
-            if gpu_streaming:
+            if gpu_streaming or gpu_helm:
                 verify_gpu_streaming_plan(result)
+            if gpu_helm:
+                inline = json.loads(
+                    next(
+                        row["change"]["after"]["policy"]
+                        for row in result["resource_changes"]
+                        if row["address"] == "aws_iam_role_policy.operator"
+                    )
+                )
+                gpu_policies[target.name] = {
+                    "policy_sha256": canonical_digest(inline),
+                    "actions": policy_actions(inline),
+                }
             validate_cleanup_resource_tags(result, session, json.loads(policy))
         alternatives.append({**pair, "directory": target.name})
     if provider_preview or delegated:
@@ -717,7 +813,7 @@ def prepare(
     write(directory / "startup-evidence.json", startup["evidence"])
     if cpu_clock:
         inputs, images = cpu_image_input(
-            directory, cpu_images, commit, live["operator_ami"]
+            directory, cpu_images, commit, live["operator_ami"], cpu_helm=cpu_helm
         )
         upload_bound += transfer_bound(inputs["bundle_bytes"])
     if gpu_streaming:
@@ -725,11 +821,22 @@ def prepare(
             directory, streaming_inputs, commit
         )
         upload_bound += transfer_bound(inputs["bundle_bytes"])
-    timing = session_timing(startup["seconds"], upload_bound)
+    if gpu_helm:
+        inputs = gpu_helm_tape_input(directory, gpu_helm_input)
+        upload_bound += transfer_bound(inputs["bundle_bytes"])
+    timing = (
+        gpu_helm_timing(startup["seconds"], upload_bound)
+        if gpu_helm
+        else session_timing(startup["seconds"], upload_bound)
+    )
     if gpu_streaming:
         timing = seal_timing(timing, laptop_rate=transfer_rate(laptop_transfer))
     if cpu_clock:
-        workload = 3 * WINDOW_WAIT_SECONDS + 956
+        workload = (
+            180 + 180 + 1080 + 1080 + 1200
+            if cpu_helm
+            else 3 * WINDOW_WAIT_SECONDS + 956
+        )
         available = (
             timing["infrastructure_before_capacity_wait_seconds"]
             + timing["minimum_workload_seconds"]
@@ -808,7 +915,7 @@ def prepare(
             "bootstrap_and_arming_cannot_extend_wait": True,
         },
         "startup_bound": startup,
-        "session_seconds": 18000,
+        "session_seconds": session_seconds,
         "cleanup_reserve_seconds": 1800,
         "forecast_usd": forecast_usd,
         "payload_transfer": {
@@ -820,12 +927,19 @@ def prepare(
         },
         "forecast_basis": {
             "hourly_usd": hourly_rate,
-            "maximum_hours_including_cleanup": 5.5,
+            "maximum_hours_including_cleanup": timing["selected_work_seconds"] / 3600
+            if gpu_helm
+            else 5.5,
             "source_upload_seconds_inside_session": upload_bound,
             "capacity_wait_seconds_inside_session": timing[
                 "capacity_wait_budget_seconds"
             ],
-            "fixed_other_usd": 10,
+            **(
+                {"capacity_wait_hourly_usd": GPU_HELM_WAIT_HOURLY_USD}
+                if gpu_helm
+                else {}
+            ),
+            "fixed_other_usd": 3 if gpu_helm else 10,
             "margin": 1.25,
         },
         "live_inputs_sha256": sha(refresh_path),
@@ -954,6 +1068,34 @@ def prepare(
             "destroy main and bootstrap; verify zero while independent backstop is armed",
             "destroy backstop and verify final inventory",
         ]
+        if cpu_helm:
+            del manifest["descriptive"]["streaming"]
+            manifest["descriptive"]["inf054_cpu_helm"] = {
+                "tape_sha256": inputs["inventory"][HELM_TAPE]["sha256"],
+            }
+            manifest["sequence"][3:6] = [
+                "bootstrap; stage bound images and replay tape; confirm the CPU topology and CNI",
+                "install pinned KEDA and the chart; verify external metrics; run one KEDA cycle and observe downscale",
+                "snapshot the TSDB before uninstall; freeze, retrieve and rehash before destroy",
+            ]
+    if gpu_helm:
+        host["gate_a_inputs"] = inputs
+        manifest["descriptive"][GPU_HELM_BINDING] = {
+            "tape_sha256": inputs["inventory"][HELM_TAPE]["sha256"],
+            "policies": gpu_policies,
+            "cap_usd": gpu_helm_estimate(hourly_rate, attempts=2),
+        }
+        manifest["payload_transfer"]["bytes"] += inputs["bundle_bytes"]
+        manifest["capacity_wait_basis"]["wait_rule"] = (
+            "21600 seconds from verified arming, then a fresh selected work window"
+        )
+        manifest["sequence"][4] = (
+            "bind selected deadline and backstop, then one saved composed Apply"
+        )
+        manifest["sequence"][5:7] = [
+            "stage bound source and tape, build reviewed gateway/client on operator, verify weights and GPU worker caches",
+            "install pinned Helm/KEDA, run nine cycles, observe last KEDA downscale, freeze TSDB and retrieve",
+        ]
     manifest["files"] = {
         p.relative_to(directory).as_posix(): {
             "bytes": p.stat().st_size,
@@ -968,6 +1110,8 @@ def prepare(
         verify_cpu_binding(directory, manifest)
     if gpu_streaming:
         verify_gpu_binding(directory, manifest)
+    if gpu_helm:
+        verify_gpu_helm(directory, manifest)
     write(directory / "manifest.json", manifest)
     return manifest
 
@@ -1020,7 +1164,29 @@ def streaming_input(directory, producer, commit):
     )
 
 
-def cpu_image_input(directory, images, commit, operator_ami):
+def gpu_helm_tape_input(directory, folder):
+    from inf054_cpu_helm import verify_tape_input
+    from inf054_gpu_helm import TAPE_SHA
+
+    tape = folder / HELM_TAPE
+    facts = {"bytes": tape.stat().st_size, "sha256": sha(tape)}
+    if facts["sha256"] != TAPE_SHA:
+        raise ValueError("inf054_gpu_tape")
+    verify_tape_input(folder, facts)
+    for name in (HELM_TAPE, HELM_TAPE_RECEIPT):
+        shutil.copyfile(folder / name, directory / name)
+    bundle = directory / "inf054-tape.tar"
+    with tarfile.open(bundle, "x") as archive:
+        archive.add(tape, arcname=HELM_TAPE, recursive=False)
+    return {
+        "bundle_path": bundle.name,
+        "bundle_sha256": sha(bundle),
+        "bundle_bytes": bundle.stat().st_size,
+        "inventory": {HELM_TAPE: facts},
+    }
+
+
+def cpu_image_input(directory, images, commit, operator_ami, *, cpu_helm=False):
     receipt = json.loads((images / "images.json").read_bytes())
     archive = images / IMAGE_ARCHIVE
     facts = {"bytes": archive.stat().st_size, "sha256": sha(archive)}
@@ -1032,17 +1198,28 @@ def cpu_image_input(directory, images, commit, operator_ami):
         raise ValueError("cpu_clock:image_producer_binding")
     check_image_bindings(archive_image_bindings(archive), receipt["images"])
     write(directory / "cpu-image-producer.json", receipt)
+    inventory = {IMAGE_ARCHIVE: facts}
+    if cpu_helm:
+        from inf054_cpu_helm import verify_tape_input
+
+        tape = images / HELM_TAPE
+        tape_facts = {"bytes": tape.stat().st_size, "sha256": sha(tape)}
+        verify_tape_input(images, tape_facts)
+        inventory[HELM_TAPE] = tape_facts
+        for name in (HELM_TAPE, HELM_TAPE_RECEIPT):
+            shutil.copyfile(images / name, directory / name)
     bundle = directory / "cpu-images.tar"
     with tarfile.open(bundle, "x") as output:
-        member = tarfile.TarInfo(IMAGE_ARCHIVE)
-        member.size = facts["bytes"]
-        with archive.open("rb") as stream:
-            output.addfile(member, stream)
+        for name, binding in inventory.items():
+            member = tarfile.TarInfo(name)
+            member.size = binding["bytes"]
+            with (images / name).open("rb") as stream:
+                output.addfile(member, stream)
     return {
         "bundle_path": bundle.name,
         "bundle_sha256": sha(bundle),
         "bundle_bytes": bundle.stat().st_size,
-        "inventory": {IMAGE_ARCHIVE: facts},
+        "inventory": inventory,
     }, receipt["images"]
 
 
@@ -1053,13 +1230,18 @@ def main():
     refreshed.add_argument("--directory", type=Path, required=True)
     refreshed.add_argument("--profile", default="admin-learning")
     refreshed.add_argument("--cpu-clock", action="store_true")
+    refreshed.add_argument("--cpu-helm", action="store_true")
+    refreshed.add_argument("--cpu-helm-session")
     refreshed.add_argument("--gpu-streaming", action="store_true")
+    refreshed.add_argument("--gpu-helm", action="store_true")
     prepared = sub.add_parser("prepare")
     prepared.add_argument("--directory", type=Path, required=True)
     prepared.add_argument("--commit", required=True)
     prepared.add_argument("--refresh", type=Path, required=True)
     prepared.add_argument("--startup-evidence", type=Path)
     prepared.add_argument("--cpu-images", type=Path)
+    prepared.add_argument("--cpu-helm", action="store_true")
+    prepared.add_argument("--gpu-helm-input", type=Path)
     prepared.add_argument("--streaming-inputs", type=Path)
     prepared.add_argument("--provider-preview", action="store_true")
     prepared.add_argument("--provider-results", type=Path)
@@ -1069,7 +1251,10 @@ def main():
             args.directory,
             args.profile,
             cpu_clock=args.cpu_clock,
+            cpu_helm=args.cpu_helm,
+            cpu_helm_session=args.cpu_helm_session,
             gpu_streaming=args.gpu_streaming,
+            gpu_helm=args.gpu_helm,
         )
         print(
             json.dumps(
@@ -1087,9 +1272,11 @@ def main():
             args.refresh,
             args.startup_evidence,
             cpu_images=args.cpu_images,
+            cpu_helm=args.cpu_helm,
             streaming_inputs=args.streaming_inputs,
             provider_preview=args.provider_preview,
             provider_results=args.provider_results,
+            gpu_helm_input=args.gpu_helm_input,
         )
         if args.provider_preview:
             print(

@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{- include "inference.metadata" (list . "telemetry") | nindent 2 }}
+spec:
+  replicas: {{ .Values.telemetry.replicas }}
+  selector:
+    matchLabels:
+      app: telemetry
+  template:
+    metadata:
+      labels:
+        app: telemetry
+        m5-session: {{ .Values.namespace }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        m5-role: cpu
+      containers:
+      - name: prometheus
+        image: {{ include "inference.digestImage" .Values.telemetry.image }}
+        args: {{- include "inference.prometheusArgs" . | nindent 10 }}
+        ports:
+        - containerPort: {{ .Values.ports.telemetry }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: data
+          mountPath: /data
+        resources: {{- toYaml .Values.telemetry.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534
+      volumes:
+      - name: config
+        configMap:
+          name: telemetry
+      - name: data
+        emptyDir:
+          sizeLimit: 1Gi
+  strategy:
+    type: Recreate

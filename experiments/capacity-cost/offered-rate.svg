@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 350" role="img"
+ aria-labelledby="title description">
+<title id="title">Streaming goodput and HTTP 429 rates</title>
+<desc id="description">Four measured rates on two L4 GPUs, one run per rate.</desc>
+<rect width="720" height="350" fill="white"/>
+<g font-family="sans-serif" fill="#192434" font-size="13">
+<text x="76" y="30" font-size="19">Streaming outcomes at tested rates</text>
+<text x="76" y="52">Two L4 GPUs · One 600 s window plus drain per rate</text>
+<text x="20" y="190" transform="rotate(-90 20 190)">Outcomes/s</text>
+<text x="376" y="322" text-anchor="middle">Scheduled offers/s</text>
+<path d="M 76 270 H 676" stroke="#d1d9e2"/>
+<text x="65" y="274" text-anchor="end">0</text>
+<path d="M 76 222 H 676" stroke="#d1d9e2"/>
+<text x="65" y="226" text-anchor="end">1</text>
+<path d="M 76 174 H 676" stroke="#d1d9e2"/>
+<text x="65" y="178" text-anchor="end">2</text>
+<path d="M 76 126 H 676" stroke="#d1d9e2"/>
+<text x="65" y="130" text-anchor="end">3</text>
+<path d="M 76 78 H 676" stroke="#d1d9e2"/>
+<text x="65" y="82" text-anchor="end">4</text>
+<circle cx="94.75" cy="259.20" r="5" fill="#075d7b"/>
+<rect x="90.75" y="266.00" width="8" height="8" fill="#b34b13"/>
+<text x="94.75" y="294" text-anchor="middle">0.25</text>
+<circle cx="151.00" cy="227.23" r="5" fill="#075d7b"/>
+<rect x="147.00" y="266.00" width="8" height="8" fill="#b34b13"/>
+<text x="151.00" y="294" text-anchor="middle">1</text>
+<circle cx="301.00" cy="141.70" r="5" fill="#075d7b"/>
+<rect x="297.00" y="266.00" width="8" height="8" fill="#b34b13"/>
+<text x="301.00" y="294" text-anchor="middle">3</text>
+<circle cx="676.00" cy="202.11" r="5" fill="#075d7b"/>
+<rect x="672.00" y="110.31" width="8" height="8" fill="#b34b13"/>
+<text x="676.00" y="294" text-anchor="middle">8</text>
+<circle cx="350" cy="87" r="5" fill="#075d7b"/>
+<text x="362" y="92">SLO-met completions</text>
+<rect x="532" y="83" width="8" height="8" fill="#b34b13"/>
+<text x="547" y="92">HTTP 429</text>
+</g></svg>

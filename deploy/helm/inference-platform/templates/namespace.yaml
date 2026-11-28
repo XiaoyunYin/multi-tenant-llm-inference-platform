@@ -1,0 +1,7 @@
+{{- if .Values.manageNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "inference.ns" . }}
+  labels: {{- include "inference.labels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{- include "inference.metadata" (list . "redis") | nindent 2 }}
+spec:
+  replicas: {{ .Values.redis.replicas }}
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        m5-session: {{ .Values.namespace }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        m5-role: cpu
+      containers:
+      - name: redis
+        image: {{ include "inference.digestImage" .Values.redis.image }}
+        args: {{- include "inference.redisArgs" . | nindent 10 }}
+        readinessProbe: {{- include "inference.redisReadiness" . | nindent 10 }}
+        resources: {{- toYaml .Values.redis.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+  strategy:
+    type: Recreate

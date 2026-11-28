@@ -12,6 +12,8 @@ MOD_SUM = "h1:M5JQW5L+vZmkAqs9EX29hFQnn7uFz9sOQCPNewaZD9E="
 TARGETS = (
     "scripts/tests/fixtures/gitleaks-8.30-r371-spans.json",
     "experiments/inf037a/kind-2026-10-02-r090/observations.json",
+    "experiments/streaming-eks/requests.jsonl.gz",
+    "experiments/streaming-eks/gauges.jsonl.gz",
     *(f"experiments/r0/attempt7/run-{n}.digest.json.gz" for n in (1, 2, 4)),
 )
 

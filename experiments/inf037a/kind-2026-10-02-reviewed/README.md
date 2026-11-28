@@ -1,6 +1,6 @@
-# Final-source local kind INF-037a evidence
+# Reviewed local kind run
 
-This is the authoritative 2026-10-02 CPU-only M5 stage 1 campaign, pending Claude review. Reproduce with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/m5-stage1.ps1 -OutputDirectory experiments/inf037a/<new-run-id>`. Tools, images, source-file hashes and clock semantics are in `environment.json` and `source-hashes.json`. Every sanitized evidence file is covered by `SHA256SUMS.txt`; strict JSON/LF and committed Git blob checks are required.
+This is the authoritative 2026-10-02 reviewed CPU-only kind campaign. Reproduce with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/m5-stage1.ps1 -OutputDirectory experiments/inf037a/<new-run-id>`. Tools, images, source-file hashes and clock semantics are in `environment.json` and `source-hashes.json`. Every sanitized evidence file is covered by `SHA256SUMS.txt`; strict JSON/LF and committed Git blob checks are required.
 
 | Event | Completed | Failed | Partial | False completions | Reservation sets / active keys after |
 |---|---:|---:|---:|---:|---|
@@ -9,7 +9,7 @@ This is the authoritative 2026-10-02 CPU-only M5 stage 1 campaign, pending Claud
 
 Before each mutation, eight reservations and eight routed streams were active with delivered SSE content; both gateways participated (5/3) and both backends participated (5/3). Gateway event clients completed two waves of eight; the backend event ran three waves of eight. Every completion has all 24 expected content chunks (206 bytes), exactly one stop finish, usage count 24, a trailing DONE, successful EOF/transport and the corresponding gateway `completed` terminal. Counts were independently recounted from JSONL, not copied from a PASS banner. Reservations were read back without modification immediately after clients ended, well before the 180s lease could act as cleanup. Global set, tenant set and all active reservation keys each reached zero.
 
-## Distributions and outliers inspected by Codex
+## Distributions and outliers in the captured rows
 
 Gateway durations: 12,011.336-12,060.844ms, empirical median 12,038.960ms (n=16). Backend durations: 12,012.823-12,038.073ms, empirical median 12,026.927ms (n=24). The complete individual durations and five longest requests are retained. The longest gateway row (12,060.844ms) completed through an original gateway to fake-0; the longest backend row (12,038.073ms) completed through a surviving gateway to fake-0. All outliers are complete and differ from the configured 12s chunk pacing by tens of milliseconds, with no timeout/cancellation/error population hidden. These observations are local mock scheduling/transport measurements, not inference performance. p95 is null because neither sample meets PLAN's n*(1-p)>=20 rule; empirical medians are descriptive sample summaries, not tail estimates.
 
@@ -43,4 +43,4 @@ Observed topology peaked at four total gateway pods including terminating draine
 
 Pod/gateway lifecycle logs and controller observations use UTC wall time on one local Docker host; client durations use perf_counter_ns. Endpoint and ready samples retain observation uncertainty; this is not a cross-host clock-synchronization experiment. Unit/race tests additionally cover removal, unknown/unready/terminating endpoints, flapping, duplicated readiness conflicts, generation isolation, API errors/timeouts and recovery. Zero observed stream loss applies to these two finite mock events and does not guarantee arbitrary rollout timing, GPU behavior or 120s stream drain under every failure.
 
-Credentials, cache salts, prompts, IPs, kubeconfig, raw API responses and reservation IDs are absent from the export. Public image/tool/source digests are preserved. `teardown.json` records cluster absent and zero remaining cluster containers. No AWS API call, operational PlanPaid/Apply, registry push or GPU resource was used. Stage C payloads must be re-pinned before a future PlanPaid because gateway source changed. Full EKS/GPU M5, INF-037b cache recovery and public claim gates remain pending.
+Credentials, cache salts, prompts, IPs, kubeconfig, raw API responses and reservation IDs are absent from the export. Public image/tool/source digests are preserved. `teardown.json` records cluster absent and zero remaining cluster containers. No AWS API call, operational PlanPaid/Apply, registry push or GPU resource was used. Stage C payloads must be re-pinned before a future PlanPaid because gateway source changed. The evidence covers the CPU kind campaign.

@@ -314,7 +314,7 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(cloud.DEADLINE_S, 21600)
         # Round 345's DEC-087 cap must cover recorded prior spend and this
         # unchanged historical worksheet, including the cleanup reserve.
-        self.assertLessEqual(cloud.PRIOR_SPEND_USD, cloud.CAP_USD)
+        self.assertLessEqual(cloud.PRIOR_RUN_COST_USD, cloud.CAP_USD)
         self.assertGreater(worksheet["cost_guard_margin_s"], 0)
         self.assertGreaterEqual(worksheet["cost_guard_hours"] * 3600, worksheet["forecast_wall_s"])
 
@@ -322,9 +322,9 @@ class CaptureTests(unittest.TestCase):
         ledger = json.loads((ROOT / "docs/evidence/m5-package-a/spend-ledger.json").read_bytes())
         paid_rows = [row for row in ledger["entries"] if row["classification"] == "dec077_paid"]
         self.assertAlmostEqual(
-            sum(row["task_cost_usd"] for row in paid_rows), cloud.PRIOR_SPEND_USD, delta=1e-9
+            sum(row["task_cost_usd"] for row in paid_rows), cloud.PRIOR_RUN_COST_USD, delta=1e-9
         )
-        self.assertEqual(ledger["prior_spend_usd"], cloud.PRIOR_SPEND_USD)
+        self.assertEqual(ledger["prior_spend_usd"], cloud.PRIOR_RUN_COST_USD)
         self.assertGreater(cloud.CAP_USD, ledger["prior_spend_usd"])
 
     def test_prepare_refuses_unclassified_consumed_packets(self):
@@ -381,7 +381,7 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with (
                 patch.object(operator, "ROOT", Path(directory)),
-                patch.object(cloud, "PRIOR_SPEND_USD", 10.097056430225757),
+                patch.object(cloud, "PRIOR_RUN_COST_USD", 10.097056430225757),
             ):
                 with self.assertRaisesRegex(ValueError, "prior_spend_ledger_total_mismatch"):
                     operator.validate_prior_spend_ledger()

@@ -5,6 +5,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=24h
       - --web.enable-lifecycle
+      - --web.enable-admin-api
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     extra_hosts:
@@ -41,6 +42,8 @@ services:
     profiles: ["gpu"]
     image: nvcr.io/nvidia/k8s/dcgm-exporter:4.5.3-4.8.2-distroless@sha256:60d3b00ac80b4ae77f94dae2f943685605585ad9e92fdccda3154d009ae317cc
     cap_add: [SYS_ADMIN]
+    environment:
+      DCGM_EXPORTER_INTERVAL: "1000"
     deploy:
       resources:
         reservations:

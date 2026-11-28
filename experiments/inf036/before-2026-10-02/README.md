@@ -1,4 +1,4 @@
-# Preserved aborted INF-036 baseline
+# Aborted CPU gateway baseline
 
 Source: `5e7dfa8eebf4b58f018ded097f8d5c20613a3a92`. All 42 rate cases ran; 41 passed independent raw audits. The last case retains raw outcomes and a failed campaign record. Profiling cases did not run. Owned children and Redis were removed.
 

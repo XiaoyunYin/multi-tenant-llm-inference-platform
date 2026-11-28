@@ -1,0 +1,14 @@
+{
+  "requests.jsonl": {
+    "uncompressed_bytes": 14085637,
+    "sha256": "c5fff915b680882c1a131a63c2c0061bd796391f19550308b3717846fdf14fda"
+  },
+  "cancels.jsonl": {
+    "uncompressed_bytes": 174713,
+    "sha256": "cf67d05709d21e2a1cafaae1851353bf5ae146ed547b49ef8a3d45ddd2169f63"
+  },
+  "gauges.jsonl": {
+    "uncompressed_bytes": 6884264,
+    "sha256": "088086e0cb6103eba831413b685b4ce21a4d69f3acfb025fce1ee0824ff65a2e"
+  }
+}

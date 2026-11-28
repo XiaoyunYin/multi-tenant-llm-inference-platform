@@ -1,4 +1,4 @@
-# INF-011 measured M3 session — 2026-09-16
+# Measured GPU calibration — 2026-09-16
 
 This directory records the sanitized evidence from the single approved `DEC-014` session. The reviewed plan was applied to one `g6.xlarge` in `us-west-2`, then the instance and all supporting resources were destroyed and independently verified empty.
 
@@ -10,7 +10,7 @@ This directory records the sanitized evidence from the single approved `DEC-014`
 
 The session exercised the three planned M3 classes: compatibility/fit, cache reset and salt isolation, and a bounded calibration burst. The calibration launcher was invoked with eight concurrent `max_tokens=512` workers for 30.054 seconds; per-request outcomes were not recorded, and the SSM metric sampler arrived after completion. Therefore this record deliberately does not claim throughput, latency, a safe running-request target `R`, a positive waiting allowance `W`, or a preliminary global bound `B`. The cache capture records a runtime KV-cache ceiling of 62,256 tokens and `kv_cache_max_concurrency=7.5996`, which is not a measured safe `R`.
 
-The successful launch followed eight capacity rejections at `2026-09-16T17:00:30Z`; the first response arrived at `17:34:05Z`, and the instance terminated at `18:19:37Z` (4,747 seconds of runtime). Claude's Round 10 estimate is approximately `$1.10`; actual AWS billing and cumulative phase spend remain pending. The estimate is not a billing claim.
+The successful launch followed eight capacity rejections at `2026-09-16T17:00:30Z`; the first response arrived at `17:34:05Z`, and the instance terminated at `18:19:37Z` (4,747 seconds of runtime). The runtime estimate was approximately `$1.10`; the estimate uses the measured runtime.
 
 Startup evidence is intentionally split: `captures/startup-vllm.txt` retains a warm post-reboot weight-loading line of `120.663043` seconds, while the cold launch-to-first-response interval was 2,015 seconds. Retained progress showed approximately 273-324 seconds per checkpoint shard, with 3 of 4 shards still loading at 15m21s; image pull, volume restore, and aggregate shard time were not separately isolated.
 

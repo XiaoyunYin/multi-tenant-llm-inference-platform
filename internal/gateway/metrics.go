@@ -15,6 +15,7 @@ var routingTokenizeDurationBounds = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 
 var routingLookupDurationBounds = [...]float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1}
 
 type Metrics struct {
+	tenantCounters             tenantCounters
 	requests                   atomic.Uint64
 	active                     atomic.Int64
 	completed                  atomic.Uint64
@@ -235,6 +236,7 @@ func (m *Metrics) ServeHTTP(response http.ResponseWriter, _ *http.Request) {
 	snapshot := m.Snapshot()
 	response.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	writeMetricMetadata(response)
+	m.tenantCounters.write(response)
 	fmt.Fprintf(response, "inference_gateway_requests_total %d\n", snapshot.Requests)
 	fmt.Fprintf(response, "inference_gateway_active_requests %d\n", snapshot.Active)
 	fmt.Fprintf(response, "inference_gateway_completed_total %d\n", snapshot.Completed)

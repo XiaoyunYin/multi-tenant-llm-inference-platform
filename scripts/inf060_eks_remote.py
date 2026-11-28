@@ -173,11 +173,12 @@ class StreamingClusterPorts(EKSClusterPorts):
         node = json.loads(
             self.k("-n", "kube-system", "get", "daemonset", "aws-node", "-o", "json")
         )
-        status = node.get("status", {})
-        containers = node["spec"]["template"]["spec"]["containers"]
+        status = node.get("status") or {}
+        template = (node.get("spec") or {}).get("template") or {}
+        containers = (template.get("spec") or {}).get("containers") or []
         enabled = any(
-            row["name"] in {"aws-eks-nodeagent", "aws-network-policy-agent"}
-            and "--enable-network-policy=true" in row.get("args", [])
+            row.get("name") in {"aws-eks-nodeagent", "aws-network-policy-agent"}
+            and "--enable-network-policy=true" in (row.get("args") or [])
             for row in containers
         )
         return {

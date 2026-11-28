@@ -189,6 +189,7 @@ class Phase:
                 stderr=subprocess.STDOUT,
             )
         save(state, {"pid": proc.pid, "start": pid_start(proc.pid)})
+        return proc
 
     def stop_process(self, name):
         path = self.private / (name + ".process.json")
@@ -237,14 +238,22 @@ class Phase:
         if self.name(role) in names:
             self.call(["docker", "rm", "-f", "-v", self.name(role)], 25)
 
-    def ready(self, url):
+    def ready(self, url, *, check_alive=None):
         while time.time() + 1 < self.end:
+            if check_alive is not None:
+                check_alive()
             try:
                 with urlopen(url, timeout=1) as reply:
-                    if reply.status == 200:
-                        return
+                    ready = reply.status == 200
             except OSError:
-                time.sleep(0.25)
+                ready = False
+            if ready:
+                if check_alive is not None:
+                    check_alive()
+                return
+            time.sleep(0.25)
+        if check_alive is not None:
+            check_alive()
         raise TimeoutError("inf060:readiness")
 
     def go(self):

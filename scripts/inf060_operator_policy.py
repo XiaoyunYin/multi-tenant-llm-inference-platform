@@ -1,16 +1,25 @@
 """Produce the inline role policy for one INF-060 GPU session."""
 
+import json
 import re
 
 
-def operator_policy(account, session, ami, region="us-east-1"):
+def operator_policy(
+    account, session, ami, region="us-east-1", *, zone="us-east-1a", open_capacity=False
+):
     if not (
         re.fullmatch(r"[0-9]{12}", account)
         and re.fullmatch(r"dec077-inf060-[a-z0-9-]{1,15}", session)
         and re.fullmatch(r"ami-[a-f0-9]{17}", ami)
         and region == "us-east-1"
+        and re.fullmatch(r"us-east-1[a-f]", zone)
     ):
         raise ValueError("inf060:policy_scope")
+    zones = zone
+    if open_capacity:
+        from inf061_capacity import ZONES
+
+        zones = list(ZONES)
     ec2 = f"arn:aws:ec2:{region}:{account}:"
     iam = f"arn:aws:iam::{account}:"
     ssm = f"arn:aws:ssm:{region}:"
@@ -70,7 +79,7 @@ def operator_policy(account, session, ami, region="us-east-1"):
             **request,
             "ec2:InstanceType": "g6.xlarge",
             "ec2:MetadataHttpTokens": "required",
-            "ec2:AvailabilityZone": region + "a",
+            "ec2:AvailabilityZone": zones,
         },
     )
     allow(
@@ -120,4 +129,52 @@ def operator_policy(account, session, ami, region="us-east-1"):
         "pricing:GetProducts servicequotas:GetServiceQuota sts:GetCallerIdentity",
         "*",
     )
-    return {"Version": "2012-10-17", "Statement": statements}
+    if open_capacity:
+        reservation = ec2 + "capacity-reservation/*"
+        allow(
+            "ec2:CreateCapacityReservation",
+            reservation,
+            **{
+                **request,
+                "ec2:AvailabilityZone": zones,
+                "ec2:InstanceType": "g6.xlarge",
+                "ec2:InstancePlatform": "Linux/UNIX",
+                "ec2:EndDateType": "limited",
+                "ec2:InstanceMatchCriteria": "open",
+                "ec2:Tenancy": "default",
+            },
+        )
+        statements[-1]["Condition"]["NumericEquals"] = {"ec2:InstanceCount": "1"}
+        allow(
+            "ec2:CreateTags",
+            reservation,
+            **request,
+            **{"ec2:CreateAction": "CreateCapacityReservation"},
+        )
+        allow(
+            "ec2:ModifyCapacityReservation ec2:CancelCapacityReservation",
+            reservation,
+            **{"aws:ResourceTag/Session": session},
+        )
+        template = ec2 + "launch-template/*"
+        allow("ec2:CreateLaunchTemplate", template, **request)
+        allow(
+            "ec2:CreateTags",
+            template,
+            **request,
+            **{"ec2:CreateAction": "CreateLaunchTemplate"},
+        )
+        allow("ec2:DeleteLaunchTemplate", template, **owned)
+        allow(
+            "ec2:RunInstances",
+            [reservation, template],
+            **{"aws:ResourceTag/Session": session},
+        )
+        allow(
+            "ec2:DescribeCapacityReservations ec2:DescribeLaunchTemplates ec2:DescribeLaunchTemplateVersions",
+            "*",
+        )
+    policy = {"Version": "2012-10-17", "Statement": statements}
+    if len(json.dumps(policy, separators=(",", ":"))) > 10240:
+        raise ValueError("inf060:operator_inline_policy_limit")
+    return policy

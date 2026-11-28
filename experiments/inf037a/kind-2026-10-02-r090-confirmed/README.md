@@ -1,8 +1,8 @@
-# INF-037a R090 coverage confirmation
+# Verified kind stream coverage
 
-Scope: **Kubernetes (kind, local, mock vLLM backends)**, CPU only. Xiaoyun
-authorized R090 remediation on 2026-10-02. This is Codex evidence awaiting
-Claude review; it does not complete full M5 or INF-037b.
+This follow-up checks live-stream coverage in the local deployment.
+
+
 
 The entrypoint exited **0** in **234.328 s**, including local builds, cluster
 creation, both events, evidence export and deletion. Images were built locally
@@ -34,7 +34,7 @@ passes the mandatory nonzero-SIGTERM coverage check. A zero count fails even if
 all streams complete and reservations reach zero; failed summaries/raw rows are
 preserved before that check raises. The untargeted fake-0 generation is unchanged.
 
-Codex inspected every row, all per-pod intervals, histograms and the five longest
+The recount inspected every row, all per-pod intervals, histograms and the five longest
 streams per event, and independently recounted them with the committed
 `scripts/inspect_kind_rollout.py` into analysis.json. Gateway durations range
 **30.009–30.024 s**, empirical median **30.010 s**; backend durations range
@@ -73,8 +73,8 @@ uv run --project python --locked python scripts/inspect_kind_rollout.py --run ex
 If capturing to a file, use subprocess stdout/stderr pipes; Windows PowerShell
 5.1 can turn expected native stderr into a NativeCommandError in the outer
 redirection. analysis.json and this note are included in SHA256SUMS.txt. Public
-claims still require PLAN section 7.3 gates; R090 is proposed ADDRESSED, not VERIFIED.
+The measurement supports the local CPU run conditions.
 
 ## Review annotation - 2026-10-03
 
-R090 VERIFIED in Claude Round 48 at committed repair a1d7cd55a8d53a47d144977b164f87fa1e30cbb7. The original awaiting-review/proposed-ADDRESSED wording above records the creation-time status; this dated annotation supersedes it. Measured capture bytes, counts and timings are unchanged.
+The final coverage repair was independently verified. Measured captures and timings are preserved.

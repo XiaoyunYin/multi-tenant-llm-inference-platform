@@ -5,17 +5,21 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shlex
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 from inference_platform.package_a_operator import Ports, readiness_shell
 from inference_platform.routine_aws_tests import RoutinePorts
 from inference_platform.session_stop import stop_forward
 
+import inf060_apply as apply_watch
 import inf060_diagnostics as diagnostics
 import inf060_probe_spec as spec
+import inf061_packet as benchmark
 from l4_compat_deadline import supervise
 from prepare_inf060_probe import AGENT, ROOT, git, gitblob, validate_inputs
 
@@ -46,6 +50,18 @@ def checked_packet(directory, review, *, remote_host=False):
         )
         return manifest
     git("merge-base", "--is-ancestor", source, "HEAD")
+    if benchmark.is_benchmark(manifest):
+        from inf061_capacity import PLAN_SOURCE
+
+        path = (
+            PLAN_SOURCE
+            if "capacity_hunt" in manifest
+            else "docs/INF061_FINAL_PLAN.json"
+        )
+        spec.check(
+            gitblob(source, path) == (directory / "benchmark.json").read_bytes(),
+            "benchmark_source",
+        )
     protected = [
         "python",
         "scripts",
@@ -108,6 +124,42 @@ class ProbePorts(Ports):
         self.failure = failure
         self.root = spec.REMOTE + ("-" + failure if failure else "")
         self.diagnostic_dir = runtime
+        self.capacity_selection = None
+        self.selected_root = None
+        if "capacity_hunt" in manifest:
+            from inf061_capacity import STATE, selected_plan
+
+            if (directory / STATE).exists() and (
+                not recovering or (directory / "consumed.json").exists()
+            ):
+                self.capacity_selection, self.selected_root = selected_plan(
+                    directory, manifest
+                )
+
+    @property
+    def terraform_directory(self):
+        return self.selected_root or super().terraform_directory
+
+    @property
+    def saved_create_sha256(self):
+        if self.capacity_selection is not None:
+            return self.capacity_selection["plan_sha256"]
+        return super().saved_create_sha256
+
+    def command(self, argv, deadline, name):
+        if name == "apply" and benchmark.is_benchmark(self.manifest):
+            return super().command(
+                argv,
+                deadline,
+                name,
+                execute=partial(
+                    apply_watch.run,
+                    zone=(self.capacity_selection or self.manifest)["zone"],
+                ),
+            )
+        if name == "destroy" and benchmark.is_benchmark(self.manifest):
+            argv = [*argv, f"-var=provider_attempts={benchmark.DESTROY_ATTEMPTS}"]
+        return super().command(argv, deadline, name)
 
     def request(self, path, data=None, headers=None, *, end):
         result = super().request(path, data, headers, end=end)
@@ -147,6 +199,25 @@ class ProbePorts(Ports):
             timeout_s=60,
             step="inf060.timer_and_readiness",
         )
+        if self.capacity_selection is not None:
+            cutoff = int(
+                self.capacity_selection["selected_epoch"]
+                + self.manifest["host_timer_seconds"]
+            )
+            self.ssm(
+                self.host,
+                [
+                    "set -eu; old=$(cat /etc/dec077/deadline); stop="
+                    + str(cutoff)
+                    + '; if [ "$old" -lt "$stop" ]; then stop=$old; fi;'
+                    + " printf '%s' \"$stop\" > /etc/dec077/deadline;"
+                    + ' sed -i "s/^OnCalendar=.*/OnCalendar=@$stop/" /etc/systemd/system/dec077-terminate.timer;'
+                    + " systemctl daemon-reload; systemctl restart dec077-terminate.timer;"
+                    + " systemctl is-active --quiet dec077-terminate.timer"
+                ],
+                timeout_s=30,
+                step="inf061.selection_timer",
+            )
         for name in AGENT:
             if "operator_host" in self.manifest:
                 raw = (ROOT / "scripts" / name).read_bytes()
@@ -222,7 +293,8 @@ class ProbePorts(Ports):
 
     def inventory(self, end):
         # The same owned tag/resource inventory used by the routine runner.
-        if (self.directory / "terraform/terraform.tfstate").is_file():
+        capacity = "capacity_hunt" in self.manifest
+        if not capacity and (self.directory / "terraform/terraform.tfstate").is_file():
             before = self.manifest
             try:
                 self.manifest = {**before, "routine_selection": {}}
@@ -267,6 +339,21 @@ class ProbePorts(Ports):
                 row[name].startswith(self.manifest["session"] + "-")
                 for row in self.aws("iam", call, [])[field]
             )
+        if capacity:
+            from inf061_capacity import ROOTS, reservation_inventory
+
+            for name in ROOTS.values():
+                state = self.directory / name / "terraform.tfstate"
+                if state.is_file():
+                    resources = spec.load(state)["resources"]
+                    spec.check(isinstance(resources, list), "capacity_state_inventory")
+                    results["terraform_resources"] += len(resources)
+                else:
+                    spec.check(
+                        not list(state.parent.glob("terraform.tfstate*")),
+                        "capacity_state_inventory",
+                    )
+            results.update(reservation_inventory(self.aws, self.manifest["session"]))
         results["empty"] = not any(results.values())
         return results
 
@@ -293,7 +380,7 @@ def run_step(ports, name, action):
 
 
 def work(ports, origin):
-    before = origin + spec.READY_S
+    before = origin + ports.manifest["ready_by_seconds"]
     work_end = origin + ports.manifest["work_seconds"]
     retrieve_at = work_end - ports.manifest["export_seconds"]
     run_step(ports, "bootstrap", lambda: ports.bootstrap(before))
@@ -317,7 +404,7 @@ def work(ports, origin):
     return result
 
 
-def native_preflight(ports, directory, manifest, origin):
+def native_preflight(ports, directory, manifest, origin, *, capacity_stage=None):
     ports.deadline = origin + 600
     account = ports.aws("sts", "get-caller-identity", [])["Account"]
     spec.check(
@@ -325,7 +412,7 @@ def native_preflight(ports, directory, manifest, origin):
         "account_changed",
     )
     live = spec.load(directory / "live-inputs.json")
-    validate_inputs(live)
+    validate_inputs(live, zone=manifest["zone"])
     current = ports.aws("ec2", "describe-images", ["--image-ids", spec.AMI])["Images"]
     spec.check(len(current) == 1 and current[0]["State"] == "available", "ami_changed")
     offerings = ports.aws(
@@ -336,7 +423,7 @@ def native_preflight(ports, directory, manifest, origin):
             "availability-zone",
             "--filters",
             "Name=instance-type,Values=" + spec.SHAPE,
-            "Name=location,Values=" + spec.ZONE,
+            "Name=location,Values=" + (ports.capacity_selection or manifest)["zone"],
         ],
     )["InstanceTypeOfferings"]
     spec.check(offerings, "offering_changed")
@@ -351,9 +438,27 @@ def native_preflight(ports, directory, manifest, origin):
         ],
     )["Quota"]["Value"]
     spec.check(
-        quota >= 4 and ports.inventory(origin + 600)["empty"],
+        quota >= 4
+        and (
+            ports.inventory(origin + 600)["empty"]
+            if capacity_stage != "selected"
+            else selected_inventory(ports, manifest, origin + 600)
+        ),
         "quota_or_owned_inventory",
     )
+    if benchmark.is_benchmark(manifest):
+        gpu_rows = ports.aws(
+            "ec2",
+            "describe-instances",
+            [
+                "--filters",
+                "Name=instance-type,Values=g*,vt*",
+                "Name=instance-state-name,Values=pending,running,shutting-down,stopping",
+            ],
+        )["Reservations"]
+        spec.check(
+            not any(row["Instances"] for row in gpu_rows), "benchmark_gpu_quota_busy"
+        )
     for name, unit, key in (
         ("compute", "Hrs", "compute_usd_per_h"),
         ("gp3", "GB-Mo", "gp3_usd_per_gib_month"),
@@ -371,6 +476,60 @@ def native_preflight(ports, directory, manifest, origin):
         }
         spec.check(prices == {live["rates"][key]}, "price_changed:" + name)
     spec.check(time.time() + 60 < origin + 600, "apply_reserve")
+
+
+def selected_inventory(ports, manifest, end):
+    from inf061_capacity import active_reservations
+
+    counts = ports.inventory(end)
+    if counts.pop("session_reservations") != 1:
+        return False
+    counts.pop("empty")
+    rows = active_reservations(ports.aws)
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    selection = ports.capacity_selection
+    return (
+        not any(counts.values())
+        and row["CapacityReservationId"] == selection["reservation_id"]
+        and row["AvailabilityZone"] == selection["zone"]
+        and row["State"] == "active"
+        and row["AvailableInstanceCount"] == 1
+    )
+
+
+def apply_open_capacity(ports, end):
+    from inf061_capacity import open_capacity_guard, verify_open_launch
+
+    def invoke(service, operation, args):
+        return ports.aws(service, operation, args, deadline=end)
+
+    manifest = ports.manifest
+    session = manifest["session"]
+    identity = invoke("sts", "get-caller-identity", [])
+    expected = f"arn:aws:sts::{identity['Account']}:assumed-role/{manifest['operator_host']['session']}-cpu/"
+    arn = identity["Arn"]
+    operator_id = arn.removeprefix(expected)
+    spec.check(
+        arn.startswith(expected) and re.fullmatch(r"i-[0-9a-f]{17}", operator_id),
+        "open_capacity_operator_identity",
+    )
+    open_capacity_guard(
+        invoke, session, ports.capacity_selection, operator_id=operator_id
+    )
+    ports.apply(end)
+    readback_end = min(end + 60, time.time() + 60)
+    verify_open_launch(
+        lambda service, operation, args: ports.aws(
+            service, operation, args, deadline=readback_end
+        ),
+        session,
+        ports.capacity_selection,
+        operator_id=operator_id,
+        launched_id=ports.host,
+        end=readback_end,
+    )
 
 
 def command_context(directory, profile):
@@ -403,11 +562,16 @@ def command_context(directory, profile):
 def synthetic_review(directory):
     manifest = spec.load(directory / "manifest.json")
     digest = spec.facts(directory / "manifest.json")["sha256"]
+    line = (
+        benchmark.approval_line(manifest, digest)
+        if benchmark.is_benchmark(manifest)
+        else (
+            f"{spec.PREFIX} manifest={digest} plan={manifest['sealed_plans']['create_sha256']} "
+            f"source={manifest['source_commit']}"
+        )
+    )
     return (
-        "## Claude Round 0 - CPU rehearsal\n"
-        "- Verdict: NO_BLOCKING_FINDINGS\n"
-        f"{spec.PREFIX} manifest={digest} plan={manifest['sealed_plans']['create_sha256']} "
-        f"source={manifest['source_commit']}\n"
+        f"## Claude Round 0 - CPU rehearsal\n- Verdict: NO_BLOCKING_FINDINGS\n{line}\n"
     )
 
 
@@ -504,12 +668,20 @@ def main():
                     for name, argv in commands.items()
                 }
                 output = args.routine_directory / "inf060-supervisor"
+            origin_epoch = None
+            if "capacity_hunt" in manifest:
+                from inf061_capacity import selected_plan
+
+                selection, _ = selected_plan(directory, manifest)
+                origin_epoch = selection["selected_epoch"]
             return int(
                 not supervise(
                     commands,
                     output,
-                    work_seconds=spec.HOST_TIMER_S,
-                    cleanup_seconds=spec.CLEANUP_S,
+                    work_seconds=manifest["deadline_seconds"]
+                    - manifest["cleanup_seconds"],
+                    cleanup_seconds=manifest["cleanup_seconds"],
+                    origin_epoch=origin_epoch,
                 )["complete"]
             )
         spec.check((directory / "supervisor.lock").is_file(), "supervisor_required")
@@ -564,8 +736,17 @@ def main():
                 min(origin + 600, time.time() + 120),
                 "init",
             )
-            native_preflight(ports, directory, manifest, origin)
-            ports.apply(origin + 600)  # FIRST POSSIBLE PRODUCT BILLABLE ACTION
+            native_preflight(
+                ports,
+                directory,
+                manifest,
+                origin,
+                capacity_stage="selected" if "capacity_hunt" in manifest else None,
+            )
+            if ports.capacity_selection is not None:
+                apply_open_capacity(ports, origin + 600)
+            else:
+                ports.apply(origin + 600)  # FIRST POSSIBLE GPU INSTANCE LAUNCH
             groups = ports.aws(
                 "ec2",
                 "describe-security-groups",
@@ -592,15 +773,23 @@ def main():
                 step="inf060.routine_receipt",
             )
     elif args.mode == "cleanup":
-        receipt = (
-            ports.teardown(origin + spec.TOTAL_S - 60)
-            if (directory / "consumed.json").is_file()
-            else {"destroy_completed": True, "skipped": "not_consumed"}
-        )
+        stop = origin + manifest["deadline_seconds"] - 60
+        try:
+            receipt = (
+                ports.teardown(stop - (90 if "capacity_hunt" in manifest else 0))
+                if (directory / "consumed.json").is_file()
+                else {"destroy_completed": True, "skipped": "not_consumed"}
+            )
+        finally:
+            if "capacity_hunt" in manifest:
+                from inf061_capacity import close_reservation
+
+                available = min(stop, time.time() + 80)
+                close_reservation(directory, manifest, available)
         spec.save(runtime / "probe-cleanup.json", receipt)
         spec.check(receipt["destroy_completed"], "destroy_unverified")
     else:
-        receipt = ports.inventory(origin + spec.TOTAL_S)
+        receipt = ports.inventory(origin + manifest["deadline_seconds"])
         spec.save(runtime / "probe-inventory.json", receipt)
         spec.check(receipt["empty"], "inventory_not_empty")
     return 0

@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {{- include "inference.metadata" (list . "streaming-ingress") | nindent 2 }}
+spec:
+  replicas: {{ .Values.ingress.replicas }}
+  selector:
+    matchLabels:
+      app: streaming-ingress
+  template:
+    metadata:
+      labels:
+        app: streaming-ingress
+        m5-session: {{ .Values.namespace }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        m5-role: cpu
+      containers:
+      - name: nginx
+        image: {{ include "inference.digestImage" .Values.ingress.image }}
+        command: {{- toYaml .Values.ingress.command | nindent 10 }}
+        ports:
+        - containerPort: {{ .Values.ports.ingress }}
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        readinessProbe: {{- include "inference.probe" (list .Values.ingress.readinessProbe "tcpSocket" .Values.ports.ingress) | nindent 10 }}
+        resources: {{- toYaml .Values.ingress.resources | nindent 10 }}
+      securityContext:
+        runAsUser: 101
+        runAsNonRoot: true
+        fsGroup: 101
+      volumes:
+      - name: config
+        configMap:
+          name: streaming-ingress
+      - name: tls
+        secret:
+          secretName: gateway-tls
+      - name: tmp
+        emptyDir: {}
+  strategy:
+    type: Recreate

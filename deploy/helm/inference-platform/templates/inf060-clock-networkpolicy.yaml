@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: inf060-clock
+  namespace: {{ include "inference.ns" . }}
+spec:
+  podSelector:
+    matchLabels:
+      app: vllm
+  policyTypes:
+  - Ingress
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: {{ .Values.ports.engine }}
+  - ports:
+    - protocol: TCP
+      port: {{ .Values.ports.clock }}
+    from:
+    - podSelector:
+        matchLabels: {{- toYaml .Values.clockPolicy.peerLabels | nindent 10 }}

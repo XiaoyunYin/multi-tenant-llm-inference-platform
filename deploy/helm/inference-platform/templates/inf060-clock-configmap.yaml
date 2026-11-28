@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inf060-clock
+  namespace: {{ include "inference.ns" . }}
+immutable: true
+data:
+  config.json: {{ .Files.Get "config/vllm-logging.json" | quote }}

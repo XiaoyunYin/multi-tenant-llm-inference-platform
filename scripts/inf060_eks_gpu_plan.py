@@ -17,7 +17,7 @@ from inference_platform.inf060_eks_schedule import LEVELS
 from inference_platform.stage_c_tokenizer import FILE_HASHES
 
 GPU_SESSION = "m5-desc-inf060-r423"
-GPU_MARKER = "INF-060 GPU EKS PLAN APPROVED"
+GPU_MARKER = "GPU EKS PLAN APPROVED"
 GPU_QUOTA = "L-DB2E81BA"
 
 

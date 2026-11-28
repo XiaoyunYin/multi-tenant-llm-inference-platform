@@ -1,0 +1,38 @@
+{{- if .Values.devicePlugin.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {{- include "inference.metadata" (list . "nvidia-device-plugin") | nindent 2 }}
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-device-plugin
+  template:
+    metadata:
+      labels:
+        app: nvidia-device-plugin
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        m5-role: gpu
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: plugin
+        image: {{ include "inference.digestImage" .Values.devicePlugin.image }}
+        env: {{- toYaml .Values.devicePlugin.env | nindent 10 }}
+        volumeMounts:
+        - name: plugins
+          mountPath: /var/lib/kubelet/device-plugins
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      volumes:
+      - name: plugins
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+          type: Directory
+{{- end }}

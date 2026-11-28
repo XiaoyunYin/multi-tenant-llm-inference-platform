@@ -13,6 +13,7 @@ import threading
 import time
 import traceback
 import unittest
+from functools import partial
 from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -391,7 +392,7 @@ class PackageACloudTests(unittest.TestCase):
             (root / ".cache" / "archive" / "PLAN.md").write_text("plan", encoding="utf-8")
             (root / ".cache" / "archive" / "REVIEW.md").write_text("review", encoding="utf-8")
             (evidence / "consumed.json").write_text("{}", encoding="utf-8")
-            with patch.object(operator.package_a_cloud_module, "PRIOR_SPEND_USD", 0):
+            with patch.object(operator.package_a_cloud_module, "PRIOR_RUN_COST_USD", 0):
                 self.assertEqual(
                     operator.validate_prior_spend_ledger(root, ledger),
                     {
@@ -524,6 +525,7 @@ class PackageACloudTests(unittest.TestCase):
 
             def ports_factory(*args, **kwargs):
                 ports = Ports(*args, **kwargs)
+                ports.command = partial(ports.command, execute=execute)
                 for name in ("apply", "bootstrap", "upload", "run_checks"):
                     setattr(ports, name, lambda end: None)
                 ports.retrieve = lambda end: {"complete": True}
@@ -548,22 +550,19 @@ class PackageACloudTests(unittest.TestCase):
                 save(output.with_suffix(".command.json"), result)
                 return result
 
-            with patch("inference_platform.package_a_operator.run_exe", side_effect=execute):
-                original = ports_factory(root, manifest)
-                result = Lifecycle(original, manifest, root / "final").run()
-                self.assertTrue(result["complete"], result)
-                before = {p: p.read_bytes() for p in original.runtime.iterdir() if p.is_file()}
-                with (
-                    patch("inference_platform.package_a_operator.Ports", side_effect=ports_factory),
-                    patch("inference_platform.package_a_operator.executing_binding"),
-                    patch(
-                        "inference_platform.package_a_operator.pid_is_running", return_value=False
-                    ),
-                ):
-                    for _ in range(2):
-                        recovered = recover(root, "fixture")
-                        self.assertTrue(recovered["inventory"]["empty"], recovered)
-                        self.assertTrue(recovered["teardown"]["destroy_completed"], recovered)
+            original = ports_factory(root, manifest)
+            result = Lifecycle(original, manifest, root / "final").run()
+            self.assertTrue(result["complete"], result)
+            before = {p: p.read_bytes() for p in original.runtime.iterdir() if p.is_file()}
+            with (
+                patch("inference_platform.package_a_operator.Ports", side_effect=ports_factory),
+                patch("inference_platform.package_a_operator.executing_binding"),
+                patch("inference_platform.package_a_operator.pid_is_running", return_value=False),
+            ):
+                for _ in range(2):
+                    recovered = recover(root, "fixture")
+                    self.assertTrue(recovered["inventory"]["empty"], recovered)
+                    self.assertTrue(recovered["teardown"]["destroy_completed"], recovered)
             for path, data in before.items():
                 self.assertEqual(path.read_bytes(), data)
             logs = sorted((root / "operator").glob("recovery-*/destroy.log"))
@@ -586,7 +585,7 @@ class PackageACloudTests(unittest.TestCase):
                 path.write_bytes(b"original receipt")
                 with patch("inference_platform.package_a_operator.run_exe") as execute:
                     with self.assertRaises(FileExistsError):
-                        ports.command(["fixture"], time.time() + 30, "destroy")
+                        ports.command(["fixture"], time.time() + 30, "destroy", execute=execute)
                     execute.assert_not_called()
                 self.assertEqual(path.read_bytes(), b"original receipt")
         with tempfile.TemporaryDirectory() as directory:
@@ -600,7 +599,7 @@ class PackageACloudTests(unittest.TestCase):
             def invoke():
                 barrier.wait(timeout=5)
                 try:
-                    ports.command(["fixture"], time.time() + 30, "destroy")
+                    ports.command(["fixture"], time.time() + 30, "destroy", execute=execute)
                     outcomes.append("executed")
                 except FileExistsError:
                     outcomes.append("refused")

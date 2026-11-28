@@ -787,7 +787,9 @@ class Production:
                 time.sleep(min(CAPACITY_RESERVATION_POLL_SECONDS, remaining))
         return last_item
 
-    def _reservation_matches_probe(self, item, reservation_id):
+    def _reservation_matches_probe(
+        self, item, reservation_id, *, instance_count=2, match_criteria="open"
+    ):
         count = item.get("TotalInstanceCount", item.get("totalInstanceCount"))
         available = item.get("AvailableInstanceCount", item.get("availableInstanceCount"))
         zone = item.get("AvailabilityZone", item.get("availabilityZone"))
@@ -798,17 +800,21 @@ class Production:
         return bool(
             reservation_id
             and self._reservation_state(item) == "active"
-            and count == 2
-            and available == 2
+            and count == instance_count
+            and available == instance_count
             and zone == self.inputs["availability_zone"]
             and instance_type == self.inputs["gpu_type"]
             and platform == "Linux/UNIX"
             and tenancy == "default"
-            and str(criteria).lower() == "open"
+            and str(criteria).lower() == match_criteria
         )
 
-    def reserve_capacity(self, deadline):
-        """Request an immediate, short-lived open ODCR before the durable consume."""
+    def reserve_capacity(self, deadline, *, instance_count=2, match_criteria="open"):
+        """Request an immediate, short-lived ODCR before the durable consume."""
+        if type(instance_count) is not int or instance_count not in (1, 2):
+            raise ValueError("capacity reservation instance count")
+        if match_criteria not in {"open", "targeted"}:
+            raise ValueError("capacity reservation match criteria")
         if deadline <= self.now():
             return {
                 "result": "create_error",
@@ -841,9 +847,9 @@ class Production:
             "--availability-zone",
             self.inputs["availability_zone"],
             "--instance-count",
-            "2",
+            str(instance_count),
             "--instance-match-criteria",
-            "open",
+            match_criteria,
             "--tenancy",
             "default",
             "--end-date-type",
@@ -979,7 +985,9 @@ class Production:
                 "cleanup_verified": True,
                 "cleanup_attempted": True,
             }
-        exact = self._reservation_matches_probe(item, reservation_id)
+        exact = self._reservation_matches_probe(
+            item, reservation_id, instance_count=instance_count, match_criteria=match_criteria
+        )
         return {
             "result": "success" if exact else "partial",
             "error_code": None if exact else "ReservationAttributesMismatch",

@@ -496,6 +496,7 @@ print(json.dumps({'refused': refused, 'outside_source': not work.is_relative_to(
 
     def test_actual_remote_dispatch_uses_shared_shell(self):
         ports = EKSports.__new__(EKSports)
+        ports.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         ports.end = time.time() + 600
         ports.manifest = {
             "timing": {

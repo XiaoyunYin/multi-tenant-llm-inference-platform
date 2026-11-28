@@ -52,15 +52,18 @@ class ClusterPorts:
         )
         return result.stdout.decode()
 
-    def k(self, *args, deadline=None):
-        requested = [arg for arg in args if str(arg).startswith("--timeout=")]
-        timeout = (
-            float(str(requested[-1]).split("=", 1)[1].removesuffix("s")) + 30 if requested else 180
-        )
+    def k(self, *args, deadline=None, timeout=None):
+        if timeout is None:
+            requested = [arg for arg in args if str(arg).startswith("--timeout=")]
+            timeout = (
+                float(str(requested[-1]).split("=", 1)[1].removesuffix("s")) + 30
+                if requested
+                else 180
+            )
         if deadline is not None:
             timeout = min(timeout, deadline - time.monotonic())
-            if timeout <= 0:
-                raise TimeoutError("descriptive:readiness_deadline")
+        if timeout <= 0:
+            raise TimeoutError("descriptive:readiness_deadline")
         return self.call(
             [
                 self.campaign.kubectl,
@@ -87,7 +90,7 @@ class ClusterPorts:
             time.sleep(min(0.25, max(0, end - time.monotonic())))
         raise TimeoutError("descriptive:readiness_deadline")
 
-    def forward(self, target, remote):
+    def forward(self, target, remote, *, deadline=None):
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
@@ -121,7 +124,7 @@ class ClusterPorts:
             except OSError:
                 return False
 
-        self.wait(ready, 20)
+        self.wait(ready, 20, deadline=deadline)
         return port
 
     def tenant_configuration(self):

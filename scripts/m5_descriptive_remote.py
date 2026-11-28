@@ -59,7 +59,7 @@ def resolve_tool_paths(campaign):
 class EKSClusterPorts(ClusterPorts):
     substitutions = []
 
-    def __init__(self, output, manifest):
+    def __init__(self, output, manifest, *, campaign=None):
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=True)
         self.binding = manifest["descriptive"]
@@ -75,7 +75,9 @@ class EKSClusterPorts(ClusterPorts):
             self.original_end, self.timing, "provision"
         ):
             raise ValueError("descriptive:host_work_deadline_mismatch")
-        self.campaign = kind_rollout.Campaign(self.output)
+        self.campaign = (
+            campaign if campaign is not None else kind_rollout.Campaign(self.output)
+        )
         resolve_tool_paths(self.campaign)
         self.deadline_epoch = phase_deadline(self.original_end, self.timing, "retrieve")
         self.work_deadline_epoch = phase_deadline(
@@ -412,10 +414,22 @@ def main():
     install_read_guard(ROOT, manifest["source_payload"]["paths"])
     # Secrets/kubeconfig never enter the host agent's archive walk, even when
     # a phase fails before export. Only explicitly frozen files are copied out.
-    from m5_descriptive_eks import is_streaming_phase, phase_budget_name
+    from m5_descriptive_eks import HELM_PHASE, is_streaming_phase, phase_budget_name
 
     streaming = manifest["descriptive"].get("streaming")
-    if manifest["descriptive"].get("cpu_clock_rehearsal"):
+    from inf054_gpu_helm import BINDING
+
+    gpu_helm = manifest["descriptive"].get(BINDING)
+    helm = manifest["descriptive"].get("inf054_cpu_helm")
+    if gpu_helm:
+        from inf054_cpu_helm import GPUHelmPorts
+
+        port_type = GPUHelmPorts
+    elif helm:
+        from inf054_cpu_helm import HelmProofPorts
+
+        port_type = HelmProofPorts
+    elif manifest["descriptive"].get("cpu_clock_rehearsal"):
         from inf060_eks_cpu_remote import CpuClockPorts
 
         port_type = CpuClockPorts
@@ -426,7 +440,10 @@ def main():
     else:
         port_type = EKSClusterPorts
     if args.phase not in historical and not (
-        streaming and is_streaming_phase(args.phase)
+        streaming
+        and is_streaming_phase(args.phase)
+        or (helm or gpu_helm)
+        and args.phase == HELM_PHASE
     ):
         raise ValueError("descriptive:remote_phase")
     ports = port_type(Path("/opt/dec077/descriptive-private"), manifest)
@@ -458,7 +475,9 @@ def main():
         os.dup2(log.fileno(), 1)
         os.dup2(log.fileno(), 2)
         try:
-            if args.phase.startswith("stream-window-"):
+            if args.phase == HELM_PHASE:
+                result = ports.proof()
+            elif args.phase.startswith("stream-window-"):
                 result = ports.stream_window(args.phase.removeprefix("stream-window-"))
             elif args.phase.startswith("stream-snapshot-"):
                 result = ports.stream_freeze(

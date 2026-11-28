@@ -1,9 +1,13 @@
 """Refusals for the allow-side plan and input to the no-launch authorizer."""
 
 import unittest
+from pathlib import Path
 
 from inf060_allow_side import FREE_RESOURCES, run_instances_input, verify_free_plan
+from inf060_operator_packet import gpu_main
+from inf060_operator_policy import operator_policy
 from inf060_policy_gate import action_cases
+from prepare_inf060_probe import gpu_provider_versions
 
 
 class AllowSideTests(unittest.TestCase):
@@ -94,3 +98,47 @@ class AllowSideTests(unittest.TestCase):
         self.assertEqual(cases["instance"]["ec2:MetadataHttpTokens"], "required")
         self.assertEqual(cases["subnet"]["ec2:ResourceTag/Session"], "fixture")
         self.assertIs(cases["volume"]["ec2:Encrypted"], True)
+
+    def test_gpu_zone_moves_in_render_policy_and_simulation_context(self):
+        root = Path(__file__).resolve().parents[2]
+        tf = (root / "infra/terraform/l4_compat/main.tf").read_text()
+        self.assertIn(
+            'availability_zone       = "us-east-1b"', gpu_main(tf, zone="us-east-1b")
+        )
+        self.assertEqual(
+            gpu_main(tf, zone="us-east-1b").replace("us-east-1b", "us-east-1a"),
+            gpu_main(tf),
+        )
+        subject = ("000000000000", "dec077-inf060-fixture", "ami-00000000000000000")
+        policy = operator_policy(*subject, zone="us-east-1b")
+        matches = [
+            entry["Condition"]["StringEquals"]["ec2:AvailabilityZone"]
+            for entry in policy["Statement"]
+            if "ec2:AvailabilityZone"
+            in entry.get("Condition", {}).get("StringEquals", {})
+        ]
+        self.assertEqual(matches, ["us-east-1b"])
+        rows = action_cases("ec2:RunInstances", *subject, zone="us-east-1b")
+        self.assertEqual(
+            next(
+                values["ec2:AvailabilityZone"]
+                for name, _, values in rows
+                if name == "instance"
+            ),
+            "us-east-1b",
+        )
+
+    def test_provider_attempts_reference_and_declaration_ship_together(self):
+        source = (
+            Path(__file__).resolve().parents[2]
+            / "infra/terraform/l4_compat/versions.tf"
+        )
+        original = source.read_bytes().replace(b"\r\n", b"\n")
+        for raw, expected in (
+            (gpu_provider_versions(original, inf061=True), 1),
+            (gpu_provider_versions(original), 0),
+        ):
+            self.assertEqual(
+                raw.count(b"max_retries = var.provider_attempts"), expected
+            )
+            self.assertEqual(raw.count(b'variable "provider_attempts"'), expected)

@@ -1,4 +1,4 @@
-# Full INF-036 candidate campaign
+# CPU gateway candidate campaign
 
 Measured runtime source `adfdf4f79e79e8b8bb13eac1a80095a843ecde6d`. Identical primary harness/fake inputs and settings to ../baseline-2026-10-02 (source and condition equality independently verified by scripts/inf036_review.py). 42 rate cases plus three profile cases completed; all raw audits, zero reservation/release-failure checks, and owned teardown passed.
 

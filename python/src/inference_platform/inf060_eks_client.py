@@ -4,7 +4,6 @@ import argparse
 import http.client
 import json
 import os
-import resource
 import socket
 import ssl
 import threading
@@ -241,6 +240,8 @@ def attempt(row, messages, secret, host, context, deadline_ns, backends):
 
 
 def run_window(task, cfg, results):
+    import resource
+
     label = task["label"]
     duration = {"smoke": SMOKE_SECONDS, "warmup": WARMUP_SECONDS}.get(label, WINDOW_SECONDS)
     rows = schedule(label)

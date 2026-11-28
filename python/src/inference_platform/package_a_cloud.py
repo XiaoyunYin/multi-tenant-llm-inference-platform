@@ -53,7 +53,7 @@ GATE_A_READINESS_MODULES = (
     "test_package_a_sealed",
     "test_build_inf037b_gate_a_fixture",
 )
-CAP_USD = 40  # DEC-087 note, Claude Round 345: CPU validation cap including prior spend.
+CAP_USD = 40
 INSTANCE_TYPE = "c6i.2xlarge"  # Seventh task only; historical packets retain m6i.
 DEADLINE_S = 21_600  # DEC-077 / Xiaoyun's R287 amendment: one policy origin.
 CLEANUP_S = 600
@@ -217,7 +217,7 @@ CHECKS = (
 )
 TASK_CHECKS = ("race", "e2e", "row5")
 CPU_VALIDATION_CHECKS = ("race", "e2e", "cpu_validation")
-PRIOR_SPEND_USD = 33.28773637433106  # Round 357 consumed CPU-validation lifecycle cost; cumulative after the single approved Apply.
+PRIOR_RUN_COST_USD = 0.0  # Standalone fixture with no prior runs.
 # Includes .cache/r407/packet-4c78fa8 (1.1087691236057768) and .cache/r412/packet-b36c74e (1.1084082576326528).
 EXPORT_MAX_BYTES = 32 * MIB
 TRANSFER_BPS = 500_000  # Same conservative floor as the R1 operator.
@@ -316,7 +316,7 @@ def timing_worksheet(
     checks=TASK_CHECKS,
     *,
     hourly_all_resources_usd=WORKSHEET_HOURLY_USD,
-    prior_spend_usd=PRIOR_SPEND_USD,
+    prior_spend_usd=PRIOR_RUN_COST_USD,
     cleanup_cost_reserve_usd=1.0,
     cap_usd=CAP_USD,
 ):

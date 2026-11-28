@@ -1,4 +1,4 @@
-# INF-037a R090 run with a capture invocation error
+# kind run with a capture invocation error
 
 CPU scope: **Kubernetes (kind, local, mock vLLM backends)**. Same measurement
 source hashes and 30 s/staggered-worker conditions as the clean follow-up

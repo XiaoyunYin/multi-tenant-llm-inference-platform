@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 import inf060_probe_spec as spec
+import inf061_packet as benchmark
 from inf060_operator_policy import operator_policy
 
 ROOT = "/opt/inf060/operator"
@@ -53,8 +54,15 @@ COUNTERS = {
 }
 
 
-def require_zero(row, *, state=True):
+def require_zero(row, *, state=True, capacity=False):
     expected = COUNTERS if state else COUNTERS - {"terraform_resources"}
+    if capacity:
+        expected = expected | {
+            "session_reservations",
+            "untagged_regional_reservations",
+            "foreign_regional_reservations",
+            "launch_templates",
+        }
     spec.check(
         set(row) == expected | {"empty"}
         and row["empty"] is True
@@ -81,28 +89,65 @@ def commands():
     }
 
 
-def budget(live, rates):
+def budget(live, rates, *, timer=TIMER):
     hourly = (
         live["rate"]
         + rates["ipv4_usd_per_h"]
         + ROOT_GIB * rates["gp3_usd_per_gib_month"] / 720
     )
     spec.check(0 < hourly < math.inf, "operator_price")
-    estimate = hourly * TIMER / 3600 * 1.15
+    estimate = hourly * timer / 3600 * 1.15
     return {
         "hourly_usd": hourly,
         "forecast_usd": estimate,
         "cap_usd": math.ceil(100 * estimate) / 100,
-        "timer_s": TIMER,
+        "timer_s": timer,
     }
 
 
-def gpu_main(main):
+def gpu_main(main, *, zone=spec.ZONE, open_capacity=False):
     original = 'name_prefix = "${var.session}-"'
     spec.check(main.count(original) == 2, "gpu_role_name_template")
-    return main.replace(original, 'name = "${var.session}-gpu"').replace(
-        "tags        = local.tags",
-        "tags        = merge(local.tags, { Inf060Target = var.session })",
+    az = f'availability_zone       = "{spec.ZONE}"'
+    spec.check(main.count(az) == 1, "gpu_zone_template")
+    if open_capacity:
+        from inf061_capacity import OPEN_CAPACITY_PREFERENCE, open_template_placement
+
+        placement = open_template_placement(zone)
+        marker = 'resource "aws_instance" "task" {'
+        spec.check(main.count(marker) == 1, "gpu_open_capacity_template")
+        template = (
+            'resource "aws_launch_template" "native_capacity" {\n'
+            '  name = "${var.session}-capacity"\n'
+            "  tags = local.tags\n"
+            "  ebs_optimized = false\n"
+            "  placement {\n"
+            f'    availability_zone = "{placement["AvailabilityZone"]}"\n'
+            f'    tenancy = "{placement["Tenancy"]}"\n'
+            "  }\n"
+            "  capacity_reservation_specification {\n"
+            f'    capacity_reservation_preference = "{OPEN_CAPACITY_PREFERENCE}"\n'
+            "  }\n"
+            "}\n"
+        )
+        main = main.replace(
+            marker,
+            template
+            + marker
+            + (
+                "\n  launch_template {\n"
+                "    id = aws_launch_template.native_capacity.id\n"
+                '    version = "1"\n'
+                "  }"
+            ),
+        )
+    return (
+        main.replace(az, f'availability_zone       = "{zone}"')
+        .replace(original, 'name = "${var.session}-gpu"')
+        .replace(
+            "tags        = local.tags",
+            "tags        = merge(local.tags, { Inf060Target = var.session })",
+        )
     )
 
 
@@ -170,14 +215,26 @@ def import_runtime(root):
     }
 
 
-def build_host(directory, source, live, account, env, tf):
+def build_host(
+    directory,
+    source,
+    live,
+    account,
+    env,
+    tf,
+    *,
+    timer=TIMER,
+    defer_simulation=False,
+    capacity=None,
+):
     from inf060_allow_side import FREE_RESOURCES, verify_free_plan
     from inf060_policy_gate import ACTION_RECORD, seal
     from prepare_inf060_probe import AGENT, bundle, bytes_facts, git, gitblob
 
     folder = directory / "operator-host"
     folder.mkdir()
-    session = spec.load(directory / "live-inputs.json")["session"]
+    gpu_live = spec.load(directory / "live-inputs.json")
+    session, zone = gpu_live["session"], gpu_live["zone"]
     spec.check(
         live["ami_available"] == "available"
         and live["quotavcpus"] >= 2
@@ -192,7 +249,10 @@ def build_host(directory, source, live, account, env, tf):
         "operator_live_inputs",
     )
     spec.save(folder / "live.json", live)
-    spec.save(folder / "policy.json", operator_policy(account, session, spec.AMI))
+    policy = operator_policy(
+        account, session, spec.AMI, zone=zone, open_capacity=bool(capacity)
+    )
+    spec.save(folder / "policy.json", policy)
     actions = folder / "actions.json"
     actions.write_bytes(gitblob(source, ACTION_RECORD))
 
@@ -215,10 +275,50 @@ def build_host(directory, source, live, account, env, tf):
         )
         return json.loads(raw)
 
-    spec.save(
-        folder / "policy-simulation.json",
-        seal(invoke, folder / "policy.json", actions, account, session, spec.AMI),
-    )
+    if not defer_simulation:
+        spec.save(
+            folder / "policy-simulation.json",
+            seal(
+                invoke,
+                folder / "policy.json",
+                actions,
+                account,
+                session,
+                spec.AMI,
+                zone=zone,
+                off_zone="us-east-1e" if capacity else spec.ZONE,
+            ),
+        )
+        if capacity:
+            from inf060_policy_gate import simulate
+            from inf061_capacity import (
+                deny_policy_cases,
+                policy_cases,
+                verify_capacity_policy,
+            )
+
+            rows = simulate(
+                invoke,
+                policy,
+                (),
+                account,
+                session,
+                spec.AMI,
+                cases=policy_cases(account, session),
+            )
+            denied = simulate(
+                invoke,
+                policy,
+                (),
+                account,
+                session,
+                spec.AMI,
+                cases=deny_policy_cases(account, session),
+            )
+            digest = spec.facts(folder / "policy.json")["sha256"]
+            receipt = {"results": rows, "denied": denied, "policy_sha256": digest}
+            verify_capacity_policy(receipt, digest, account, session)
+            spec.save(folder / "capacity-policy-simulation.json", receipt)
     gpu = directory / "terraform"
     rehearsal_plan = folder / "allow-side.tfplan"
     subprocess.check_output(
@@ -259,11 +359,16 @@ def build_host(directory, source, live, account, env, tf):
         for n in (
             *AGENT,
             "inf060_probe_operator.py",
+            "inf060_apply.py",
             "inf060_operator_packet.py",
             "inf060_operator_policy.py",
             "inf060_policy_gate.py",
             "inf060_allow_side.py",
             "inf060_probe_spec.py",
+            "inf061_packet.py",
+            "inf061_capacity.py",
+            "m5_descriptive_capacity.py",
+            "m5_descriptive_cleanup.py",
             "prepare_inf060_probe.py",
             "l4_compat_deadline.py",
             "inf060_remote_service.py",
@@ -311,7 +416,7 @@ def build_host(directory, source, live, account, env, tf):
             "enable_task": True,
             "instance_type": SHAPE,
             "root_gib": ROOT_GIB,
-            "host_timer_seconds": TIMER,
+            "host_timer_seconds": timer,
         },
     )
     operator_env = {**env, "TF_DATA_DIR": env["TF_DATA_DIR"] + "-operator"}
@@ -347,17 +452,20 @@ def build_host(directory, source, live, account, env, tf):
         "runtime-files.json",
         "runtime-import.json",
         "actions.json",
-        "policy-simulation.json",
         "allow-side.tfplan",
         "allow-side.json",
     ]
+    if not defer_simulation:
+        files.append("policy-simulation.json")
+        if capacity:
+            files.append("capacity-policy-simulation.json")
     return {
         "artifacts": {f: spec.facts(folder / f) for f in files},
         "role_policy_sha256": spec.facts(folder / "policy.json")["sha256"],
         "create_sha256": spec.facts(folder / "create.tfplan")["sha256"],
         "actions_sha256": spec.facts(actions)["sha256"],
         "session": live["session"],
-        **budget(live, spec.load(directory / "live-inputs.json")["rates"]),
+        **budget(live, spec.load(directory / "live-inputs.json")["rates"], timer=timer),
     }
 
 
@@ -386,6 +494,10 @@ def launch_sequence():
 
 def verify(directory, manifest):
     host = manifest["operator_host"]
+    native = benchmark.is_benchmark(manifest)
+    benchmark_plan = spec.load(directory / "benchmark.json") if native else None
+    timer_s = benchmark_plan["operator_timer_s"] if native else TIMER
+    capacity = manifest.get("capacity_hunt")
     folder = directory / "operator-host"
     expected = {
         *spec.TERRAFORM_FILES,
@@ -407,6 +519,8 @@ def verify(directory, manifest):
             "allow-side.tfplan",
             "allow-side.json",
         }
+    if capacity:
+        expected.add("capacity-policy-simulation.json")
     spec.check(host["artifacts"].keys() == expected, "operator_artifact_set")
     for name, bound in host["artifacts"].items():
         spec.check(
@@ -437,7 +551,7 @@ def verify(directory, manifest):
             (action, label, tuple(sorted(context)))
             for action in derived
             for label, _, context in action_cases(
-                action, account, manifest["session"], spec.AMI
+                action, account, manifest["session"], spec.AMI, zone=manifest["zone"]
             )
         }
         rows = cases["results"]
@@ -454,13 +568,30 @@ def verify(directory, manifest):
             and cases["mutation"]["decision"] == "implicitDeny",
             "sealed_policy_simulation",
         )
+        if manifest["zone"] != spec.ZONE or capacity:
+            off_zone = "us-east-1e" if capacity else spec.ZONE
+            spec.check(
+                cases.get("zone") == manifest["zone"]
+                and cases.get("off_zone", {}).get("zone") == off_zone
+                and cases["off_zone"].get("decision") == "implicitDeny"
+                and cases["off_zone"].get("action") == "ec2:RunInstances"
+                and cases["off_zone"].get("resource") == "instance",
+                "sealed_policy_zone_simulation",
+            )
         verify_free_plan(
             spec.load(folder / "allow-side.json"),
             spec.load(directory / "terraform/input.tfvars.json"),
         )
     spec.check(
         hashlib.sha256(account.encode()).hexdigest() == manifest["account_id_sha256"]
-        and policy == operator_policy(account, manifest["session"], spec.AMI),
+        and policy
+        == operator_policy(
+            account,
+            manifest["session"],
+            spec.AMI,
+            zone=manifest["zone"],
+            open_capacity=bool(capacity),
+        ),
         "operator_policy_scope",
     )
     plan = spec.load(folder / "create.json")
@@ -473,22 +604,35 @@ def verify(directory, manifest):
         and all(r["actions"] == ["create"] for r in rows.values()),
         "operator_plan_resources",
     )
+    if capacity:
+        from inf061_capacity import verify_capacity_policy
+
+        verify_capacity_policy(
+            spec.load(folder / "capacity-policy-simulation.json"),
+            host["role_policy_sha256"],
+            account,
+            manifest["session"],
+        )
     spec.check(
         json.loads(rows["aws_iam_role_policy.probe"]["after"]["policy"]) == policy,
         "planned_operator_policy",
+    )
+    spec.check(
+        rows["aws_subnet.task[0]"]["after"]["availability_zone"] == spec.ZONE,
+        "operator_zone_changed",
     )
     vm = rows["aws_instance.task[0]"]["after"]
     live = spec.load(folder / "live.json")
     timer = (
         (folder / "user-data.sh")
         .read_text()
-        .replace("${host_timer_seconds}", str(TIMER))
+        .replace("${host_timer_seconds}", str(timer_s))
     )
     spec.check(
         "systemctl enable --now dec077-terminate.timer" in timer
         and "Persistent=true" in timer
         and vm["user_data"] == timer
-        and host["timer_s"] == TIMER,
+        and host["timer_s"] == timer_s,
         "operator_timer",
     )
     spec.check(
@@ -502,10 +646,13 @@ def verify(directory, manifest):
         and not rows["aws_security_group.task[0]"]["after"].get("ingress"),
         "operator_shape",
     )
-    expected_budget = budget(live, spec.load(directory / "live-inputs.json")["rates"])
+    rates = spec.load(directory / "live-inputs.json")["rates"]
+    expected_budget = budget(live, rates, timer=timer_s)
+    cap = benchmark.budget(benchmark_plan, rates)["hard_cap_usd"] if native else 5.37
     spec.check(
         all(host[k] == v for k, v in expected_budget.items())
-        and manifest["hard_cap_usd"] == 5.37,
+        and manifest["hard_cap_usd"] == cap
+        and (not native or live["rate"] == rates["operator_compute_usd_per_h"]),
         "operator_budget",
     )
     spec.check(

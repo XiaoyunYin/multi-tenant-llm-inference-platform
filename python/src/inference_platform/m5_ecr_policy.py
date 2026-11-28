@@ -6,9 +6,10 @@ import re
 
 def operator_ecr_actions(source):
     # The routine writer uses the original M5 repository. Its policy is
-    # the false branch when the composed root also supports the CPU clock.
+    # the false branch of the composed root's scoped operator policy.
     source = re.sub(
-        r"(?ms)^(\s*policy\s*=\s*)var\.cpu_clock_rehearsal\s*\?\s*"
+        r"(?ms)^(\s*policy\s*=\s*)var\.cpu_clock_rehearsal"
+        r"(?:\s*\|\|\s*var\.session_seconds\s*>\s*18000)?\s*\?\s*"
         r"jsonencode\(\{.*?^\s*\]\s*\}\)\s*:\s*(?=jsonencode\(\{)",
         r"\1",
         source,

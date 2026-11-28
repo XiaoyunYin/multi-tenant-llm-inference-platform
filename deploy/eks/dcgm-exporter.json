@@ -1,0 +1,32 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "DaemonSet",
+  "metadata": {"name": "dcgm-exporter"},
+  "spec": {
+    "selector": {"matchLabels": {"app": "dcgm-exporter"}},
+    "template": {
+      "metadata": {"labels": {"app": "dcgm-exporter"}},
+      "spec": {
+        "automountServiceAccountToken": false,
+        "nodeSelector": {"m5-role": "gpu"},
+        "tolerations": [{"key": "nvidia.com/gpu", "operator": "Equal", "value": "true", "effect": "NoSchedule"}],
+        "containers": [{
+          "name": "dcgm-exporter",
+          "image": "nvcr.io/nvidia/k8s/dcgm-exporter:4.5.3-4.8.2-distroless@sha256:60d3b00ac80b4ae77f94dae2f943685605585ad9e92fdccda3154d009ae317cc",
+          "env": [
+            {"name": "DCGM_EXPORTER_INTERVAL", "value": "1000"},
+            {"name": "NVIDIA_VISIBLE_DEVICES", "value": "all"},
+            {"name": "NVIDIA_DRIVER_CAPABILITIES", "value": "utility,compute"}
+          ],
+          "ports": [{"name": "metrics", "containerPort": 9400}],
+          "resources": {"requests": {"cpu": "100m", "memory": "1Gi"}, "limits": {"cpu": "500m", "memory": "1Gi"}},
+          "securityContext": {
+            "allowPrivilegeEscalation": false,
+            "capabilities": {"drop": ["ALL"], "add": ["SYS_ADMIN"]}
+          },
+          "readinessProbe": {"httpGet": {"path": "/metrics", "port": "metrics"}, "periodSeconds": 5}
+        }]
+      }
+    }
+  }
+}

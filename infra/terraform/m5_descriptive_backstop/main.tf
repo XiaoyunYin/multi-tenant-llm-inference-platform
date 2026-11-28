@@ -45,6 +45,10 @@ resource "aws_cloudwatch_log_group" "cleanup" {
   name              = "/aws/lambda/${local.name}"
   retention_in_days = 1
 }
+variable "session_seconds" {
+  type    = number
+  default = 18000
+}
 resource "aws_lambda_function" "cleanup" {
   function_name    = local.name
   role             = aws_iam_role.cleanup.arn
@@ -53,7 +57,7 @@ resource "aws_lambda_function" "cleanup" {
   filename         = var.zip_path
   source_code_hash = var.zip_sha256_base64
   timeout          = 55
-  environment { variables = { SESSION = var.session, PARAMETER = "/${var.session}/deadline", STATE_BUCKET = var.state_bucket } }
+  environment { variables = merge({ SESSION = var.session, PARAMETER = "/${var.session}/deadline", STATE_BUCKET = var.state_bucket }, var.session_seconds == 18000 ? {} : { SESSION_SECONDS = tostring(var.session_seconds) }) }
   depends_on = [aws_iam_role_policy.cleanup, aws_cloudwatch_log_group.cleanup]
 }
 resource "aws_cloudwatch_event_rule" "cleanup" {

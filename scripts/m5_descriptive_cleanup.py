@@ -7,6 +7,7 @@ the full service inventories before removing this backstop.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -42,24 +43,57 @@ def missing(error):
     }
 
 
+PAIR_BOOTSTRAP_SECONDS = 900
+PAIR_WAIT_SECONDS = 21_600
+# The R613 envelope adds nine independent (640 + 2 + 30) s engine waits.
+PAIR_WORK_SECONDS = 32_284
+PAIR_SESSION_SECONDS = PAIR_BOOTSTRAP_SECONDS + PAIR_WAIT_SECONDS + PAIR_WORK_SECONDS
+
+
+def paired_window(started, selected):
+    if (
+        not all(
+            type(value) in (int, float) and math.isfinite(value)
+            for value in (started, selected)
+        )
+        or not started
+        <= selected
+        <= started + PAIR_BOOTSTRAP_SECONDS + PAIR_WAIT_SECONDS
+    ):
+        raise ValueError("inf054_gpu_selection_epoch")
+    return selected + PAIR_WORK_SECONDS
+
+
+def session_seconds():
+    allowed = {str(v): v for v in (18000, 26236, PAIR_SESSION_SECONDS)}
+    return allowed.get(os.environ.get("SESSION_SECONDS", "18000"), 0)
+
+
 def deadline(ssm, parameter):
     try:
         record = json.loads(ssm.get_parameter(Name=parameter)["Parameter"]["Value"])
+        duration = session_seconds()
+        base = {"session", "started_epoch", "deadline_epoch"}
+        if (
+            not isinstance(record, dict)
+            or not duration
+            or record["session"] != os.environ["SESSION"]
+        ):
+            return 0
+        started, stop = record["started_epoch"], record["deadline_epoch"]
+        if not all(
+            type(v) in (int, float) and math.isfinite(v) for v in (started, stop)
+        ):
+            return 0
+        if duration == PAIR_SESSION_SECONDS and set(record) == base | {
+            "selected_epoch"
+        }:
+            return (
+                stop if stop == paired_window(started, record["selected_epoch"]) else 0
+            )
+        return stop if set(record) == base and stop == started + duration else 0
     except Exception:
         return 0  # Unreadable authority fails closed to cleanup, never extends.
-    if (
-        not isinstance(record, dict)
-        or set(record) != {"session", "started_epoch", "deadline_epoch"}
-        or not all(
-            type(record[key]) in (int, float)
-            for key in ("deadline_epoch", "started_epoch")
-        )
-        or record["deadline_epoch"] - record["started_epoch"] != 18000
-    ):
-        return 0
-    if record["session"] != os.environ["SESSION"]:
-        return 0
-    return record["deadline_epoch"]
 
 
 def clean(sdk, session, bucket):
@@ -360,7 +394,6 @@ def clean(sdk, session, bucket):
 
 def handler(event, context):
     import boto3
-
     from botocore.config import Config
     from botocore.session import get_session
 

@@ -7,7 +7,6 @@ import math
 import time
 from pathlib import Path
 
-
 from inference_platform.credential_redaction import redact_values
 
 COLLECTOR = (
@@ -141,20 +140,32 @@ def write_cost(directory, *, now=None):
             started = json.loads(consumed.read_bytes())["started_epoch"]
             basis = manifest["forecast_basis"]
             elapsed = max(0, now - started)
-            estimate = (
-                math.ceil(
-                    (elapsed / 3600 * basis["hourly_usd"] + basis["fixed_other_usd"])
-                    * basis["margin"]
-                    * 100
-                )
-                / 100
-            )
             prior = manifest["host_manifest"]["prior_spend_usd"]
             wait_file = directory / "capacity-wait.json"
             waiting = (
                 json.loads(wait_file.read_bytes())["elapsed_s"]
                 if wait_file.exists()
                 else 0
+            )
+            selected = directory / "selected-window.json"
+            apply_record = directory / "composed-apply-started.json"
+            if "capacity_wait_hourly_usd" in basis:
+                work = (
+                    max(0, now - json.loads(selected.read_bytes())["selected_epoch"])
+                    if apply_record.exists()
+                    else 0
+                )
+                variable = (
+                    work * basis["hourly_usd"]
+                    + waiting * basis["capacity_wait_hourly_usd"]
+                ) / 3600
+                result["composed_apply_recorded"] = apply_record.exists()
+                result["selected_billable_seconds"] = work
+            else:
+                variable = elapsed / 3600 * basis["hourly_usd"]
+            estimate = (
+                math.ceil((variable + basis["fixed_other_usd"]) * basis["margin"] * 100)
+                / 100
             )
             result.update(
                 consumed=True,
@@ -166,7 +177,11 @@ def write_cost(directory, *, now=None):
                 task_cost_estimate_usd=estimate,
                 product_prior_estimate_usd=prior,
                 cumulative_product_estimate_usd=prior + estimate,
-                basis="Full-resource consume-to-exit duration plus sealed fixed allowance and margin, rounded up to cents; estimate, not invoice",
+                basis=(
+                    "Selected full-resource duration plus bootstrap and capacity-wait costs"
+                    if "capacity_wait_hourly_usd" in basis
+                    else "Full-resource consume-to-exit duration plus sealed fixed allowance and margin"
+                ),
             )
     except Exception as error:
         result.update(complete=False, error=type(error).__name__)

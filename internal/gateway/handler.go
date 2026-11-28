@@ -247,6 +247,7 @@ func New(config Config, registry *Registry, client *http.Client, logger *slog.Lo
 	if gateway.tenants == nil {
 		return nil, errors.New("tenant registry is required")
 	}
+	gateway.metrics.tenantCounters = newTenantCounters(gateway.tenants)
 	if gateway.admission == nil {
 		return nil, errors.New("admission coordinator is required")
 	}
@@ -470,6 +471,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 	reservationID := newID("rsv")
 	started := time.Now()
 	tenantID := ""
+	admissionOutcome := "not_attempted"
 	selection := BackendDecision{Policy: RoutingPolicyNone, FallbackReason: FallbackReasonNone}
 	var routerDecisionUnixNS int64
 	var admissionElapsedNS int64
@@ -516,6 +518,7 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 			g.logger.Info("admission timing", "elapsed_ns", admissionElapsedNS)
 		}
 		g.metrics.recordTerminal(terminal.cause)
+		g.metrics.tenantCounters.record(tenantID, admissionOutcome, terminal)
 	}()
 	response.Header().Set("X-Request-ID", requestID)
 	response.Header().Set("X-Trace-ID", traceID)
@@ -628,12 +631,17 @@ func (g *Gateway) chatCompletions(response http.ResponseWriter, request *http.Re
 		admissionElapsedNS = time.Since(admissionStarted).Nanoseconds()
 	}
 	cancelAdmission()
+	admissionOutcome = admissionResult.Decision.Code()
+	if admissionErr != nil || admissionOutcome == "" {
+		admissionOutcome = "unavailable"
+	}
 	admissionCapture := map[string]any{"request_id": requestID, "reservation_id": reservationID, "admit_called": true, "decision": admissionResult.Decision.Code(), "effective_b": admissionResult.Capacity, "retry_after_ms": admissionResult.RetryAfter.Milliseconds(), "idempotent": admissionResult.Idempotent}
 	if admissionErr != nil {
 		admissionCapture["error"] = admissionErr.Error()
 	}
 	g.measurement.Record("admit", admissionCapture)
 	if errors.Is(admissionErr, admission.ErrCredentialDenied) {
+		admissionOutcome = "credential_denied"
 		if fence != nil {
 			g.tenants.managed.evict(fence.KeyID)
 		}

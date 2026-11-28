@@ -14,6 +14,7 @@ import inf060_diagnostics as diagnostics
 import inf060_operator_packet as remote
 import inf060_probe_results as results
 import inf060_probe_spec as spec
+import inf061_packet as benchmark
 
 
 def verify_environment(packet, manifest):
@@ -60,8 +61,10 @@ def verify_environment(packet, manifest):
         ["systemctl", "is-active", "--quiet", "dec077-terminate.timer"], check=True
     )
     deadline = int(Path("/etc/dec077/deadline").read_text())
+    wait = manifest.get("capacity_hunt", {}).get("options", {}).get("wait_s", 0)
     spec.check(
-        deadline - time.time() >= spec.TOTAL_S + 1200, "operator_remaining_lifetime"
+        deadline - time.time() >= manifest["deadline_seconds"] + wait + 1200,
+        "operator_remaining_lifetime",
     )
     with tarfile.open(packet / "operator-host/runtime.tar.gz") as archive:
         for member in archive:
@@ -166,6 +169,55 @@ def save_witness(packet, name, receipt):
     (packet / name).write_bytes(raw)
 
 
+def hunt_failure(packet, manifest, *, reason, error_type):
+    from inf060_probe_operator import ProbePorts
+    from inf061_capacity import close_reservation
+
+    close_reservation(packet, manifest, time.time() + 120)
+    ports = ProbePorts(packet, manifest, None, packet / "capacity-run", recovering=True)
+    counts = ports.inventory(time.time() + 60)
+    remote.require_zero(counts, capacity=True)
+    path = packet / "capacity-wait.json"
+    report = spec.load(path) if path.is_file() else {"elapsed_s": 0, "probes": []}
+    receipt = {
+        "manifest_sha256": spec.facts(packet / "manifest.json")["sha256"],
+        "source": manifest["source_commit"],
+        "supervisor_complete": False,
+        "destroy_completed": True,
+        "inventory": counts,
+        "capacity": {
+            "elapsed_s": report["elapsed_s"],
+            "probes": len(report["probes"]),
+            "reason": reason or report["status"],
+            "error_type": error_type,
+        },
+        "benchmark": {"status": "results_unavailable"},
+    }
+    save_witness(packet, "verified-cleanup.json", receipt)
+    save_witness(packet, "remote-result.json", receipt)
+
+
+def hunt(packet, manifest):
+    from inf060_probe_operator import ProbePorts, native_preflight
+    from inf061_capacity import Hunter
+
+    work = packet / "capacity-run"
+    work.mkdir()
+    ports = ProbePorts(packet, manifest, None, work)
+    try:
+        native_preflight(ports, packet, manifest, time.time(), capacity_stage="hunting")
+        return Hunter(packet, manifest).select()
+    except Exception as exc:
+        path = packet / "capacity-wait.json"
+        hunt_failure(
+            packet,
+            manifest,
+            reason=None if path.is_file() else "capacity_preflight",
+            error_type=type(exc).__name__,
+        )
+        return None
+
+
 def run(mock_host=None, mock_failure=None):
     packet = Path(remote.PACKET)
     manifest = spec.verify_packet(packet)
@@ -190,6 +242,11 @@ def run(mock_host=None, mock_failure=None):
 
             allow_side = rehearse_permissions(packet, manifest)
             verify_environment(packet, manifest)
+    capacity = "capacity_hunt" in manifest
+    if capacity:
+        selection = hunt(packet, manifest)
+        if selection is None:
+            return 1
     launch = [
         "/usr/bin/python3",
         remote.ROOT + "/scripts/inf060_probe_operator.py",
@@ -204,6 +261,17 @@ def run(mock_host=None, mock_failure=None):
         launch += ["--mock-failure", failure]
     code = subprocess.run(launch, check=False).returncode
     attempts = list((packet / "supervisor").glob("attempt-*"))
+    if capacity and not attempts:
+        spec.check(
+            not (packet / "consumed.json").exists(), "capacity_consume_unverified"
+        )
+        hunt_failure(
+            packet,
+            manifest,
+            reason="capacity_controller_not_started",
+            error_type="ChildProcessError",
+        )
+        return 1
     spec.check(len(attempts) == 1, "remote_supervisor_attempt")
     attempt = attempts[0]
     stages = spec.load(attempt / "deadline.json")
@@ -213,7 +281,7 @@ def run(mock_host=None, mock_failure=None):
     cleanup = spec.load(attempt / "probe-cleanup.json")
     inventory = spec.load(attempt / "probe-inventory.json")
     spec.check(cleanup["destroy_completed"] is True, "gpu_destroy_unverified")
-    remote.require_zero(inventory)
+    remote.require_zero(inventory, capacity=capacity)
     receipt = {
         "manifest_sha256": spec.facts(packet / "manifest.json")["sha256"],
         "source": manifest["source_commit"],
@@ -233,6 +301,14 @@ def run(mock_host=None, mock_failure=None):
             for k in ("tools.json", "engine.json", spec.LOG_CONFIG)
         },
     }
+    if capacity:
+        report = spec.load(packet / "capacity-wait.json")
+        receipt["capacity"] = {
+            "probes": len(report["probes"]),
+            "elapsed_s": report["elapsed_s"],
+            "zone": selection["zone"],
+            "selected_epoch": selection["selected_epoch"],
+        }
     receipt["mutations"] = controls
     if failed is not None:
         receipt["diagnostics"] = failed
@@ -241,6 +317,18 @@ def run(mock_host=None, mock_failure=None):
     # Persist teardown proof even if reduction or transfer of an arm fails.
     save_witness(packet, "verified-cleanup.json", receipt)
     archive = attempt / "operator/receipts.tar.gz"
+    if benchmark.is_benchmark(manifest):
+        try:
+            receipt["benchmark"] = benchmark.capture(
+                archive, packet / "inf061-receipts.tar.gz"
+            )
+        except Exception as exc:
+            receipt["benchmark"] = {
+                "status": "results_unavailable",
+                "error": diagnostics.exception_record(exc),
+            }
+        save_witness(packet, "remote-result.json", receipt)
+        return code
     try:
         receipt["results"] = results.publish(
             packet / "probe-results.json",

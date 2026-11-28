@@ -1,0 +1,914 @@
+{
+  "drain_s": 60,
+  "gauges": {
+    "max_gpu_memory_mib": 21644.0,
+    "max_kv": 0.995302407516148,
+    "max_running": 39.0,
+    "max_waiting": 60.0,
+    "missed": 0,
+    "preemptions_delta": 0.0,
+    "running_and_waiting": 39.0,
+    "samples": 480
+  },
+  "rows": [
+    {
+      "completed_s": 91.514907205,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6894575766771653,
+      "ttft_s": 3.953794967
+    },
+    {
+      "completed_s": 91.439215775,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6888662860787401,
+      "ttft_s": 3.953197443
+    },
+    {
+      "completed_s": 96.324616296,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6645338387007874,
+      "ttft_s": 11.928818781
+    },
+    {
+      "completed_s": 106.610091003,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6605504181259844,
+      "ttft_s": 22.720187901
+    },
+    {
+      "completed_s": 93.916434029,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6668548666850393,
+      "ttft_s": 9.22586596
+    },
+    {
+      "completed_s": 101.142119586,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6603729213070866,
+      "ttft_s": 17.27475858
+    },
+    {
+      "completed_s": 98.727997039,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6625784040472441,
+      "ttft_s": 14.580539725
+    },
+    {
+      "completed_s": 101.136316047,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6603514166771653,
+      "ttft_s": 17.271686129
+    },
+    {
+      "completed_s": 103.540043636,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6577266793307086,
+      "ttft_s": 20.008755361
+    },
+    {
+      "completed_s": 112.811375662,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6876492677244095,
+      "ttft_s": 25.479918661
+    },
+    {
+      "completed_s": 109.694916527,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.663105703488189,
+      "ttft_s": 25.480492184
+    },
+    {
+      "completed_s": 115.857831655,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.667484123023622,
+      "ttft_s": 31.087348031
+    },
+    {
+      "completed_s": 109.692522329,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6631127042834646,
+      "ttft_s": 25.477208885
+    },
+    {
+      "completed_s": 118.938165476,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6917436670157481,
+      "ttft_s": 31.086719765
+    },
+    {
+      "completed_s": 125.068470978,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6729376944015748,
+      "ttft_s": 39.605383789
+    },
+    {
+      "completed_s": 122.023412255,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6939987593307086,
+      "ttft_s": 33.88556982
+    },
+    {
+      "completed_s": 118.936026868,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6917482465275591,
+      "ttft_s": 31.083999559
+    },
+    {
+      "completed_s": 171.014494279,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7062622509606299,
+      "ttft_s": 81.319188407
+    },
+    {
+      "completed_s": 143.530483744,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7035677236062992,
+      "ttft_s": 54.177382846
+    },
+    {
+      "completed_s": 131.228204854,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6756053992204725,
+      "ttft_s": 45.426319153
+    },
+    {
+      "completed_s": 167.955795172,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.682207176496063,
+      "ttft_s": 81.315483757
+    },
+    {
+      "completed_s": 155.743764137,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7062302863779528,
+      "ttft_s": 66.052517767
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "completed_s": 146.582829122,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7045909421889764,
+      "ttft_s": 57.099779464
+    },
+    {
+      "completed_s": 161.842536854,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6824185908267716,
+      "ttft_s": 75.175375819
+    },
+    {
+      "completed_s": 155.740054635,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7062001404409449,
+      "ttft_s": 66.052636799
+    },
+    {
+      "completed_s": 128.128977547,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.697120241937008,
+      "ttft_s": 39.594706821
+    },
+    {
+      "completed_s": 128.127261366,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6743779816456693,
+      "ttft_s": 42.481257697
+    },
+    {
+      "completed_s": 140.461136505,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6794714456692914,
+      "ttft_s": 54.168262905
+    },
+    {
+      "completed_s": 137.365394917,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7011734266220472,
+      "ttft_s": 48.316369736
+    },
+    {
+      "completed_s": 149.657559845,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6818797804409449,
+      "ttft_s": 63.058827729
+    },
+    {
+      "completed_s": 146.5785648,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6812664994409449,
+      "ttft_s": 60.057719371
+    },
+    {
+      "completed_s": 137.3623528,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6783539457637795,
+      "ttft_s": 51.211401688
+    },
+    {
+      "completed_s": 164.879388389,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.6823642441732284,
+      "ttft_s": 78.219129379
+    },
+    {
+      "completed_s": 152.691220568,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7057771367874015,
+      "ttft_s": 63.057524196
+    },
+    {
+      "completed_s": 158.802383092,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7065794314173228,
+      "ttft_s": 69.066795302
+    },
+    {
+      "completed_s": 174.055159791,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.709299939992126,
+      "ttft_s": 83.974067412
+    },
+    {
+      "completed_s": 164.875596447,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7063800216535433,
+      "ttft_s": 75.165333697
+    },
+    {
+      "completed_s": 134.271880431,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.699671445496063,
+      "ttft_s": 45.413606853
+    },
+    {
+      "completed_s": 174.040000247,
+      "completion_tokens": 128,
+      "finish": "length",
+      "http_status": 200,
+      "outcome": "completed",
+      "tpot_s": 0.7093274302992125,
+      "ttft_s": 83.955416599
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "http_status": 200,
+      "outcome": "transport_error"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    },
+    {
+      "outcome": "missed_offer"
+    }
+  ],
+  "summary": {
+    "completed_output_tokens": 4992,
+    "completed_per_s": 0.1625,
+    "http_429": 0,
+    "outcomes": {
+      "completed": 39,
+      "missed_offer": 89,
+      "transport_error": 64
+    },
+    "output_tokens_per_s": 20.8,
+    "pre_content_rejection_rate": 0.0,
+    "rejections": {},
+    "scheduled": 192,
+    "tpot_s": {
+      "n": 39,
+      "p50": 0.6824185908267716,
+      "p95": 0.709299939992126
+    },
+    "ttft_s": {
+      "n": 39,
+      "p50": 45.413606853,
+      "p95": 83.955416599
+    }
+  },
+  "window_s": 180
+}

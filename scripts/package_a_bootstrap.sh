@@ -14,7 +14,13 @@ mkdir -p "$output" /opt/dec077/tools /opt/dec077/downloads
 # Install only host prerequisites. Docker is the separately pinned static binary.
 export DEBIAN_FRONTEND=noninteractive
 timed_step apt_update 300 "$BOOTSTRAP_DEADLINE_EPOCH" apt-get -o DPkg::Lock::Timeout=120 update
-timed_step apt_install 300 "$BOOTSTRAP_DEADLINE_EPOCH" apt-get -o DPkg::Lock::Timeout=120 install -y git curl ca-certificates gcc libc6-dev iptables procps xz-utils
+# The required toolchain is explicit. Routine tests do not need the extra
+# distro recommendations, such as graphics libraries pulled by libc-devtools.
+set --
+if python3 -c 'import json,sys; sys.exit(json.load(open(sys.argv[1])).get("role") != "routine_tests")' "$runtime"; then
+    set -- --no-install-recommends
+fi
+timed_step apt_install 300 "$BOOTSTRAP_DEADLINE_EPOCH" apt-get -o DPkg::Lock::Timeout=120 install -y "$@" git curl ca-certificates gcc libc6-dev iptables procps xz-utils
 timed_step tool_pins to_deadline "$BOOTSTRAP_DEADLINE_EPOCH" python3 "$repo/scripts/package_a_bootstrap_pins.py" "$repo/deploy/package-a/pins.json" /opt/dec077/tools /opt/dec077/downloads --deadline-epoch "$BOOTSTRAP_DEADLINE_EPOCH"
 python3 - <<'PY'
 import subprocess

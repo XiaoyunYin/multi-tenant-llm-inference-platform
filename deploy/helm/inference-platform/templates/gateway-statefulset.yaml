@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {{- include "inference.metadata" (list . "gateway") | nindent 2 }}
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+        m5-session: {{ .Values.namespace }}
+    spec:
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        m5-role: cpu
+      containers:
+      - name: gateway
+        image: {{ include "inference.digestImage" .Values.gatewayImage }}
+        ports:
+        - containerPort: {{ .Values.ports.gateway }}
+        env: {{- include "inference.gatewayEnv" . | nindent 10 }}
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        startupProbe: {{- include "inference.probe" (list .Values.gateway.startupProbe "httpGet" .Values.ports.gateway) | nindent 10 }}
+        readinessProbe: {{- include "inference.probe" (list .Values.gateway.readinessProbe "httpGet" .Values.ports.gateway) | nindent 10 }}
+        lifecycle:
+          preStop:
+            sleep:
+              seconds: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        resources: {{- toYaml .Values.gateway.resources | nindent 10 }}
+      serviceAccountName: gateway
+      securityContext:
+        runAsUser: 65532
+        runAsNonRoot: true
+        fsGroup: 65532
+      volumes:
+      - name: config
+        secret:
+          secretName: gateway-config
+  serviceName: gateway-peer
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: OnDelete

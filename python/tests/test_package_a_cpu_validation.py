@@ -201,7 +201,7 @@ class RouteTests(unittest.TestCase):
             146567703,
             cloud.CPU_VALIDATION_CHECKS,
             cap_usd=40,
-            prior_spend_usd=cloud.PRIOR_SPEND_USD,
+            prior_spend_usd=cloud.PRIOR_RUN_COST_USD,
         )
         self.assertEqual(worksheet["forecast_wall_s"], 21574)
         self.assertEqual(cpu.CPU_STAGE_TIMEOUTS[10:13], (4020, 3360, 3360))

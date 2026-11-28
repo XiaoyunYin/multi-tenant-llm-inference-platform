@@ -16,3 +16,8 @@ experiments/inf011/** -text
 # Local Kubernetes rollout exports are byte-addressed as well.
 experiments/inf037a/** -text
 experiments/inf036/** -text
+
+# Public snapshot language statistics
+scripts/** linguist-vendored
+scripts/cpu_quickstart.py -linguist-vendored
+scripts/check-public.ps1 -linguist-vendored

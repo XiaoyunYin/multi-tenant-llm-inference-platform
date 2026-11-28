@@ -15,7 +15,7 @@ from .inf037b_preparation import staging_receipt
 from .inf037b_resolver import exact, require, span
 from .inf037b_setup import creation_observation
 
-MAXIMUM_FIXTURE_ROWS = 701_418  # Current maximum producer; Round 319 authority.
+MAXIMUM_FIXTURE_ROWS = 701_418
 
 
 def fixture_inventory(directory):

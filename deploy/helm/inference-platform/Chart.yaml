@@ -1,0 +1,5 @@
+apiVersion: v2
+name: inference-platform
+description: Composed INF-060 serving stack and optional KEDA and DCGM resources
+version: 0.1.0
+type: application

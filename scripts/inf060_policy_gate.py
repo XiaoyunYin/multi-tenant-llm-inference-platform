@@ -79,7 +79,7 @@ def action_names(record):
     )
 
 
-def action_cases(action, account, session, ami):
+def action_cases(action, account, session, ami, *, zone=spec.ZONE):
     service, name = action.split(":")
     region = spec.REGION
     ec2 = f"arn:aws:ec2:{region}:{account}:"
@@ -122,7 +122,7 @@ def action_cases(action, account, session, ami):
                     {
                         **requested,
                         "ec2:InstanceType": spec.SHAPE,
-                        "ec2:AvailabilityZone": spec.ZONE,
+                        "ec2:AvailabilityZone": zone,
                         "ec2:MetadataHttpTokens": "required",
                     },
                 ),
@@ -195,20 +195,41 @@ def context_entries(values):
         {
             "ContextKeyName": key,
             "ContextKeyValues": [
-                str(value).lower() if isinstance(value, bool) else value
+                str(value).lower() if isinstance(value, (bool, int)) else value
             ],
-            "ContextKeyType": "boolean" if isinstance(value, bool) else "string",
+            "ContextKeyType": (
+                "boolean"
+                if isinstance(value, bool)
+                else "numeric"
+                if isinstance(value, int)
+                else "string"
+            ),
         }
         for key, value in sorted(values.items())
     ]
 
 
-def simulate(invoke, policy, actions, account, session, ami, *, role=None):
-    expected = [
-        (action, *case)
-        for action in actions
-        for case in action_cases(action, account, session, ami)
-    ]
+def simulate(
+    invoke,
+    policy,
+    actions,
+    account,
+    session,
+    ami,
+    *,
+    role=None,
+    zone=spec.ZONE,
+    cases=None,
+):
+    expected = (
+        cases
+        if cases is not None
+        else [
+            (action, *case)
+            for action in actions
+            for case in action_cases(action, account, session, ami, zone=zone)
+        ]
+    )
     groups = {}
     for name, label, resource, context in expected:
         key = (resource, json.dumps(context, sort_keys=True))
@@ -268,10 +289,20 @@ def require_allowed(rows):
     )
 
 
-def seal(invoke, policy_file, record_path, account, session, ami):
+def seal(
+    invoke,
+    policy_file,
+    record_path,
+    account,
+    session,
+    ami,
+    *,
+    zone=spec.ZONE,
+    off_zone=spec.ZONE,
+):
     policy = spec.load(policy_file)
     names = action_names(spec.load(record_path))
-    rows = simulate(invoke, policy, names, account, session, ami)
+    rows = simulate(invoke, policy, names, account, session, ami, zone=zone)
     require_allowed(rows)
     removed = "ec2:ModifyInstanceAttribute"
     mutant = copy.deepcopy(policy)
@@ -295,10 +326,19 @@ def seal(invoke, policy_file, record_path, account, session, ami):
         }
     else:
         raise ValueError("inf060:policy_mutation_not_refused")
+    zoned = {}
+    if zone != off_zone:
+        other = simulate(
+            invoke, policy, ["ec2:RunInstances"], account, session, ami, zone=off_zone
+        )
+        instance = next(row for row in other if row["resource"] == "instance")
+        spec.check(instance["decision"] == "implicitDeny", "policy_off_zone_allowed")
+        zoned = {"zone": zone, "off_zone": {"zone": off_zone, **instance}}
     return {
         "policy_sha256": spec.facts(policy_file)["sha256"],
         "actions_sha256": spec.facts(record_path)["sha256"],
         "action_count": len(names),
         "results": rows,
         "mutation": mutation,
+        **zoned,
     }

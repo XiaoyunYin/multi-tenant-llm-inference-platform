@@ -1,112 +1,207 @@
-# What Should an LLM Router Remember?
+# Multi-Tenant LLM Inference Gateway on AWS EKS
 
-A multi-tenant LLM inference gateway in Go, Redis, vLLM and AWS, built to test how much cache and load state a replicated router should keep, and when to stop trusting it.
+A Go gateway shares tenant limits across replicas and streams model responses from GPUs on AWS EKS.
 
-**In progress.** This is a source snapshot of reviewed engineering work. Confirmatory routing-policy comparisons remain planned; the R1 section reports a pilot, one session, two blocks. The R0 section below reports an accepted aggregate-only GPU measurement and reviewed CPU explanation. Reviewed evidence. Verified in private independent review (Rounds 72–74) and checked by a fresh-context agent claim audit. INF-047 remains incomplete: the release plan's Stage C items (instrumentation contract, re-warm curve, further event-lag capture) are not yet measured. The private source retains its history and independent review records. This snapshot contains code and cited evidence, with one fresh commit and no private planning, review, career or engineering-note files.
+## Headline results
 
-## Architecture and implemented behavior
+The latency service-level objective (SLO) requires first content within 1 s and
+validated completion within 15 s of dispatch. Ordinary requests are offers
+outside the assigned cancellation cohort.
+
+| Result | Conditions | Evidence |
+| --- | --- | --- |
+| **All 1,620 ordinary requests met both latency targets at 3 offered req/s on two L4s.** The run delivered 92.9 output tokens/s/GPU at an estimated $2.41 per million output tokens on the GPU-node-time basis. | One EKS run, Qwen2.5-7B-Instruct, 600 s plus drain, 10% assigned cancels | [Capacity and cost](experiments/capacity-cost/README.md) |
+| **At 8 offered req/s, the gateway rejected 41% of offers in a median 5.9 ms.** Only 863 of 4,320 ordinary requests met both latency targets. | Same run and window method. Both engines reached their 16-sequence ceiling. | [Streaming results](experiments/streaming-eks/README.md) |
+| **On one L4 at concurrency 4, median time per output token was 77.1 ms for BF16, 50.7 ms for FP8 and 39.5 ms for AWQ.** | Client concurrency 4, sequence cap 64, 24 completions per configuration. With warm-up carryover, peak engine running counts were 4, 29 and 32, respectively. | [Single-L4 results](experiments/single-l4/README.md) |
+| **The gateway added 2.5–3.0 ms to median stream completion at 1,600 offered req/s on a CPU testbed.** | Three paired direct/gateway blocks with two native gateways, Redis and a fake backend on one Windows CPU testbed | [CPU profiling](experiments/inf036/README.md) |
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    C[Python clients] --> G1[Go gateway replica 1]
-    C --> G2[Go gateway replica 2]
-    G1 <--> R[Redis tenant admission]
-    G2 <--> R
-    G1 --> F[Independent CPU fake streaming backends]
-    G2 --> F
-    G1 -. planned GPU research .-> V[vLLM backends on AWS EC2]
-    G2 -. planned GPU research .-> V
+    Client --> TLS[NGINX TLS ingress]
+    TLS --> G1[Go gateway 1]
+    TLS --> G2[Go gateway 2]
+    G1 --> Redis[Shared Redis admission]
+    G2 --> Redis
+    ES[EndpointSlice readiness] -. ready backend identities .-> G1
+    ES -. ready backend identities .-> G2
+    ES -. discovers .-> V
+    G1 --> V
+    G2 --> V
+    V[vLLM StatefulSet with ready L4 pods]
+    V -. scrape .-> P[Prometheus]
+    G1 -. scrape .-> P
+    G2 -. scrape .-> P
+    subgraph Later[Packaging and observability added later]
+        Helm[Helm serving chart]
+        D[DCGM exporter]
+        Grafana[Grafana dashboards]
+    end
+    Helm -. packages .-> V
+    D -. scrape .-> P
+    P --> Grafana
+    P -. waiting metric .-> KEDA[KEDA replica autoscaling]
+    KEDA -. replica target .-> V
 ```
 
-The gateway authenticates credentials, resolves tenant policy, reserves shared admission in Redis, selects one backend and relays one SSE attempt. Upstream headers and the first event are checked before committing a response. Completion requires a validated terminal event; cancellation, timeout, disconnect and shutdown release reservations. Redis quotas enforce rate and concurrency bounds, rather than reserving GPU capacity. The local examples use predictable development credentials and salts which must never be reused for production.
+The tenant cache salt is derived when tenant policy loads. The gateway
+authenticates the tenant and checks input and output limits. Redis atomically
+grants rate and concurrency capacity across gateway replicas. EndpointSlice
+readiness identifies eligible vLLM replicas and their generations. The gateway
+selects one upstream and validates its first SSE item before committing the response.
+It attempts reservation release on completion, cancellation or failure, with lease
+expiry as the fallback.
 
-Tenant cache salts are derived server-side. Backend health/load state carries identity, generation and freshness checks. Round-robin, least-loaded and hash-affinity routing are implemented and unit/fake tested; comparative routing performance is planned research. See [gateway code and tests](internal/gateway), [shared admission](internal/admission), [clients and fake backends](python/src/inference_platform) and [Python tests](python/tests).
+## What's built
 
-## Reviewed local deployment and rollout evidence
+| Component | What it does | Where |
+| --- | --- | --- |
+| Shared admission | Redis Lua enforces rate, concurrency, global and healthy-replica bounds. Leases recover lost reservations. Store failure closes admission. | [Admission](internal/admission) |
+| Streaming | One upstream attempt, validation before response commit, cancellation propagation and bounded drain. | [Gateway](internal/gateway/handler.go) |
+| Routing | Round robin, least loaded and rendezvous prefix affinity with load escape. | [Gateway routing](internal/gateway) |
+| Tenant cache salts | HMAC-derived salts separate reuse keys by tenant. | [Routing key](internal/gateway/routing_key.go) |
+| Tenant API keys | Tenant-scoped hashed keys and revocation, with model and quota policy. | [Tenant configuration](internal/gateway/tenant.go) |
+| Usage metering | Optional Redis token ledger with durable admission, recovery, corrections and reconciliation. | [Metering](internal/admission/metering.go) |
+| Infrastructure | Terraform for EC2 GPU pilots and the two-L4 EKS deployment. | [Terraform](infra/terraform) |
+| Serving package | Helm chart with optional KEDA replica ownership and DCGM. | [Chart](deploy/helm/inference-platform) |
+| Observability | Prometheus metrics, OpenTelemetry traces, Grafana provisioning and DCGM GPU metrics. | [Observability](deploy/observability) |
+| CI | Go and Python checks, frozen evidence validation and CPU integration fixtures. | [Workflow](.github/workflows/ci.yml) |
 
-**Kubernetes (kind, local, mock vLLM backends)** runs two gateway replicas, Redis, two backend pods, opt-in EndpointSlice discovery, probes, preStop draining, PDBs and namespace-scoped list-only EndpointSlice RBAC. Gateways select ready, nonterminating pod IPs directly. Default static BACKENDS behavior stays available. See [pinned manifests and reproduction](deploy/k8s/README.md).
+## Results
 
-The cited campaigns are [the original reviewed run](experiments/inf037a/kind-2026-10-02-reviewed), [the first coverage follow-up](experiments/inf037a/kind-2026-10-02-r090) and [the confirmed coverage campaign](experiments/inf037a/kind-2026-10-02-r090-confirmed). The confirmed campaign records 16 gateway-update and 24 backend-replacement completions, zero failures/partials/false completions, zero reservations afterwards, and live-stream SIGTERM counts 5/3/4 across the two old gateways and backend. The first follow-up exported measurements but its outer PowerShell capture returned nonzero on expected Docker stderr; it is not an invocation PASS. The original shorter-stream campaign lacked guaranteed per-pod coverage; those historical limitations are retained.
+### EKS streaming and unit cost
 
-The corrected campaign uses eight closed-loop workers staggered by 0.4 seconds and approximately 30-second fake streams; every terminated pod must have live streams at SIGTERM or the harness fails. These small populations support counts and empirical ranges, not tail-percentile claims. One connection per request, one Windows Docker Desktop host, observation brackets and gateway-observed backend intervals limit attribution. A backend native active counter also verifies coverage. No full 120-second-bound/grace-expiry, real-vLLM, cache recovery, GPU or managed-cluster result is established. Private independent review verified the correction in Round 48.
+One ordered run on two fixed L4s tested 0.25, 1, 3 and 8 offered requests/s.
+The 3 req/s point is the highest tested rate with full ordinary-request attainment.
+Cost estimates give both GPU-node time and a full-session allocation.
 
-## EKS deployment (M5)
+| Offered req/s | SLO completions/s | HTTP 429/s | Output tokens/s/GPU | Estimated GPU-node $/1M | Estimated full-session $/1M |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.25 | 0.225 | 0.000 | 7.832 | 28.54 | 487.29 |
+| 1 | 0.891 | 0.000 | 30.862 | 7.24 | 123.67 |
+| 3 | 2.673 | 0.000 | 92.924 | 2.41 | 41.07 |
+| 8 | 1.414 | 3.244 | 141.478 | 1.58 | 26.98 |
 
-Terraform provisioned EKS with two Go gateways and two vLLM replicas on two fixed g6.xlarge GPU nodes, each with one NVIDIA L4. In one run in us-east-1c, vLLM 0.29.0 served Qwen2.5-7B-Instruct. An in-cluster CPU client used TLS with 1,024 input tokens and a one-output-token limit per request.
+All 526 sent cancels matched a vLLM frontend abort record.
+[Workload and frozen rows](experiments/streaming-eks/README.md) |
+[Capacity table and cost basis](experiments/capacity-cost/README.md)
 
-Each load window ran for 600 seconds. Completions include drain and use all scheduled requests as the denominator. In-window throughput counts completions during the window only. TTFT measures time to first token, with one sample per completed request here.
+![Latency-SLO goodput and HTTP 429s by offered rate](experiments/capacity-cost/offered-rate.svg)
 
-| Client concurrency | Completed / scheduled | In-window req/s | TTFT p50 (ms) | TTFT p95 (ms) |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 | 3,141 / 3,141 | 5.23 | 250.8 | 262.9 |
-| 4 | 5,840 / 5,840 | 9.73 | 350.4 | 816.6 |
-| 16 | 6,689 / 6,689 | 11.12 | 1,362.0 | 2,704.1 |
+### Single-L4 tuning and quantization
 
-At concurrency 4 in the same run, replacing one of the two gateway pods (the other kept serving) during the 600-second window completed 5,890/5,890 scheduled requests. The 900-second in-place vLLM replica replacement completed 7,892/7,894. The two HTTP 502s occurred before any content, on requests dispatched 0.24 and 0.29 seconds after deletion and before the old endpoint was observed excluded at 0.53 seconds. The gateway relays each request once. The replacement reached Ready 180.4 seconds after deletion, and the first completed stream on the replacement slot arrived 528.8 ms after the client observed Ready.
+The BF16 sweep used sequence caps 16, 32 and 64. At 6 offered req/s, the
+client dispatched 2.27, 2.67 and 2.95 req/s, respectively. The matched trace
+used client concurrency 4. With warm-up carryover, peak engine running
+counts were 4 for BF16, 29 for online FP8 and 32 for official AWQ.
+The greedy GSM8K check uses strict format-and-answer scoring. Invalid-format
+shares were 77%, 71% and 30% of 1,319 items for BF16, FP8 and AWQ, respectively.
+![Recorded GPU framebuffer use on one L4](experiments/single-l4/single-l4-grafana.png)
 
-These are descriptive observations from one deployment run. The private source repository retains the evidence at `docs/evidence/m5-descriptive-eks-r394/README.md`.
+![Weight size, KV capacity and median time per output token](experiments/single-l4/quantization.svg)
 
-## Local CPU / mock-backend engineering measurement (INF-036)
+[Configurations, timings and quality rows](experiments/single-l4/README.md)
 
-The [raw campaigns, protocol, profiles and checksums](experiments/inf036/README.md) and [matched analysis](experiments/inf036/matched-analysis.json) describe a Windows workstation with 32 logical CPUs, two native Go gateways (GOMAXPROCS=2 each), shared Redis 8.2.9 in Docker with a two-CPU budget, and fake/generator processes using GOMAXPROCS=4. Default static round-robin routing, authentication and Redis admission were enabled.
+### Noisy-neighbor quota
 
-Matched open-loop direct-to-fake and gateway runs alternated over HTTP/1.1 keep-alive SSE, with 5 ms mock first-content delay, six events, 2 s warmup and 12 s measurement, using busy-wait dispatch. Three committed eligible pairs at 1,600 req/s completed 19,200 requests per mode per pair with zero failures. Nearest-rank percentiles require `n*(1-p)>=20`: p50 needs 40 completions and p99 2,000. The claim is **added p50 2.5–3.0 ms and p99 4.9–5.5 ms across three committed paired runs**. Separately, **an independent reviewer rerun (REVIEW Round 45) reproduced p50 2.6–2.9 ms and p99 4.9–5.8 ms**; this is explicitly attributed corroboration in the private review record, not public raw reviewer data. These are paired quantile differences, not individual-overhead percentiles or population confidence bounds.
+On the same BF16 L4 at a 16-sequence cap, B completed 62/120 offers with A's quota active
+and 8/120 with that quota lifted under the matched flood. In a separate comparison,
+tenant B’s p95 time to first token over completed streams was 7.45 s under
+the flood with the quota active (n = 62) and 0.44 s with no neighbor (n = 96).
+In the tenant-A-at-quota arm, B completed 60/120 offers and 6/120 met the SLO.
+[Arms and terminal counts](experiments/single-l4/README.md#victim-tenant-under-contention)
 
-The highest qualified tested rate was 1,600 req/s and the first tested error/latency knee was 3,200 req/s: **[1,600, 3,200) req/s**, not an exact maximum or soak guarantee. Shared-host, Windows I/O, client/fake/Redis scheduling and default-policy conditions bound attribution. The candidate combined an admission expiry fix and reader pooling, so it does not isolate a latency benefit of pooling. REVIEW Round 45 separately verified the pprof allocation reduction and roughly **6–7 MB higher RSS at concurrency 64**; allocation traffic is not retained memory. Rejected controls, overload outcomes and the earlier dispatcher conditions remain in the cited evidence. No routing/GPU finding, SLO freeze or platform-independent capacity is claimed.
+### Deployment and pod replacement
 
-## Early real-vLLM interface checks
+One separate EKS run on two fixed L4s exercised a gateway rolling restart and a vLLM pod replacement.
+The short-output engine replacement window completed 7,892/7,894 offers, with two admission-unknown outcomes.
+The endpoint and readiness clocks are retained with the run conditions.
+[Deployment and rollout](experiments/streaming-eks/deployment.md)
 
-INF-011 stages A/B exercised a single L4 vLLM interface, SSE/nonstream compatibility, native metrics and token/context fit. The GPU salt-isolation probes went directly to vLLM with hand-chosen salts; the gateway's HMAC derivation is unit-tested only, and the gateway-in-path session had one tenant. The salt observation was a single request pair, with prompt identity inferred from equal token counts. The cited evidence is [the first session](experiments/inf011/session-2026-09-16-m3) and [the follow-up session](experiments/inf011/session-2026-09-16-m3-followup). Both retain manifests/captures and checksums. The follow-up's short-prompt concurrency sweep did not observe saturation or waiting; it does not establish safe capacity. The first session discarded per-request calibration outcomes. Recorder timings include local gateway/SSM transport and Windows clock quantization; they are not GPU latency benchmarks. Instance-duration cost estimates are not settled AWS billing. Stage C calibration remains incomplete. No GPU utilization, routing comparison or capacity/cost finding follows from these compatibility checks.
+### CPU overhead and pprof
 
-## R0 aggregate measurement and CPU explanation (INF-047)
+The two-gateway CPU testbed paired gateway and direct mock streams through a pinned Redis setup.
+pprof snapshots were captured separately from the unprofiled latency comparisons.
+Only the reported paired load point supports the headline overhead.
+[Protocol, overhead and profiles](experiments/inf036/README.md)
 
-**Reviewed evidence.** Verified in private independent review (Rounds 72–74) and checked by a fresh-context agent claim audit. INF-047 remains incomplete: the release plan's Stage C items (instrumentation contract, re-warm curve, further event-lag capture) are not yet measured.
+### Routing pilot
 
-These qualified findings concern one accepted aggregate-only attempt 7, under the [full numerical conditions and technical story](experiments/r0/README.md): g6.xlarge / one L4, On-Demand us-east-1b, Qwen2.5-7B-Instruct on pinned vLLM 0.29.0. They do not establish a routing benefit, safe R/W/B or an SLO.
+One two-L4 session compared three routing policies across two blocks with different orders.
+The order is confounded with the measured difference, so the comparison is descriptive.
+![Paired throughput in two routing pilot blocks](experiments/r1/r1-throughput.png)
 
-![R0 aggregate saturation and reference bracket](experiments/r0/r0-saturation-reference.png)
+[Pilot conditions and chart](experiments/r1/README.md)
 
-- **R0-C1 - measured regime and within-session repeat.** With 6,144-token prompts / max 128 output, 90-second closed-loop load plus drain, runs 1 and 4 reach a running peak of 10 from concurrency 12 and a waiting peak of 31 at 32. First tested pre-content backend rejection is at 48. Both complete 61 requests at 48/64, against dispatched denominators 781/1,501; matched-level completions differ by at most 2. These are counts including drain and separate sampled peak maxima, not throughput, simultaneous occupancy or a safe capacity. [Exact digest fields, levels/runs, denominators and hashes](experiments/r0/chart-data.json).
-- **R0-C2 - reference-replay bracket.** For 1,024-token prefixes / max 1 output at concurrency 4, runs 2 and 4 reproduce a last nonzero replay-token-hit candidate at 3,840 prompt-span blocks and first zero-hit candidate at 4,352, bracketing the native report of 3,891 GPU blocks. These are aggregate hit/query token counters, not proof of every request's cache hit, exact reusable capacity or a universal eviction threshold. [Counter derivation and distinction from native capacity](experiments/r0/README.md#reference-replay).
-- **R0-C3 - project-specific tested explanation.** Motivated by that plateau, the project tested the official v0.29.0 CPU build (`0.29.0+cpu`; core allocator/scheduler files hash-matched to the release tag), with a configured 3,891-block pool and real KV accounting/scheduling with model computation mocked: under cold, full-input, no-sharing/no-chunking controls, 6,144-token prompts admit 10, 6,272-token prompts admit 9; ten growing requests trigger failure/free/reset/requeue while eight reach +128 computed KV tokens without preemption. Private independent review (Round 72) verified the pre-registration order and independently reproduced all six CPU case traces. This is attributed corroboration in the private review record, not public raw reviewer data. This supports a KV-footprint explanation under those controls, not historical causal proof, live serving timing, gateway admissions or another length's safe R. [Registered chain, controls and trace](experiments/r0/README.md#cpu-explanation).
+### KEDA autoscaling
 
-The four limits remain: TTFT exists only as vLLM histogram buckets; lag under load includes queueing and prefill; "every replayed prefix hit" is an inference from counters; Section 2.5 per-sample validation and warm-up convergence are unassessed. Per-request detail lost at teardown remains lost. Stage C calibration and the full R0 release remain incomplete.
+KEDA scaled vLLM from one to two replicas on two fixed L4 nodes.
+In one session with three cycles per arm, 2.67% of 8,280 scheduled offers met
+the SLO with fixed-1, 78.86% with KEDA and 100% with fixed-2. The 1-minute
+baseline is included. The second replica first completed a request 194–210 s
+after burst onset. GPU node count stayed fixed.
 
-[Evidence, checksums and reproduction](experiments/r0/README.md) keep the GPU and CPU populations separate. The chart renderer and lock ship in this snapshot; the evidence page describes direct reproduction from the snapshot root.
+![Recorded GPU utilization during KEDA cycle 1](experiments/autoscaling/autoscaling-grafana.png)
 
-## CPU checks and bounded CI evidence
+[Autoscaling results and conditions](experiments/autoscaling/README.md)
 
-The private source `cpu-ci` workflow completed successfully at `e5eced3`, run **37093148323**, independently confirmed in private REVIEW Round 49. That run passed the transport regression and the all suite, with one Windows-only preflight test skipped on Linux and passed locally. This names a particular private-source CPU check run; it provides no reliability or deployment guarantee, nor a successful run of this public snapshot.
+## How results are checked
 
-The [snapshot workflow](.github/workflows/ci.yml) and [public check entrypoint](scripts/check-public.ps1) run Go fmt/vet/build/unit/race, committed-evidence checks, scanner-wrapper tests and the Python modules that do not require excluded private records. 7 private-record-dependent Python modules, private PLAN checks, paid approval/payload preflight and private snapshot-builder tests are omitted from this snapshot check command; their files may be retained for source inspection. The original [private check script](scripts/check.ps1) requires excluded private records and is not the snapshot entrypoint. Scanner unit mocks are not publication scans.
+Workloads, populations and pass rules are pre-registered.
+Frozen rows and checksums support independent recounts.
+Code and public claims are independently reviewed.
+Cloud runs end with verified teardown and a separate inventory.
 
-Required tools: Go 1.26.6, Python 3.12.7, uv 0.9.5, Git, PowerShell and Docker Linux containers for disposable Redis. See [Go pins](go.mod), [Python pins](python/pyproject.toml), [locked Python dependencies](python/uv.lock) and [synthetic test/schema fixtures](experiments/examples). Hash-pinned tokenizer files may be fetched by tests; no model weights or AWS calls are needed.
+## Limitations
 
-On Windows, use a short clone path or pre-set `UV_CACHE_DIR`, `GOCACHE` and `GOMODCACHE` to short cache directories after bootstrap and before running checks.
+- The streaming and tuning results each cover one run with their exact model, runtime and load conditions.
+- Each GPU test used a single availability zone, with no cross-zone capacity inference.
+- The routing comparison is a pilot with order confounding.
+- The GPU nodes stay fixed and billed when replica count changes.
+- Cache isolation was shown by a direct probe. The routing pilot uses a single tenant.
+- Cancellation joins measure vLLM frontend abort submission. Per-request scheduler and KV release remain unmeasured.
+- CPU overhead includes Redis and the tested gateway path on the local fake-backend workload.
 
-```powershell
-./scripts/bootstrap.ps1
-# Set REDIS_TEST_ADDR to a disposable Redis endpoint to include integration tests.
-./scripts/check-public.ps1
+## Quickstart
+
+From the repository root on a clean checkout, install Go 1.26, Python 3.12 through uv,
+a running Linux-container Docker engine, and curl 7.76 or later. The pinned tokenizer fetch uses the network.
+The demo then runs Redis, the CPU fake backend and a native Go gateway on loopback.
+It sends one authenticated streaming curl and cleans up its processes and Redis container.
+
+```sh
+uv run --project python --locked python -m inference_platform.stage_c_tokenizer --fetch --fetch-only
+uv run --project python --locked python scripts/cpu_quickstart.py
 ```
 
-Public Python checks report 7 private-record module exclusions and 52 exact private-record-dependent case exclusions, derived from the selector. Portable sibling tests still run; the private full suite runs all cases. See [public test-context selection](scripts/run_public_python_tests.py).
+The stream ends with:
 
-For local fake serving, follow [the CPU deployment instructions](deploy/local/README.md). The [kind campaign entrypoint](scripts/m5-stage1.ps1) and [CPU measurement entrypoint](scripts/inf036.ps1) reproduce separate experiments under their recorded conditions. Cloud orchestration scripts fail closed without the omitted private approvals/payload pins; their presence grants no paid authorization.
+```text
+data: [DONE]
+```
 
-## Planned research and current limits
+[Demo runner](scripts/cpu_quickstart.py) | [Manual local setup](deploy/local/README.md)
 
-The planned question is: **How much cache and backend-load state should a replicated LLM inference router maintain, and when should it trust that state?** Planned comparisons range from round-robin and fresh load samples to prefix affinity and more detailed cache state under skew, stale observations, backend changes and tenant competition. Protocol and threshold freeze, the confirmatory routing comparison and completion of the R0 instrumentation (Stage C) remain pending; R1 below is a one-session pilot. The project implements policies within its own gateway; no superiority over external routing systems is established.
+## Repository map
 
-This snapshot's cited evidence preserves original bytes and historical status labels. Claims in this README were audited against the committed evidence before publication; review and approval records are maintained privately. No resume material is part of this repository.
+| Directory | Contents |
+| --- | --- |
+| [cmd](cmd) | Go service entry points |
+| [internal](internal) | Gateway, admission and runtime implementation |
+| [python](python) | Fake backends, workload clients and analysis |
+| [deploy](deploy) | Local, Kubernetes, Helm and observability configuration |
+| [infra](infra) | Terraform and provider wiring |
+| [experiments](experiments) | Reviewed results and frozen rows |
+| [scripts](scripts) | Demos, validation and operators |
+| [.github](.github) | CI workflow |
 
-## R1 pilot packet (INF-040)
+## Related systems
 
-One session, two blocks; reviewed analysis and interpretation, with the agent claim audit complete. The result stays within the two qualified claims below.
+llm-d documents Kubernetes-native serving and routing. SGLang documents a model-serving runtime.
+This project measures its own gateway and pinned vLLM configurations. The results establish no comparative ranking.
+[Version-pinned references](experiments/related-systems.md)
 
-![R1 pilot throughput and order](experiments/r1/r1-throughput.png)
+## License
 
-- **R1-C1 — paired throughput and order.** In this one-session pilot with n=2 paired blocks (request-result scope: admitted requests only; throughput is validated cohort completions per 600 seconds, while 429 counts use offered denominators), 2× g6.xlarge with one L4 each, Qwen2.5-7B-Instruct on vLLM v0.29.0, fixed open-loop 10.92 offers/s and 6,553 offers per run, hash throughput was 7.0709% above rr in b1 and 4.8479% in b2; only b1 exceeded the 5% descriptive tolerance. Hash ran first in b1 and third in b2; ll was always in position 2. The throughput and position pattern coincide in these two blocks and establish neither an order effect nor a causal policy effect. With fixed open-loop offers, one missed offer per run and zero failures/censoring, the throughput-rate difference equals the 429-count difference divided by the fixed 600-second window: hash completed 428 more requests than rr in b1 and 298 more in b2, matching 428 and 298 fewer 429s. This pilot has no confirmatory interval and supports no causal claim; the throughput margin cleared the 5% tolerance only in b1, where hash ran first. [Evidence, definitions and reproduction](experiments/r1/README.md).
-- **R1-C2 — aggregate counter and queue context.** In this one-session pilot with n=2 paired blocks (request-result scope: admitted requests only; token-hit and positive-wait figures are aggregate counter or sampled-window context), 2× g6.xlarge with one L4 each, Qwen2.5-7B-Instruct on vLLM v0.29.0, fixed open-loop 10.92 offers/s and 6,553 offers per run, the native counter table shows hash token-hit fractions of 0.540 / 0.551 in b1 and 0.532 / 0.549 in b2 across replicas; the joint queue table shows ll positive joint-wait sample fractions (samples with any request waiting across both replicas) of 0.423 (508/1200) in b1 and 0.386 (463/1200) in b2. The warm-up trajectory, native hit and queue tables provide descriptive context only; all runs reached the maximum warm-up and remained valid-unstable. Token-hit fraction is aggregate context, not a per-request hit probability. This claim makes no cache-usage or eviction claim. This pilot has no confirmatory interval and supports no causal claim; the throughput margin cleared the 5% tolerance only in b1, where hash ran first. [Evidence, definitions and reproduction](experiments/r1/README.md).
-
-[Chart data, conditions, limits and reproduction](experiments/r1/README.md). No stable production-capacity, tenant-isolation, SLO/goodput, cost-efficiency, EKS, emulator-accuracy or exact-pressure claim follows; instrumentation remains incomplete.
+[MIT](LICENSE)

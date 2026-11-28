@@ -31,6 +31,7 @@ CHECKS = frozenset(
     bounded_engine_log truncated_engine_log engine_log_encoding content_type
     model_size_revision receipt_retrieval ssm_registration host_start
     host_weights_timeout timer_and_readiness quota_or_owned_inventory
+    gpu_capacity_unavailable
     offering_changed ami_changed availability_zone apply_reserve live_ingress
     operator_work_budget supervisor_origin remote_supervisor_attempt readiness
     runner_original_work_deadline diagnostic_binding diagnostic_deadline
@@ -67,6 +68,7 @@ SIGNATURES = {
     "unauthorizedoperation": "AWS UnauthorizedOperation",
     "accessdenied": "AWS AccessDenied",
     "insufficientinstancecapacity": "AWS InsufficientInstanceCapacity",
+    "reference to undeclared input variable": "Terraform undeclared input variable",
     "toomanyrequests": "rate limited",
     "nvrm: xid": "NVIDIA Xid",
     "health check failed": "health check failed",
@@ -314,11 +316,11 @@ def collect(attempt):
         row = read_json(attempt / ("step-" + step + ".json"))
         if isinstance(row, dict):
             steps[step] = {**safe_timing(row), "error": safe_error(row.get("error"))}
-    for stage in ("controller", "cleanup", "inventory"):
-        path = attempt / (stage + ".log")
+    for stage in ("controller", "cleanup", "inventory", "apply"):
+        path = local / "apply.log" if stage == "apply" else attempt / (stage + ".log")
         if path.is_file():
             archive["tails"][stage] = file_tail(path)
-    return {
+    record = {
         "controller_error": safe_error(read_json(attempt / "controller-error.json")),
         "steps": steps,
         "run_checks": status_body(last_status)
@@ -327,6 +329,28 @@ def collect(attempt):
         "retrieval": retrieval if isinstance(retrieval, dict) else None,
         "gpu_archive": archive,
     }
+    row = read_json(local / "apply.status.json")
+    if isinstance(row, dict) and row.get("reason") in (
+        "gpu_capacity_unavailable",
+        "apply_timeout",
+        "apply_error",
+        "apply_start_failed",
+        "apply_complete",
+    ):
+        zone = row.get("requested_zone")
+        if isinstance(zone, str) and re.fullmatch(r"us-east-1[a-f]", zone):
+            record["apply"] = {
+                "reason": row["reason"],
+                "requested_zone": zone,
+                "suggested_zones": [
+                    value
+                    for value in row.get("suggested_zones", [])[:6]
+                    if isinstance(value, str) and re.fullmatch(r"us-east-1[a-f]", value)
+                ],
+                "elapsed_s": number(row.get("elapsed_s")),
+                "exit_code": number(row.get("exit_code")),
+            }
+    return record
 
 
 def publish(path, record):
@@ -342,6 +366,7 @@ def publish(path, record):
 
 def preview(record):
     return {
+        **({"apply": record["apply"]} if "apply" in record else {}),
         "controller_error": record.get("controller_error"),
         "failed_steps": {
             name: row["error"]

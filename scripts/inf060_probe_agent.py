@@ -45,6 +45,9 @@ class ProbeHost(L4Host):
             json.dumps({"weights_timeout_s": timeout})
         )
         self.log = (self.root / "bootstrap.log").open("xb")
+        native = self.manifest["schema"] == "inf061-native-dec108-v1"
+        if native and (self.cpu or self.failure):
+            raise ValueError("inf061:dedicated_cpu_rehearsal_required")
         argv = [
             "/usr/bin/env",
             "-i",
@@ -54,7 +57,14 @@ class ProbeHost(L4Host):
             "PYTHONDONTWRITEBYTECODE=1",
             "LANG=C.UTF-8",
             sys.executable,
-            str(self.repo / "scripts/inf060_probe_host.py"),
+            str(
+                self.repo
+                / (
+                    "scripts/inf061_native_host.py"
+                    if native
+                    else "scripts/inf060_probe_host.py"
+                )
+            ),
             "launch",
             "--root",
             str(self.root),

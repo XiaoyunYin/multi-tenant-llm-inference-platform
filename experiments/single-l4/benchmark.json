@@ -1,0 +1,106 @@
+{
+  "arms": {
+    "awq-64": {
+      "awq_fallback_warnings": 0,
+      "fp8_mode": null,
+      "kernel": "MarlinLinearKernel",
+      "kernel_method": "AutoAWQMarlinLinearMethod",
+      "kv_blocks": 15328,
+      "kv_bound_pass": true,
+      "kv_dtype": "bfloat16",
+      "kv_dtype_config": "auto",
+      "kv_tokens": 245248,
+      "startup": "ready",
+      "startup_seconds": 141.73373270799948,
+      "status": "completed",
+      "w8a8_eligible": false,
+      "weight_gib": 5.29
+    },
+    "bf16-16": {
+      "awq_fallback_warnings": 0,
+      "fp8_mode": null,
+      "kernel": null,
+      "kernel_method": null,
+      "kv_blocks": 3792,
+      "kv_dtype": "bfloat16",
+      "kv_dtype_config": "auto",
+      "kv_tokens": 60672,
+      "saturation_observed": true,
+      "startup": "ready",
+      "startup_seconds": 325.4012964799999,
+      "status": "completed",
+      "w8a8_eligible": false,
+      "weight_gib": 14.29
+    },
+    "bf16-32": {
+      "awq_fallback_warnings": 0,
+      "fp8_mode": null,
+      "kernel": null,
+      "kernel_method": null,
+      "kv_blocks": 4937,
+      "kv_dtype": "bfloat16",
+      "kv_dtype_config": "auto",
+      "kv_tokens": 78992,
+      "startup": "ready",
+      "startup_seconds": 223.97951038400015,
+      "status": "completed",
+      "w8a8_eligible": false,
+      "weight_gib": 14.29
+    },
+    "bf16-64": {
+      "awq_fallback_warnings": 0,
+      "fp8_mode": null,
+      "kernel": null,
+      "kernel_method": null,
+      "kv_blocks": 4873,
+      "kv_bound_pass": true,
+      "kv_dtype": "bfloat16",
+      "kv_dtype_config": "auto",
+      "kv_tokens": 77968,
+      "startup": "ready",
+      "startup_seconds": 214.4246696969999,
+      "status": "completed",
+      "w8a8_eligible": false,
+      "weight_gib": 14.29
+    },
+    "fp8-64": {
+      "awq_fallback_warnings": 0,
+      "fp8_mode": "W8A8",
+      "kernel": "CutlassFP8ScaledMMLinearKernel",
+      "kernel_method": "Fp8PerTensorOnlineLinearMethod",
+      "kv_blocks": 11785,
+      "kv_bound_pass": true,
+      "kv_dtype": "bfloat16",
+      "kv_dtype_config": "auto",
+      "kv_tokens": 188560,
+      "startup": "ready",
+      "startup_seconds": 228.287726001,
+      "status": "completed",
+      "w8a8_eligible": true,
+      "weight_gib": 8.17
+    }
+  },
+  "paired": {
+    "awq": {
+      "both_exact": 35,
+      "both_other": 1027,
+      "discordant": 257,
+      "losses": 125,
+      "wins": 132
+    },
+    "bf16-repeat": {
+      "both_exact": 160,
+      "both_other": 1159,
+      "discordant": 0,
+      "losses": 0,
+      "wins": 0
+    },
+    "fp8": {
+      "both_exact": 106,
+      "both_other": 1055,
+      "discordant": 158,
+      "losses": 54,
+      "wins": 104
+    }
+  }
+}

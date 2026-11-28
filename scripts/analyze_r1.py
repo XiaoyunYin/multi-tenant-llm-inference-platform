@@ -104,13 +104,13 @@ MEASUREMENT_MAPPING = (
     (
         "Eviction events and diagnostic KV-cache usage",
         "unsupported",
-        "Not exported by the pinned capture; NA / INF-047 instrumentation remainder. "
+        "Not exported by the pinned capture; Outside the recorded instrumentation. "
         "Preemption delta 0 is the only observed churn signal.",
     ),
     (
         "Per-gateway Go heap/GC and exact active/shared/free/residency/event-lag measures",
         "unsupported",
-        "Not exported in these bound inputs; NA / INF-047 instrumentation remainder.",
+        "Not exported in these bound inputs; Outside the recorded instrumentation.",
     ),
 )
 

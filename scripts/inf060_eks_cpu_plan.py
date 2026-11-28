@@ -11,6 +11,11 @@ from inference_platform.eks_deployment import NGINX_IMAGE, PROMETHEUS_IMAGE, RED
 from m5_descriptive_cleanup import pages
 
 SESSION = "m5-desc-r420-cpu"
+HELM_SESSION = "m5-desc-r441-helm"
+HELM_MARKER = "CPU EKS HELM PROOF APPROVED"
+HELM_PHASE = "inf054-helm-proof"
+HELM_TAPE = "inf054-offers.jsonl"
+HELM_TAPE_RECEIPT = "inf054-tape.json"
 PLAN_DIRECTORY = "cpu-clock"
 OPERATOR_TYPE = "m6i.2xlarge"
 WORKER_TYPE = "c6i.2xlarge"
@@ -22,7 +27,7 @@ SERVICE_IMAGES = {
     "streaming-ingress": NGINX_IMAGE,
     "telemetry": PROMETHEUS_IMAGE,
 }
-CPU_MARKER = "INF-060 CPU EKS REHEARSAL APPROVED"
+CPU_MARKER = "CPU EKS REHEARSAL APPROVED"
 STANDARD_QUOTA_CODE = "L-1216C47A"
 REQUIRED_VCPUS = 32
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -259,20 +264,35 @@ def verify_cpu_plan(plan):
     return json.loads(policy)
 
 
+def require_helm_session(value):
+    if not isinstance(value, str) or not re.fullmatch(
+        r"m5-desc-r[1-9][0-9]{0,5}-helm", value
+    ):
+        raise ValueError("inf054_cpu_helm_session")
+    return value
+
+
 def verify_cpu_binding(directory, manifest):
     directory = Path(directory)
     cpu = manifest["descriptive"]["cpu_clock_rehearsal"]
+    helm = manifest["descriptive"].get("inf054_cpu_helm")
+    session = manifest["session"]
+    if helm:
+        require_helm_session(session)
     if (
-        manifest["session"] != SESSION
+        session != (manifest["descriptive"]["session"] if helm else SESSION)
+        or (helm and manifest["host_manifest"]["session"] != "dec077-" + session)
         or manifest["timing"]["capacity_wait_budget_seconds"] != 0
         or manifest["alternatives"] != [cpu["selection"]]
         or cpu["selection"]["directory"] != PLAN_DIRECTORY
-        or manifest["descriptive"]["streaming"]["gpu_hourly_usd"] != 0
+        or (not helm and manifest["descriptive"]["streaming"]["gpu_hourly_usd"] != 0)
+        or (helm and manifest["descriptive"].get("streaming"))
     ):
         raise ValueError("cpu_clock:packet_scope")
     expected = manifest["host_manifest"]["gate_a_inputs"]
     if (
-        set(expected["inventory"]) != {IMAGE_ARCHIVE}
+        set(expected["inventory"])
+        != ({IMAGE_ARCHIVE, HELM_TAPE} if helm else {IMAGE_ARCHIVE})
         or expected.get("s3_staging") is not None
         or expected["bundle_path"] != "cpu-images.tar"
         or expected["bundle_bytes"] != manifest["files"]["cpu-images.tar"]["bytes"]
@@ -289,6 +309,26 @@ def verify_cpu_binding(directory, manifest):
         raise ValueError("cpu_clock:image_archive_binding")
     if cpu["service_images"] != SERVICE_IMAGES:
         raise ValueError("cpu_clock:service_images")
+    if helm:
+        from inf054_cpu_helm import verify_tape_input
+
+        if helm != {"tape_sha256": expected["inventory"][HELM_TAPE]["sha256"]}:
+            raise ValueError("inf054_tape_binding")
+        with tarfile.open(directory / expected["bundle_path"], "r:") as bundle:
+            files = bundle.getmembers()
+            if (
+                len(files) != 2
+                or {file.name for file in files} != set(expected["inventory"])
+                or any(not file.isfile() for file in files)
+            ):
+                raise ValueError("inf054_input_members")
+            for member in files:
+                binding = expected["inventory"][member.name]
+                with bundle.extractfile(member) as source:
+                    actual = hashlib.file_digest(source, "sha256").hexdigest()
+                if member.size != binding["bytes"] or actual != binding["sha256"]:
+                    raise ValueError("inf054_input_hash")
+        verify_tape_input(directory, expected["inventory"][HELM_TAPE])
     if {row["directory"] for row in manifest["plans"]} != {
         "bootstrap",
         "backstop",
@@ -329,3 +369,32 @@ def policy_actions(policy):
         value = row["Action"]
         actions.update([value] if isinstance(value, str) else value)
     return sorted(actions)
+
+
+def require_helm_simulation(directory, manifest):
+    """An INF-054 draft without the account-scoped policy proof cannot launch."""
+    directory = Path(directory)
+    filename = "inf054-policy-simulation.json"
+    if filename not in manifest["files"]:
+        raise ValueError("inf054_policy_simulation_required")
+    policy = verify_cpu_plan(
+        json.loads((directory / PLAN_DIRECTORY / "show.stdout").read_bytes())
+    )
+    receipt = json.loads((directory / filename).read_bytes())
+    expected = sorted(
+        [
+            (action, scope, decision)
+            for statement in policy["Statement"]
+            for action in statement["Action"]
+            for scope, decision in (
+                [("unscoped_token", "allowed")]
+                if statement["Resource"] == "*"
+                else [("owned", "allowed"), ("foreign", "implicitDeny")]
+            )
+        ]
+    )
+    actual = sorted(
+        (row["action"], row["scope"], row["decision"]) for row in receipt["cases"]
+    )
+    if receipt["policy_sha256"] != canonical_digest(policy) or actual != expected:
+        raise ValueError("inf054_policy_simulation_mismatch")

@@ -5,8 +5,6 @@ import json
 import time
 from datetime import UTC, datetime
 
-from botocore.config import Config
-
 from m5_descriptive_cleanup import pages
 
 # Round 379: the ordinary us-east-1 AZ set EKS supports; 1e is excluded.
@@ -32,7 +30,14 @@ def zone_pairs(offerings):
     ]
 
 
-def select_capacity(ports, *, clock=time.monotonic, sleep=time.sleep, epoch=time.time):
+def select_capacity(
+    ports,
+    *,
+    clock=time.monotonic,
+    sleep=time.sleep,
+    epoch=time.time,
+    prepare_choice=None,
+):
     """Select at most one sealed plan; never Apply here or extend a deadline.
 
     All R1 create/cancel/readback command outputs have per-probe directories.
@@ -59,7 +64,13 @@ def select_capacity(ports, *, clock=time.monotonic, sleep=time.sleep, epoch=time
         + timing["cleanup_reserve_seconds"]
         + timing["remaining_infrastructure_seconds"]
     )
-    stop = min(start + budget, ports.deadline - reserved)
+    if "selected_work_seconds" in timing:
+        # The already-armed hard stop includes a separate post-selection window.
+        if start > ports.deadline - timing["selected_work_seconds"] - budget:
+            raise TimeoutError("descriptive:bootstrap_before_capacity_deadline")
+        stop = start + budget
+    else:
+        stop = min(start + budget, ports.deadline - reserved)
     record = {
         "schema": "m5-descriptive-capacity-wait.v1",
         "started_epoch": epoch(),
@@ -122,29 +133,34 @@ def select_capacity(ports, *, clock=time.monotonic, sleep=time.sleep, epoch=time
                     )
                     if result["result"] == "success":
                         identifier = result["capacity_reservation_id"]
-                        ports.make_targeted(identifier, deadline=stop - 90)
-                        arn = f"arn:aws:ec2:us-east-1:{ports.manifest['account']}:capacity-reservation/{identifier}"
-                        group = ports.manifest["capacity_group_arn"]
-                        timeout = min(5, (stop - 90 - clock()) / 2)
-                        if timeout <= 0:
-                            exhaust()
-                        groups = ports.sdk.client(
-                            "resource-groups",
-                            config=Config(
-                                connect_timeout=timeout,
-                                read_timeout=timeout,
-                                retries={"total_max_attempts": 1},
-                            ),
-                        )
-                        groups.group_resources(Group=group, ResourceArns=[arn])
-                        members = pages(
-                            groups,
-                            "list_group_resources",
-                            "ResourceIdentifiers",
-                            Group=group,
-                        )
-                        if [m["ResourceArn"] for m in members] != [arn]:
-                            raise ValueError("descriptive:capacity_group_members")
+                        if prepare_choice is not None:
+                            prepare_choice(identifier, deadline=stop - 90)
+                        else:
+                            ports.make_targeted(identifier, deadline=stop - 90)
+                            from botocore.config import Config
+
+                            arn = f"arn:aws:ec2:us-east-1:{ports.manifest['account']}:capacity-reservation/{identifier}"
+                            group = ports.manifest["capacity_group_arn"]
+                            timeout = min(5, (stop - 90 - clock()) / 2)
+                            if timeout <= 0:
+                                exhaust()
+                            groups = ports.sdk.client(
+                                "resource-groups",
+                                config=Config(
+                                    connect_timeout=timeout,
+                                    read_timeout=timeout,
+                                    retries={"total_max_attempts": 1},
+                                ),
+                            )
+                            groups.group_resources(Group=group, ResourceArns=[arn])
+                            members = pages(
+                                groups,
+                                "list_group_resources",
+                                "ResourceIdentifiers",
+                                Group=group,
+                            )
+                            if [m["ResourceArn"] for m in members] != [arn]:
+                                raise ValueError("descriptive:capacity_group_members")
                         if clock() >= stop - 90:
                             exhaust()
                         selected = True

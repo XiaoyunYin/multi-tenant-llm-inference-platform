@@ -1,0 +1,31 @@
+{
+  "formatters": {
+    "vllm": {
+      "class": "vllm.logging_utils.NewLineFormatter",
+      "format": "%(created).6f %(levelname)s [%(fileinfo)s:%(lineno)d] %(message)s"
+    },
+    "vllm_color": {
+      "class": "vllm.logging_utils.ColoredFormatter",
+      "format": "%(created).6f %(levelname)s [%(fileinfo)s:%(lineno)d] %(message)s"
+    }
+  },
+  "handlers": {
+    "vllm": {
+      "class": "logging.StreamHandler",
+      "formatter": "vllm",
+      "level": "INFO",
+      "stream": "ext://sys.stdout"
+    }
+  },
+  "loggers": {
+    "vllm": {
+      "handlers": [
+        "vllm"
+      ],
+      "level": "INFO",
+      "propagate": false
+    }
+  },
+  "version": 1,
+  "disable_existing_loggers": false
+}

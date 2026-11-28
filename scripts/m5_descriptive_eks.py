@@ -8,6 +8,7 @@ AWS operator. Creating a packet is separate and has no Apply side effects.
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -17,7 +18,15 @@ import tarfile
 import time
 from pathlib import Path
 
-from inf060_eks_cpu_plan import CPU_MARKER, standard_quota_readback, verify_cpu_binding
+from inf054_gpu_helm import BINDING, MARKER, SESSION_SECONDS, verify_gpu_helm
+from inf060_eks_cpu_plan import (
+    CPU_MARKER,
+    HELM_MARKER,
+    HELM_PHASE,
+    require_helm_simulation,
+    standard_quota_readback,
+    verify_cpu_binding,
+)
 from inf060_eks_gpu_plan import (
     GPU_MARKER,
     require_streaming_quota,
@@ -34,7 +43,7 @@ from inference_platform.package_a_operator import Ports
 from inference_platform.r1_cloud_operator import stop_forward
 from inference_platform.r1_lifecycle import Production
 from m5_descriptive_capacity import select_capacity
-from m5_descriptive_cleanup import missing, pages
+from m5_descriptive_cleanup import missing, pages, paired_window
 from m5_descriptive_diagnostics import collect, write_cost
 from m5_descriptive_inventory import gpu_states, inventory
 from package_a_host import host_environment
@@ -51,6 +60,7 @@ def phase_command(phase, *, isolated=False):
         "replica_rollout",
         "export",
         "retrieve",
+        HELM_PHASE,
     }:
         raise ValueError("descriptive:phase_command")
     environment = " ".join(
@@ -187,7 +197,11 @@ def require_review(text, manifest, digest):
         raise ValueError("descriptive:review_round_missing")
     latest = text[rounds[-1].end() :]
     marker = (
-        CPU_MARKER
+        MARKER
+        if manifest.get("descriptive", {}).get(BINDING)
+        else HELM_MARKER
+        if manifest.get("descriptive", {}).get("inf054_cpu_helm")
+        else CPU_MARKER
         if manifest.get("descriptive", {}).get("cpu_clock_rehearsal")
         else GPU_MARKER
         if manifest.get("descriptive", {}).get("gpu_streaming")
@@ -257,8 +271,16 @@ def verify_packet_files(directory, manifest):
         raise ValueError("descriptive:unbound_terraform_input")
 
 
+def session_seconds(manifest):
+    if manifest.get("descriptive", {}).get(BINDING):
+        if manifest["session_seconds"] != SESSION_SECONDS:
+            raise ValueError("inf054_gpu_session_seconds")
+        return SESSION_SECONDS
+    return 18000
+
+
 def arm(sdk, manifest, *, started, now=time.time):
-    stop = started + 18000
+    stop = started + session_seconds(manifest)
     parameter = "/" + manifest["session"] + "/deadline"
     record = {
         "session": manifest["session"],
@@ -332,6 +354,11 @@ def arming_witness(sdk, manifest, record):
             "SESSION": manifest["session"],
             "PARAMETER": "/" + manifest["session"] + "/deadline",
             "STATE_BUCKET": manifest["state_bucket"],
+            **(
+                {"SESSION_SECONDS": str(session_seconds(manifest))}
+                if manifest.get("descriptive", {}).get(BINDING)
+                else {}
+            ),
         }
         or configuration["Handler"] != "m5_descriptive_cleanup.handler"
         or configuration["Runtime"] != "python3.12"
@@ -424,6 +451,60 @@ class Capacity(Production):
         return super().command(argv, deadline, name)
 
 
+TERMINAL_SSM = {
+    "Success",
+    "Failed",
+    "Cancelled",
+    "TimedOut",
+    "Undeliverable",
+    "Terminated",
+}
+
+
+def record_json(path, data):
+    pending = path.with_suffix(".pending")
+    with pending.open("w", encoding="utf-8") as stream:
+        json.dump(data, stream, sort_keys=True)
+        stream.flush()
+        os.fsync(stream.fileno())
+    pending.replace(path)
+
+
+class DescriptiveHost(Ports):
+    """Write the remote dispatch intent before SSM and bind its invocation ID."""
+
+    phase_dispatch = None
+
+    def send_ssm_command(
+        self, host, parameters, *, deadline=None, step="ssm.send-command"
+    ):
+        if self.phase_dispatch is None:
+            return super().send_ssm_command(
+                host, parameters, deadline=deadline, step=step
+            )
+        directory, phase = self.phase_dispatch
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (str(time.time_ns()) + ".json")
+        intent = {"phase": phase, "host": host}
+        record_json(path, intent)
+        response = super().send_ssm_command(
+            host, parameters, deadline=deadline, step=step
+        )
+        record_json(path, {**intent, "command": response["Command"]["CommandId"]})
+        return response
+
+
+def phase_result(result, phase):
+    lines = [
+        line.removeprefix("DESCRIPTIVE_PHASE_RESULT=")
+        for line in result["StandardOutputContent"].splitlines()
+        if line.startswith("DESCRIPTIVE_PHASE_RESULT=")
+    ]
+    if len(lines) != 1:
+        raise ValueError("descriptive:phase_result_missing_or_truncated:" + phase)
+    return json.loads(lines[0])
+
+
 class EKSports:
     substitutions = []
 
@@ -445,8 +526,27 @@ class EKSports:
             else None
         )
         self.started = consumed["started_epoch"] if consumed else time.time()
-        self.end = consumed["deadline_epoch"] if consumed else self.started + 18000
+        seconds = session_seconds(self.manifest)
+        self.end = consumed["deadline_epoch"] if consumed else self.started + seconds
+        if consumed and (
+            not all(math.isfinite(t) for t in (self.started, self.end))
+            or self.end != self.started + seconds
+            or consumed["manifest_sha256"]
+            != file_digest(self.directory / "manifest.json")
+        ):
+            raise ValueError("descriptive:invalid_consume_binding")
+        self.selected_epoch = None
+        selected_window = self.directory / "selected-window.json"
+        if recovering and selected_window.exists():
+            clock = json.loads(selected_window.read_bytes())
+            if not self.manifest["descriptive"].get(
+                BINDING
+            ) or clock != self.selection_record(clock["selected_epoch"]):
+                raise ValueError("inf054_gpu_recovery_clock")
+            self.selected_epoch = clock["selected_epoch"]
+            self.end = clock["deadline_epoch"]
         self.deadline = time.monotonic() + self.end - time.time()
+        self.recovered_phases = {}
         self.host = None
         self.bootstrap_complete = False
         if not recovering and self.manifest.get("descriptive", {}).get(
@@ -454,7 +554,10 @@ class EKSports:
         ):
             if not standard_quota_readback(self.sdk)["fits"]:
                 raise ValueError("cpu_clock:standard_quota_busy")
-        if not recovering and self.manifest.get("descriptive", {}).get("gpu_streaming"):
+        if not recovering and any(
+            self.manifest.get("descriptive", {}).get(key)
+            for key in ("gpu_streaming", BINDING)
+        ):
             self.check_streaming_quota("init")
         self.capacity = Capacity(self, recovering=recovering)
         self.owned_vpcs = []
@@ -467,7 +570,7 @@ class EKSports:
             )
         host_manifest = self.directory / "host-manifest.json"
         if recovering and host_manifest.exists():
-            self.host = Ports(
+            self.host = DescriptiveHost(
                 self.directory,
                 json.loads(host_manifest.read_bytes()),
                 profile=profile,
@@ -499,6 +602,25 @@ class EKSports:
 
     def tf(self, root, *args):
         remaining = self.end - time.time() if args[0] != "destroy" else 1800
+        if args[0] == "apply" and self.manifest.get("descriptive", {}).get(BINDING):
+            timing = self.manifest["timing"]
+            if root.name in {"bootstrap", "backstop"}:
+                remaining = (
+                    self.started + timing["capacity_bootstrap_seconds"] - time.time()
+                )
+            else:
+                reserved = sum(
+                    timing[key]
+                    for key in (
+                        "source_upload_budget_seconds",
+                        "minimum_workload_seconds",
+                        "retrieval_reserve_seconds",
+                        "cleanup_reserve_seconds",
+                    )
+                )
+                remaining = min(
+                    remaining - reserved, timing["remaining_infrastructure_seconds"]
+                )
         if (
             args[0] == "apply"
             and root.name.startswith("zone-")
@@ -576,16 +698,52 @@ class EKSports:
             json.dumps({"sha256": digest, "bytes": len(body)})
         )
 
+    def selection_record(self, selected_epoch):
+        return {
+            "session": self.manifest["session"],
+            "started_epoch": self.started,
+            "selected_epoch": selected_epoch,
+            "deadline_epoch": paired_window(self.started, selected_epoch),
+        }
+
+    def arm_selected_window(self, original):
+        record = self.selection_record(self.selected_epoch)
+        if record["deadline_epoch"] > original["deadline_epoch"]:
+            raise ValueError("inf054_gpu_selection_deadline")
+        parameter = "/" + record["session"] + "/deadline"
+        ssm = self.sdk.client("ssm")
+
+        def read():
+            return json.loads(ssm.get_parameter(Name=parameter)["Parameter"]["Value"])
+
+        if read() != original:
+            raise ValueError("descriptive:original_deadline_changed")
+        with (self.directory / "selected-window.json").open("x") as handle:
+            json.dump(record, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        ssm.put_parameter(
+            Name=parameter, Type="String", Value=json.dumps(record), Overwrite=True
+        )
+        if read() != record:
+            raise ValueError("inf054_gpu_selected_deadline_readback")
+        self.end = record["deadline_epoch"]
+        self.deadline = time.monotonic() + self.end - time.time()
+        return record
+
     def make_targeted(self, identifier, *, deadline=None):
         import datetime
 
         stop = min(self.deadline, deadline or self.deadline, time.monotonic() + 60)
         if stop <= time.monotonic():
             raise TimeoutError("descriptive:targeted_reservation_deadline")
-        # Whole seconds round the reservation fallback down, never beyond the
-        # immutable session deadline. The independent backstop is authoritative.
+        # The paired GPU work clock begins when capacity is selected.
+        hold_end = self.end
+        if self.manifest.get("descriptive", {}).get(BINDING):
+            self.selected_epoch = time.time()
+            hold_end = self.selection_record(self.selected_epoch)["deadline_epoch"]
         end_date = (
-            datetime.datetime.fromtimestamp(int(self.end), datetime.UTC)
+            datetime.datetime.fromtimestamp(int(hold_end), datetime.UTC)
             .isoformat()
             .replace("+00:00", "Z")
         )
@@ -623,21 +781,27 @@ class EKSports:
             actual_epoch = datetime.datetime.fromisoformat(
                 actual_end.replace("Z", "+00:00")
             ).timestamp()
-            if actual_epoch > int(self.end):
+            if actual_epoch > int(hold_end):
                 raise ValueError("descriptive:reservation_end_extends_original")
             if rows[0].get(
                 "InstanceMatchCriteria"
-            ) == "targeted" and actual_epoch == int(self.end):
+            ) == "targeted" and actual_epoch == int(hold_end):
                 return rows[0]
             time.sleep(min(1, max(0, stop - time.monotonic())))
         raise TimeoutError("descriptive:targeted_reservation_deadline")
 
-    def check_streaming_quota(self, stage):
+    def check_streaming_quota(self, stage, *, selected_capacity=False):
         result = streaming_quota(self.sdk)
         (self.directory / ("streaming-quota-" + stage + ".json")).write_text(
             json.dumps(result, sort_keys=True)
         )
         require_streaming_quota(result)
+        if self.manifest["descriptive"].get(BINDING):
+            from inf054_gpu_helm import require_regional_capacity
+
+            require_regional_capacity(
+                self.sdk, self.manifest["session"], selected=selected_capacity
+            )
 
     def host_runtime(self, outputs):
         """Preserve the session cutoff across the agent's work-deadline rewrite."""
@@ -686,6 +850,8 @@ class EKSports:
         )
         cpu = self.manifest["descriptive"].get("cpu_clock_rehearsal")
         selected = cpu["selection"] if cpu else select_capacity(self)
+        if self.manifest["descriptive"].get(BINDING):
+            self.arm_selected_window(record)
         if cpu:
             quota = standard_quota_readback(self.sdk)
             (self.directory / "cpu-quota-before-apply.json").write_text(
@@ -696,8 +862,19 @@ class EKSports:
         self.main_root = self.directory / selected["directory"]
         (self.directory / "selected-plan.json").write_text(json.dumps(selected))
         gpu_streaming = self.manifest["descriptive"].get("gpu_streaming")
-        if gpu_streaming:
-            self.check_streaming_quota("before-apply")
+        if gpu_streaming or self.manifest["descriptive"].get(BINDING):
+            self.check_streaming_quota(
+                "before-apply",
+                selected_capacity=bool(self.manifest["descriptive"].get(BINDING)),
+            )
+        if self.manifest["descriptive"].get(BINDING):
+            with (self.directory / "composed-apply-started.json").open("x") as handle:
+                json.dump(
+                    {"selected_epoch": self.selected_epoch, "zone": selected["zone"]},
+                    handle,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
         self.tf(self.main_root, "apply", "-input=false", "create.tfplan")
         outputs = subprocess.check_output(
             [
@@ -712,15 +889,18 @@ class EKSports:
         runtime = self.host_runtime(outputs)
         path = self.directory / "host-manifest.json"
         path.write_text(json.dumps(runtime))
-        self.host = Ports(
+        self.host = DescriptiveHost(
             self.directory, runtime, profile=self.profile, manifest_path=path
         )
         self.host.host = outputs["operator_instance"]["value"]
-        self.host.started, self.host.deadline = self.started, self.end
+        self.host.started, self.host.deadline = (
+            getattr(self, "selected_epoch", None) or self.started,
+            self.end,
+        )
         work_end = self.host_work_deadline()
         self.host.bootstrap(work_end)
         self.host.upload(work_end)
-        if cpu or gpu_streaming:
+        if cpu or gpu_streaming or self.manifest["descriptive"].get(BINDING):
             self.host.upload_gate_a_inputs(work_end)
         self.host.run_checks(work_end)
         self.bootstrap_complete = True
@@ -738,9 +918,15 @@ class EKSports:
         }
 
     def remote(self, phase):
+        if phase in getattr(self, "recovered_phases", {}):
+            return phase_result(self.recovered_phases[phase], phase)
         descriptive = self.manifest.get("descriptive", {})
         if is_streaming_phase(phase) and not descriptive.get("streaming"):
             raise ValueError("descriptive:streaming_binding_required")
+        if phase == HELM_PHASE and not any(
+            descriptive.get(key) for key in ("inf054_cpu_helm", BINDING)
+        ):
+            raise ValueError("inf054_helm_binding_required")
         end = phase_deadline(
             self.end, self.manifest["timing"], phase_budget_name(phase)
         )
@@ -749,22 +935,66 @@ class EKSports:
         self.host.deadline = end
         shell = phase_command(
             phase,
-            isolated=bool(descriptive.get("cpu_clock_rehearsal")),
+            isolated=bool(
+                descriptive.get("cpu_clock_rehearsal") or descriptive.get(BINDING)
+            ),
         )
-        result = self.host.ssm(
-            self.host.host,
-            [shell],
-            timeout_s=max(1, int(end - time.time())),
-            step="descriptive." + phase,
-        )
-        lines = [
-            line.removeprefix("DESCRIPTIVE_PHASE_RESULT=")
-            for line in result["StandardOutputContent"].splitlines()
-            if line.startswith("DESCRIPTIVE_PHASE_RESULT=")
-        ]
-        if len(lines) != 1:
-            raise ValueError("descriptive:phase_result_missing_or_truncated:" + phase)
-        return json.loads(lines[0])
+        self.host.phase_dispatch = (self.directory / "execution/remote-dispatch", phase)
+        try:
+            result = self.host.ssm(
+                self.host.host,
+                [shell],
+                timeout_s=max(1, int(end - time.time())),
+                step="descriptive." + phase,
+            )
+        finally:
+            self.host.phase_dispatch = None
+        return phase_result(result, phase)
+
+    def restore_remote_progress(self):
+        """Read only the durable dispatches for this packet and check them in SSM."""
+        dispatches = self.directory / "execution/remote-dispatch"
+        paths = sorted(dispatches.glob("*.json"))
+        if not paths or not self.host:
+            raise ValueError("descriptive:recovery_no_remote_dispatch")
+        if any(dispatches.glob("*.pending")):
+            raise ValueError("descriptive:recovery_ambiguous_dispatch")
+        rows = [json.loads(path.read_bytes()) for path in paths]
+        hosts = {row["host"] for row in rows}
+        if len(hosts) != 1 or any(not row.get("command") for row in rows):
+            raise ValueError("descriptive:recovery_ambiguous_dispatch")
+        [host] = hosts
+        statuses = []
+        inspect_end = time.monotonic() + 30
+        for row in rows:
+            status = self.aws(
+                "ssm",
+                "get-command-invocation",
+                ["--command-id", row["command"], "--instance-id", host],
+                deadline=inspect_end,
+            )
+            state = status["Status"]
+            if state not in TERMINAL_SSM:
+                raise ValueError(
+                    "descriptive:recovery_remote_unfinished:" + row["phase"]
+                )
+            statuses.append({"phase": row["phase"], "status": state})
+            if row["phase"] in {"export", "retrieve"}:
+                if state == "Success":
+                    self.recovered_phases[row["phase"]] = status
+                else:
+                    self.recovered_phases.pop(row["phase"], None)
+        if not any(
+            row["phase"] not in {"provision", "export", "retrieve"} for row in rows
+        ):
+            raise ValueError("descriptive:recovery_workload_not_dispatched")
+        if not self.host.token:
+            raise ValueError("descriptive:recovery_control_token_unavailable")
+        self.host.host = host
+        self.host.started = self.started
+        self.host.deadline = self.end
+        self.bootstrap_complete = True
+        return statuses
 
     def smoke(self):
         return self.remote("smoke")
@@ -1026,6 +1256,106 @@ class EKSports:
         return {"complete": True, "inventory": result}
 
 
+def recover_execution(ports, *, allow_cleanup=False):
+    # Inspect in-flight work before reserving a receipt, so the same recovery
+    # command can be issued once that work reaches a terminal state.
+    try:
+        statuses = ports.restore_remote_progress()
+    except Exception as error:
+        if not allow_cleanup:
+            raise
+        statuses = []
+        inspection_error = type(error).__name__
+    else:
+        inspection_error = None
+
+    output = ports.directory / "execution/recovery-receipt.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    receipt = {
+        "schema": "m5-descriptive-recovery.v1",
+        "original_deadline_epoch": ports.end,
+        "started_epoch": time.time(),
+        "remote_statuses": statuses,
+        "inspection_error": inspection_error,
+        "phases": [],
+        "complete": False,
+    }
+    original = output.with_name("receipt.json")
+    receipt["original_receipt_sha256"] = (
+        file_digest(original) if original.is_file() else None
+    )
+    with output.open("x", encoding="utf-8") as stream:
+        json.dump(receipt, stream)
+
+    failures = []
+
+    def run_phase(name, action):
+        started = time.monotonic()
+        row = {"name": name, "started_epoch": time.time()}
+        try:
+            result = action()
+            if name in {"teardown", "inventory"} and result.get("complete") is not True:
+                raise ValueError("descriptive:" + name + "_incomplete")
+        except Exception as error:
+            reason = str(error)
+            row.update(
+                status="FAILED",
+                error_type=type(error).__name__,
+                reason=reason if re.fullmatch(r"[a-z0-9_:.-]{1,128}", reason) else None,
+            )
+            failures.append(error)
+        else:
+            row.update(status="PASS", result=result)
+            return result
+        finally:
+            row["elapsed_s"] = time.monotonic() - started
+            receipt["phases"].append(row)
+            record_json(output, receipt)
+
+    try:
+        if inspection_error is None:
+
+            def export():
+                if (
+                    time.time()
+                    >= phase_deadline(ports.end, ports.manifest["timing"], "export")
+                    and "export" not in ports.recovered_phases
+                ):
+                    raise TimeoutError("descriptive:recovery_export_deadline")
+                return ports.export()
+
+            frozen = run_phase("export", export)
+            if frozen is not None:
+
+                def retrieve():
+                    if time.time() >= phase_deadline(
+                        ports.end, ports.manifest["timing"], "retrieve"
+                    ):
+                        raise TimeoutError("descriptive:recovery_retrieval_deadline")
+                    result = ports.retrieve()
+                    if result != frozen:
+                        raise ValueError("descriptive:retrieval_hash_mismatch")
+                    if frozen.get("kind") == "repo-free-diagnostics":
+                        raise ValueError("descriptive:diagnostics_only_export")
+                    return result
+
+                run_phase("retrieve", retrieve)
+    finally:
+        try:
+            run_phase("teardown", ports.teardown)
+        finally:
+            run_phase("inventory", ports.inventory)
+    receipt["complete"] = not failures and inspection_error is None
+    receipt["finished_epoch"] = time.time()
+    receipt["original_receipt_unchanged"] = (
+        file_digest(original) if original.is_file() else None
+    ) == receipt["original_receipt_sha256"]
+    record_json(output, receipt)
+    if failures:
+        raise failures[0]
+    return receipt
+
+
 def main():
     import argparse
 
@@ -1033,22 +1363,28 @@ def main():
     parser.add_argument("--packet", type=Path, required=True)
     parser.add_argument("--approved-manifest-sha256")
     parser.add_argument("--cleanup-only", action="store_true")
+    parser.add_argument("--recover", action="store_true")
     parser.add_argument("--profile", default="admin-learning")
     args = parser.parse_args()
     try:
         run_packet(args)
     finally:
-        write_cost(args.packet)
+        if (
+            not args.recover
+            or (args.packet / "execution/recovery-receipt.json").is_file()
+        ):
+            write_cost(args.packet)
 
 
 def run_packet(args):
+    recovering = args.cleanup_only or getattr(args, "recover", False)
     if (
-        not args.cleanup_only
+        not recovering
         and file_digest(args.packet / "manifest.json") != args.approved_manifest_sha256
     ):
         raise ValueError("descriptive:independently_approved_manifest_required")
     manifest = json.loads((args.packet / "manifest.json").read_bytes())
-    if not args.cleanup_only:
+    if not recovering:
         require_review(
             subprocess.check_output(["git", "show", "HEAD:REVIEW.md"], cwd=ROOT).decode(
                 "utf-8"
@@ -1083,10 +1419,16 @@ def run_packet(args):
     verify_packet_files(args.packet, manifest)
     if manifest["descriptive"].get("cpu_clock_rehearsal"):
         verify_cpu_binding(args.packet, manifest)
+    if manifest["descriptive"].get("inf054_cpu_helm"):
+        require_helm_simulation(args.packet, manifest)
     if manifest["descriptive"].get("gpu_streaming"):
         verify_gpu_binding(args.packet, manifest)
-    ports = EKSports(args.packet, profile=args.profile, recovering=args.cleanup_only)
-    if args.cleanup_only:
+    if manifest["descriptive"].get(BINDING):
+        verify_gpu_helm(args.packet, manifest)
+    ports = EKSports(args.packet, profile=args.profile, recovering=recovering)
+    if getattr(args, "recover", False):
+        print(json.dumps(recover_execution(ports, allow_cleanup=args.cleanup_only)))
+    elif args.cleanup_only:
         try:
             result = ports.teardown()
         finally:
@@ -1096,6 +1438,13 @@ def run_packet(args):
         from inf060_eks_operator import execute_streaming
 
         execute_streaming(ports, args.packet / "execution")
+    elif any(manifest["descriptive"].get(key) for key in ("inf054_cpu_helm", BINDING)):
+        execute(
+            ports,
+            args.packet / "execution",
+            deadline=ports.deadline,
+            workload=((HELM_PHASE, lambda: ports.remote(HELM_PHASE)),),
+        )
     else:
         execute(ports, args.packet / "execution", deadline=ports.deadline)
 

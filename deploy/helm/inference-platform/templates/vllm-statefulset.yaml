@@ -1,0 +1,110 @@
+{{- include "inference.replicaOwnership" . -}}
+{{- if ne (int .Values.ports.clock) 8765 }}{{ fail "the pinned clock sidecar requires port 8765" }}{{ end -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {{- include "inference.metadata" (list . "vllm") | nindent 2 }}
+{{- if .Values.autoscaling.enabled }}
+  annotations:
+    inference-platform/autoscaling: "true"
+{{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.engineReplicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+        m5-session: {{ .Values.namespace }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      nodeSelector:
+        m5-role: {{ .Values.engine.nodeRole }}
+      containers:
+      - name: vllm
+        image: {{ include "inference.digestImage" .Values.engine.image }}
+        command: {{- toYaml .Values.engine.command | nindent 10 }}
+        args: {{- tpl (toYaml .Values.engine.args) . | nindent 10 }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.ports.engine }}
+        env: {{- toYaml .Values.engine.env | nindent 10 }}
+        startupProbe: {{- include "inference.probe" (list .Values.engine.startupProbe "httpGet" .Values.ports.engine) | nindent 10 }}
+        readinessProbe: {{- include "inference.probe" (list .Values.engine.readinessProbe "httpGet" .Values.ports.engine) | nindent 10 }}
+        volumeMounts:
+        {{- if .Values.engine.mockConfigMap }}
+        - name: mock
+          mountPath: /mock
+          readOnly: true
+        {{- else }}
+        - name: model
+          mountPath: /root/.cache/huggingface
+        - name: shm
+          mountPath: /dev/shm
+        - name: logging
+          mountPath: /logging
+          readOnly: true
+        {{- end }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources: {{- toYaml .Values.engine.resources | nindent 10 }}
+      - name: clock-server
+        image: {{ include "inference.digestImage" .Values.clientImage }}
+        command: {{- toYaml .Values.clock.command | nindent 10 }}
+        env: {{- toYaml .Values.clock.env | nindent 10 }}
+        ports:
+        - name: inf060-clock
+          containerPort: {{ .Values.ports.clock }}
+        readinessProbe: {{- tpl (toYaml .Values.clock.readinessProbe) . | nindent 10 }}
+        resources: {{- toYaml .Values.clock.resources | nindent 10 }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      {{- if not .Values.engine.mockConfigMap }}
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Equal
+        value: 'true'
+        effect: NoSchedule
+      {{- end }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: vllm
+            topologyKey: kubernetes.io/hostname
+      volumes:
+      {{- if .Values.engine.mockConfigMap }}
+      - name: mock
+        configMap:
+          name: {{ .Values.engine.mockConfigMap }}
+      {{- else }}
+      - name: model
+        hostPath:
+          path: /var/cache/mti-m5/models
+          type: DirectoryOrCreate
+      - name: shm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 1Gi
+      - name: logging
+        configMap:
+          name: inf060-clock
+      {{- end }}
+  serviceName: vllm
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: OnDelete

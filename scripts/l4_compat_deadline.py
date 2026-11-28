@@ -31,7 +31,9 @@ def fenced_stop(process):
         process.wait(timeout=5)
 
 
-def supervise(commands, output, *, work_seconds=3600, cleanup_seconds=600):
+def supervise(
+    commands, output, *, work_seconds=3600, cleanup_seconds=600, origin_epoch=None
+):
     output.mkdir(parents=True, exist_ok=True)
     lock = output / "supervisor.lock"
     with lock.open("x") as stream:
@@ -54,6 +56,7 @@ def supervise(commands, output, *, work_seconds=3600, cleanup_seconds=600):
             output / ("attempt-" + uuid.uuid4().hex),
             work_seconds=work_seconds,
             cleanup_seconds=cleanup_seconds,
+            origin_epoch=origin_epoch,
         )
     finally:
         if packet_lock is not None:
@@ -61,11 +64,15 @@ def supervise(commands, output, *, work_seconds=3600, cleanup_seconds=600):
         lock.unlink()
 
 
-def _supervise(commands, output, *, work_seconds, cleanup_seconds):
+def _supervise(commands, output, *, work_seconds, cleanup_seconds, origin_epoch=None):
     if work_seconds <= 0 or cleanup_seconds <= 0:
         raise ValueError("l4:independent_supervisor")
     output.mkdir(parents=True, exist_ok=False)
-    origin, mono = time.time(), time.monotonic()
+    origin = time.time() if origin_epoch is None else origin_epoch
+    age = time.time() - origin
+    if not 0 <= age < work_seconds:
+        raise ValueError("l4:independent_supervisor_origin")
+    mono = time.monotonic() - age
     receipt = {
         "t0_epoch": origin,
         "deadline_epoch": origin + work_seconds + cleanup_seconds,
@@ -95,7 +102,9 @@ def _supervise(commands, output, *, work_seconds, cleanup_seconds):
             )
             receipt["controller_pid"] = process.pid
             try:
-                receipt["controller_exit"] = process.wait(timeout=work_seconds)
+                receipt["controller_exit"] = process.wait(
+                    timeout=max(0.001, mono + work_seconds - time.monotonic())
+                )
             except subprocess.TimeoutExpired:
                 receipt["cutoff"] = True
             finally:

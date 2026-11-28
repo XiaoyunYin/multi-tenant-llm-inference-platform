@@ -294,7 +294,7 @@ class Round238Tests(unittest.TestCase):
 
         with ExitStack() as stack:
             stack.enter_context(patch.object(operator, "ROOT", root))
-            stack.enter_context(patch.object(operator, "PRIOR_SPEND_USD", prior_spend))
+            stack.enter_context(patch.object(operator, "PRIOR_RUN_COST_USD", prior_spend))
             stack.enter_context(patch.object(operator, "git", side_effect=fake_git))
             stack.enter_context(patch.object(operator, "python_hashes", return_value={}))
             stack.enter_context(patch.object(operator, "run_exe", side_effect=fake_run))
@@ -310,11 +310,11 @@ class Round238Tests(unittest.TestCase):
 
     def test_r322_prepare_records_task_and_cumulative_forecasts(self):
         with tempfile.TemporaryDirectory() as directory:
-            manifest = self.prepare_packet(Path(directory), cloud.PRIOR_SPEND_USD)
+            manifest = self.prepare_packet(Path(directory), cloud.PRIOR_RUN_COST_USD)
         expected_task = 6 * manifest["hourly_all_resources_usd"] + 1.0
         self.assertAlmostEqual(manifest["task_cost_usd"], expected_task)
         self.assertAlmostEqual(
-            manifest["cumulative_cost_usd"], cloud.PRIOR_SPEND_USD + expected_task
+            manifest["cumulative_cost_usd"], cloud.PRIOR_RUN_COST_USD + expected_task
         )
         self.assertIn("cost_guard_hours", manifest)
         self.assertIn("cost_guard_margin_s", manifest)

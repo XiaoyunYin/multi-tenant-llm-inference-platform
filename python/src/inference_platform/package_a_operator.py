@@ -30,7 +30,7 @@ from .package_a_cloud import (
     EXPORT_MAX_BYTES,
     HOST_TIMER_S,
     INSTANCE_TYPE,
-    PRIOR_SPEND_USD,
+    PRIOR_RUN_COST_USD,
     TASK_CHECKS,
     Lifecycle,
     run_exe,
@@ -361,7 +361,7 @@ def validate_prior_spend_ledger(root=None, ledger_path=None):
         declared_prior = float(ledger["prior_spend_usd"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("prior_spend_ledger_invalid_paid_total") from exc
-    canonical_prior = float(package_a_cloud_module.PRIOR_SPEND_USD)
+    canonical_prior = float(package_a_cloud_module.PRIOR_RUN_COST_USD)
     if not math.isclose(paid_total, declared_prior, rel_tol=0.0, abs_tol=1e-9) or not math.isclose(
         declared_prior, canonical_prior, rel_tol=0.0, abs_tol=1e-9
     ):
@@ -894,12 +894,12 @@ def prepare(directory, refresh, *, commit=None, preflight=None, checks=TASK_CHEC
         bundle.stat().st_size,
         checks,
         hourly_all_resources_usd=hourly,
-        prior_spend_usd=PRIOR_SPEND_USD,
+        prior_spend_usd=PRIOR_RUN_COST_USD,
         cleanup_cost_reserve_usd=1.0,
         cap_usd=CAP_USD,
     )
     task_cost = timing["cost_hours"] * hourly + COST_FIXED_USD
-    cumulative_cost = PRIOR_SPEND_USD + task_cost
+    cumulative_cost = PRIOR_RUN_COST_USD + task_cost
     if timing["cost_guard_margin_s"] <= 0:
         raise ValueError("cost_guard_budget_exceeds_guard_time")
     if cumulative_cost >= CAP_USD:
@@ -923,7 +923,7 @@ def prepare(directory, refresh, *, commit=None, preflight=None, checks=TASK_CHEC
         "storage_worksheet": worksheet,
         "task_cost_usd": task_cost,
         "cumulative_cost_usd": cumulative_cost,
-        "prior_spend_usd": PRIOR_SPEND_USD,
+        "prior_spend_usd": PRIOR_RUN_COST_USD,
         "hard_cap_usd": CAP_USD,
         "ceiling_usd": 300,
         **timing,
@@ -1241,7 +1241,15 @@ class Ports(Operator):
     def cumulative_cost(self, start, now):
         return self.manifest.get("prior_spend_usd", 0) + self.task_cost(start, now)
 
-    def command(self, argv, deadline, name):
+    @property
+    def terraform_directory(self):
+        return self.directory / "terraform"
+
+    @property
+    def saved_create_sha256(self):
+        return self.manifest["sealed_plans"]["create_sha256"]
+
+    def command(self, argv, deadline, name, *, execute=run_exe):
         argv = list(argv)
         if argv[0] in self.manifest["operator_tools"]:
             argv[0] = self.manifest["operator_tools"][argv[0]]["path"]
@@ -1251,9 +1259,9 @@ class Ports(Operator):
         with output.with_suffix(".reserved").open("xb"):
             if output.exists() or output.with_suffix(".command.json").exists():
                 raise FileExistsError("command_receipt_exists:" + name)
-        return run_exe(
+        return execute(
             argv,
-            cwd=self.directory / "terraform",
+            cwd=self.terraform_directory,
             output=output,
             timeout=max(0.001, deadline - time.time()),
             env={
@@ -1270,18 +1278,13 @@ class Ports(Operator):
         self.started = time.time()
         self.deadline = end
         # First possible billable operation is already inside Lifecycle.finally.
-        if (
-            sha(self.directory / "terraform/create.tfplan")
-            != self.manifest["sealed_plans"]["create_sha256"]
-        ):
+        if sha(self.terraform_directory / "create.tfplan") != self.saved_create_sha256:
             raise ValueError("saved_plan_changed_before_consume")
         # Exclusive creation fences concurrent invocations; never replace this
         # durable consume even if Apply has an ambiguous or failed reply.
         with (self.directory / "consumed.json").open("xb") as stream:
             stream.write(
-                json.dumps(
-                    {"utc": utc(), "plan_sha256": self.manifest["sealed_plans"]["create_sha256"]}
-                ).encode()
+                json.dumps({"utc": utc(), "plan_sha256": self.saved_create_sha256}).encode()
             )
             stream.flush()
             os.fsync(stream.fileno())
@@ -1414,15 +1417,30 @@ class Ports(Operator):
                 ):
                     time.sleep(min(0.5, max(0, end - time.time())))
                     continue
-                try:
-                    if self.child:
-                        stop_forward(self.child)
-                finally:
-                    self.child = None
+                stop = stop_forward(self.child) if self.child else None
+                # A failed verification leaves the handle available for teardown.
+                self.child = None
                 self.reconnects += 1
                 save(
                     self.runtime / "transport.json",
-                    {"reconnects": self.reconnects, "path": path, "error": type(exc).__name__},
+                    {
+                        "reconnects": self.reconnects,
+                        "path": path,
+                        "error": type(exc).__name__,
+                        **(
+                            {
+                                "descendants_verified": stop["descendants_verified"],
+                                "descendants_observed": stop["descendants_observed"],
+                            }
+                            if stop and "descendants_verified" in stop
+                            else {}
+                        ),
+                        **(
+                            {"tree_stop_error": stop["tree_stop_error"]}
+                            if stop and "tree_stop_error" in stop
+                            else {}
+                        ),
+                    },
                 )
                 time.sleep(min(backoff, max(0, end - time.time())))
                 backoff = min(10, backoff * 2)

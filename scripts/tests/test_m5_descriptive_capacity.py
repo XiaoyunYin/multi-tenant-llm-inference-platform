@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from inference_platform.m5_descriptive_operator import session_timing
 from m5_descriptive_capacity import EKS_ZONES, select_capacity, zone_pairs
 from m5_descriptive_diagnostics import write_cost
-from m5_descriptive_eks import EKSports
+from m5_descriptive_eks import DescriptiveHost, EKSports
 
 
 def offerings():
@@ -229,7 +229,7 @@ class CapacityTests(unittest.TestCase):
             ports.started, ports.end, ports.profile = 1000, 19000, "fixture"
             ports.manifest.update(
                 descriptive={},
-                host_manifest={},
+                host_manifest={"session_manager_plugin_path": "fixture-plugin"},
                 operator_tools={"terraform": {"path": "fixture"}},
             )
             (Path(tmp) / "manifest.json").write_text(json.dumps(ports.manifest))
@@ -251,9 +251,14 @@ class CapacityTests(unittest.TestCase):
                     "m5_descriptive_eks.subprocess.check_output",
                     return_value=json.dumps(output).encode(),
                 ),
-                patch("m5_descriptive_eks.Ports"),
+                patch("m5_descriptive_eks.DescriptiveHost.bootstrap", autospec=True),
+                patch("m5_descriptive_eks.DescriptiveHost.upload", autospec=True),
+                patch("m5_descriptive_eks.DescriptiveHost.run_checks", autospec=True),
+                patch("m5_descriptive_eks.DescriptiveHost.ssm", autospec=True),
             ):
                 result = ports.provision()
+            self.assertIsInstance(ports.host, DescriptiveHost)
+            self.assertEqual(ports.host.host, "fixture-host")
             self.assertEqual(result["capacity_zone"], "us-east-1a")
             self.assertEqual(
                 [c.args[0].name for c in ports.tf.call_args_list],

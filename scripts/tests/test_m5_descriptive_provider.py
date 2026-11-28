@@ -302,6 +302,7 @@ class ProviderTests(unittest.TestCase):
         import datetime
 
         ports = EKSports.__new__(EKSports)
+        ports.manifest = {"descriptive": {}}
         ports.end, ports.deadline = time.time() + 18000, time.monotonic() + 60
         ports.aws = Mock()
         ports.capacity = Mock()
@@ -337,6 +338,7 @@ class ProviderTests(unittest.TestCase):
         import time
 
         ports = EKSports.__new__(EKSports)
+        ports.manifest = {"descriptive": {}}
         ports.end = time.time() - 1
         with patch("m5_descriptive_eks.subprocess.run") as run:
             with self.assertRaisesRegex(TimeoutError, "terraform_original_deadline"):

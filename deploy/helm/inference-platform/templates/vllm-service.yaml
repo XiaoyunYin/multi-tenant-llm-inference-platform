@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata: {{- include "inference.metadata" (list . "vllm") | nindent 2 }}
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+  ports:
+  - name: http
+    port: {{ .Values.ports.engine }}
+    targetPort: {{ .Values.ports.engine }}
+  clusterIP: None

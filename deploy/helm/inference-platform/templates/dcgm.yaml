@@ -1,0 +1,19 @@
+{{- if .Values.dcgm.enabled }}
+{{- $dcgm := .Files.Get "files/dcgm-exporter.json" | mustFromJson }}
+{{- $_ := set $dcgm.metadata "namespace" .Values.namespace }}
+{{ $dcgm | toJson }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-exporter
+  namespace: {{ .Values.namespace }}
+spec:
+  clusterIP: None
+  selector:
+    app: dcgm-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
+{{- end }}

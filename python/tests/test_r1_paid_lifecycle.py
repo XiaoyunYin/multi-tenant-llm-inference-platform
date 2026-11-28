@@ -1685,3 +1685,52 @@ while True:
                 inputs["plan_sha256"] = "c" * 64
                 with self.assertRaisesRegex(ValueError, "latest committed Claude"):
                     committed_approval(repo, path)(inputs)
+
+
+class RoutineTunnelStopTests(unittest.TestCase):
+    def test_windows_hung_taskkill_reaps_only_the_owned_forward_tree(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+
+        from inference_platform.session_stop import stop_forward
+
+        child = Mock(pid=421, r1_ssm_log=None)
+        child.poll.return_value = None
+        child.wait.return_value = 1
+        live = {
+            421: (99, "aws.exe"),
+            422: (421, "aws.exe"),
+            423: (422, "session-manager-plugin.exe"),
+            701: (99, "aws.exe"),
+            702: (701, "session-manager-plugin.exe"),
+        }
+        kernel = Mock()
+        kernel.OpenProcess.side_effect = lambda access, inherit, pid: pid
+        kernel.WaitForSingleObject.side_effect = lambda pid, ms: 258 if pid in live else 0
+
+        def stop(pid, code):
+            del live[pid]
+            return True
+
+        kernel.TerminateProcess.side_effect = stop
+        child.terminate.side_effect = lambda: live.pop(421)
+        with (
+            patch("inference_platform.session_stop.os", SimpleNamespace(name="nt")),
+            patch(
+                "inference_platform.session_stop.ctypes.WinDLL", return_value=kernel, create=True
+            ),
+            patch(
+                "inference_platform.session_stop.windows_processes", side_effect=lambda: dict(live)
+            ),
+            patch(
+                "inference_platform.session_stop.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("taskkill", 5),
+            ),
+        ):
+            receipt = stop_forward(child)
+        self.assertTrue(receipt["reaped"])
+        self.assertTrue(receipt["descendants_verified"])
+        self.assertEqual(receipt["descendants_observed"], 2)
+        self.assertEqual(receipt["tree_stop_error"], "TimeoutExpired")
+        self.assertEqual(set(live), {701, 702})
+        child.terminate.assert_called_once_with()

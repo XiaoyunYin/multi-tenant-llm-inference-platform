@@ -128,7 +128,7 @@ def phase_deadline(original_end, timing, phase):
     return stop - timing["retrieval_reserve_seconds"]
 
 
-def execute(ports, output, *, deadline, rehearsal=False):
+def execute(ports, output, *, deadline, rehearsal=False, workload=None):
     """Same order and finally cleanup for CPU and later approved EKS adapters.
 
     The caller provides an original absolute monotonic deadline and independent
@@ -179,10 +179,15 @@ def execute(ports, output, *, deadline, rehearsal=False):
 
     try:
         phase("provision", ports.provision)
-        phase("smoke", ports.smoke)
-        phase("load", lambda: ports.load(LEVELS))
-        phase("gateway_rollout", lambda: ports.rollout("gateway"))
-        phase("replica_rollout", lambda: ports.rollout("vllm"))
+        if workload is None:
+            workload = (
+                ("smoke", ports.smoke),
+                ("load", lambda: ports.load(LEVELS)),
+                ("gateway_rollout", lambda: ports.rollout("gateway")),
+                ("replica_rollout", lambda: ports.rollout("vllm")),
+            )
+        for name, function in workload:
+            phase(name, function)
         frozen = phase("export", ports.export)
 
         phase("retrieve", lambda: retrieve_verified(frozen))

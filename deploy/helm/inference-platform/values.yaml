@@ -1,0 +1,250 @@
+namespace: mti-m5-desc-inf060-r423
+manageNamespace: true
+gatewayImage: registry.invalid/inf060-gateway@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+clientImage: registry.invalid/inf060-client@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+engineReplicas: 2
+firstItemTimeout: ''
+snapshotAdminAPI: false
+autoscaling:
+  enabled: false
+  threshold: ''
+  burstSeconds: 900
+  stabilizationSeconds: 900
+  kedaMetricsTarget: keda-operator.keda.svc:8080
+dcgm:
+  enabled: false
+ports:
+  gateway: 8080
+  engine: 8000
+  redis: 6379
+  ingress: 8443
+  telemetry: 9090
+  clock: 8765
+clockPolicy:
+  peerLabels:
+    app: load-client
+    inf060-role: streaming-client
+redis:
+  replicas: 1
+  image: redis:8.2.9-alpine@sha256:30abb90e62f14b737010746def3ba99cc79fe19dcdb3d37b41f21fc62e7da19d
+  args:
+  - redis-server
+  - --save
+  - ''
+  - --appendonly
+  - 'no'
+  - --maxmemory
+  - 256mb
+  - --maxmemory-policy
+  - noeviction
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: '1'
+      memory: 384Mi
+  readinessProbe:
+    exec:
+      command:
+      - redis-cli
+      - ping
+    periodSeconds: 1
+gateway:
+  replicas: 2
+  env:
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: BACKEND_DISCOVERY
+    value: endpointslices
+  - name: BACKEND_DISCOVERY_NAMESPACE
+    value: '{{ .Values.namespace }}'
+  - name: BACKEND_DISCOVERY_SERVICE
+    value: vllm
+  - name: BACKEND_DISCOVERY_INTERVAL
+    value: 250ms
+  - name: TENANT_CONFIG_PATH
+    value: /config/tenants.json
+  - name: CACHE_SALT_SECRET_FILE
+    value: /config/cache-salt.secret
+  - name: REDIS_ADDR
+    value: redis:{{ .Values.ports.redis }}
+  - name: ADMISSION_NAMESPACE
+    value: '{{ .Values.namespace }}'
+  - name: GATEWAY_TOTAL_TIMEOUT
+    value: 30s
+  - name: GATEWAY_SHUTDOWN_GRACE
+    value: 35s
+  - name: GATEWAY_SHUTDOWN_HARD_STOP
+    value: 10s
+  - name: ADMISSION_LEASE
+    value: 90s
+  - name: ADMISSION_CAPACITY_MODE
+    value: dynamic
+  - name: ADMISSION_RUNNING
+    value: '16'
+  - name: ADMISSION_WAITING
+    value: '4'
+  - name: ADMISSION_REPORT_TTL
+    value: 8s
+  - name: ADMISSION_HOLD_DOWN
+    value: 2s
+  - name: ADMISSION_GATEWAY_ID
+    value: $(POD_NAME)
+  - name: GATEWAY_ROUTING_POLICY
+    value: round_robin
+  - name: OTEL_SDK_DISABLED
+    value: 'true'
+  - name: GATEWAY_INF060_OBSERVATIONS
+    value: 'true'
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: '1'
+      memory: 512Mi
+  startupProbe:
+    httpGet:
+      path: /healthz
+    periodSeconds: 1
+    failureThreshold: 60
+  readinessProbe:
+    httpGet:
+      path: /readyz
+    periodSeconds: 1
+    failureThreshold: 1
+engine:
+  nodeRole: gpu
+  mockConfigMap: ''
+  image: docker.io/vllm/vllm-openai@sha256:082ca6f035279109041ffd3fe0695cb568b29bc580b35c4f297a66a08b216c1b
+  command:
+  - vllm
+  - serve
+  args:
+  - Qwen/Qwen2.5-7B-Instruct
+  - --revision
+  - a09a35458c702b33eeacc393d103063234e8bc28
+  - --host
+  - 0.0.0.0
+  - --port
+  - '{{ .Values.ports.engine }}'
+  - --dtype
+  - bfloat16
+  - --max-model-len
+  - '8192'
+  - --block-size
+  - '16'
+  - --max-num-seqs
+  - '16'
+  - --max-num-queued-reqs
+  - '32'
+  - --gpu-memory-utilization
+  - '0.90'
+  - --enable-prefix-caching
+  - --generation-config
+  - vllm
+  - --shutdown-timeout
+  - '35'
+  - --enable-log-requests
+  - --max-log-len
+  - '0'
+  env:
+  - name: VLLM_WORKER_MULTIPROC_METHOD
+    value: spawn
+  - name: HF_HUB_OFFLINE
+    value: '1'
+  - name: VLLM_LOGGING_CONFIG_PATH
+    value: /logging/config.json
+  - name: VLLM_LOGGING_LEVEL
+    value: INFO
+  - name: VLLM_LOGGING_COLOR
+    value: '0'
+  - name: NO_COLOR
+    value: '1'
+  - name: TZ
+    value: UTC
+  resources:
+    requests:
+      nvidia.com/gpu: '1'
+      cpu: '2'
+      memory: 8Gi
+    limits:
+      nvidia.com/gpu: '1'
+      cpu: '4'
+      memory: 12Gi
+  startupProbe:
+    httpGet:
+      path: /health
+    periodSeconds: 1
+    failureThreshold: 640
+  readinessProbe:
+    httpGet:
+      path: /health
+    periodSeconds: 1
+    failureThreshold: 1
+clock:
+  command:
+  - python
+  - -m
+  - inference_platform.inf060_eks_clock
+  env:
+  - name: POD_UID
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.uid
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+  readinessProbe:
+    exec:
+      command:
+      - python
+      - -c
+      - import socket; socket.create_connection(('127.0.0.1', {{ .Values.ports.clock }}), timeout=0.5).close()
+    periodSeconds: 2
+ingress:
+  replicas: 1
+  image: nginx:1.30.6-alpine@sha256:970364228b1e4f932abc22d321932816782cca8a20b85a77552a7cfe9acfb3b5
+  command:
+  - nginx
+  - -g
+  - daemon off;
+  resources:
+    requests:
+      cpu: 100m
+      memory: 32Mi
+    limits:
+      cpu: '1'
+      memory: 128Mi
+  readinessProbe:
+    tcpSocket: {}
+    periodSeconds: 1
+telemetry:
+  replicas: 1
+  scrapeInterval: 5s
+  image: prom/prometheus:v3.13.0@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7
+  args:
+  - --config.file=/etc/prometheus/prometheus.yml
+  - --storage.tsdb.path=/data
+  - --storage.tsdb.retention.time=4h
+  - --storage.tsdb.retention.size=512MB
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+devicePlugin:
+  enabled: true
+  image: nvcr.io/nvidia/k8s-device-plugin:v0.17.1@sha256:af31e2b7c7f89834c4e5219860def7ac2e49a207b3d4e8610d5a26772b7738e5
+  env:
+  - name: FAIL_ON_INIT_ERROR
+    value: 'true'

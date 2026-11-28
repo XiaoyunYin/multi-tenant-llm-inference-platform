@@ -7,6 +7,7 @@ import os
 import re
 import signal
 import subprocess
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -92,24 +93,125 @@ def stop_child(child: subprocess.Popen, timeout: float = 5) -> dict:
     return {"pid": child.pid, "status": "stopped", "reaped": True, "returncode": return_code}
 
 
-def stop_forward(child: subprocess.Popen) -> dict:
-    """The AWS CLI owns a plugin child; terminate the forward's process tree too."""
-    terminate_forward_session(child)  # Also covers non-R1 paid-path forward owners.
-    if os.name == "nt":
+def windows_processes():
+    """Read PID, parent PID and executable basename through the native API."""
+    from ctypes import wintypes as w
+
+    class Entry(ctypes.Structure):
+        _fields_ = [
+            ("size", w.DWORD),
+            ("usage", w.DWORD),
+            ("pid", w.DWORD),
+            ("heap", ctypes.c_size_t),
+            ("module", w.DWORD),
+            ("threads", w.DWORD),
+            ("parent", w.DWORD),
+            ("priority", w.LONG),
+            ("flags", w.DWORD),
+            ("name", w.WCHAR * 260),
+        ]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateToolhelp32Snapshot.argtypes = [w.DWORD, w.DWORD]
+    kernel.CreateToolhelp32Snapshot.restype = w.HANDLE
+    for function in (kernel.Process32FirstW, kernel.Process32NextW):
+        function.argtypes = [w.HANDLE, ctypes.POINTER(Entry)]
+        function.restype = w.BOOL
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    snapshot = kernel.CreateToolhelp32Snapshot(2, 0)
+    if snapshot == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        row = Entry(size=ctypes.sizeof(Entry))
+        rows = {}
+        read = kernel.Process32FirstW
+        while read(snapshot, ctypes.byref(row)):
+            rows[row.pid] = (row.parent, row.name.lower())
+            read = kernel.Process32NextW
+        if ctypes.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise ctypes.WinError(ctypes.get_last_error())
+        return rows
+    finally:
+        kernel.CloseHandle(snapshot)
+
+
+def owned_forward_pids(rows, roots):
+    names = {"aws.exe", "session-manager-plugin.exe"}
+    family = set(roots)
+    while children := {pid for pid, (parent, _) in rows.items() if parent in family} - family:
+        family.update(children)
+    return {pid for pid in family - set(roots) if rows[pid][1] in names}
+
+
+def windows_forward_stop(child):
+    """Keep process handles open so an owned PID cannot be mistaken for a new process."""
+    from ctypes import wintypes as w
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.TerminateProcess.argtypes = [w.HANDLE, w.UINT]
+    kernel.WaitForSingleObject.argtypes = [w.HANDLE, w.DWORD]
+    kernel.WaitForSingleObject.restype = w.DWORD
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+
+    with ExitStack() as stack:
+        handles = {}
+
+        def capture():
+            roots = {child.pid, *handles}
+            observed = windows_processes()
+            for pid in owned_forward_pids(observed, roots):
+                handle = kernel.OpenProcess(0x100001, False, pid)  # SYNCHRONIZE | TERMINATE
+                if not handle:
+                    code = ctypes.get_last_error()
+                    if code != 87:  # ERROR_INVALID_PARAMETER: exited before open.
+                        raise ctypes.WinError(code)
+                    continue
+                stack.callback(kernel.CloseHandle, handle)
+                if windows_processes().get(pid) == observed[pid]:
+                    handles[pid] = handle
+
+        capture()
+        terminate_forward_session(child)
+        tree_stop_error = None
         if child.poll() is None:
-            subprocess.run(
-                ["taskkill", "/PID", str(child.pid), "/T", "/F"],
-                capture_output=True,
-                check=False,
-                timeout=5,
-            )
-    else:
-        # Forward Popen creates a new session, so its group contains only its own
-        # AWS/plugin descendants, even when the AWS CLI parent has already exited.
-        try:
-            os.killpg(child.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                    timeout=5,
+                )
+            except subprocess.TimeoutExpired:
+                tree_stop_error = "TimeoutExpired"
+        receipt = stop_child(child)
+        capture()
+        for handle in handles.values():
+            if kernel.WaitForSingleObject(handle, 0) != 0:
+                kernel.TerminateProcess(handle, 1)
+        if any(kernel.WaitForSingleObject(handle, 5000) != 0 for handle in handles.values()):
+            raise RuntimeError("forward_descendants_unverified")
+        if owned_forward_pids(windows_processes(), {child.pid, *handles}):
+            raise RuntimeError("forward_descendants_unverified")
+        return {
+            **receipt,
+            "descendants_verified": True,
+            "descendants_observed": len(handles),
+            **({"tree_stop_error": tree_stop_error} if tree_stop_error else {}),
+        }
+
+
+def stop_forward(child: subprocess.Popen) -> dict:
+    """Close the owned SSM session and verify the local forward process tree."""
+    if os.name == "nt":
+        return windows_forward_stop(child)
+    terminate_forward_session(child)
+    # A forward's POSIX process group is isolated at launch.
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
     return stop_child(child)
 
 

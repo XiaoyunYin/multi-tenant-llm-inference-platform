@@ -1,4 +1,4 @@
-# Full INF-036 before campaign
+# CPU gateway baseline campaign
 
 Source `6563897` (gateway runtime is unchanged from `5e7dfa8`). 42 unprofiled rate cases: seven rates, three alternating direct/gateway pairs per rate; plus three closed-loop concurrency profile cases and six 15s CPU profiles. Exact inputs and versions are in environment.json. All independent raw audits and teardown passed. Both global and tenant reservations returned to zero after every case; release-failure counter deltas were zero.
 

@@ -250,7 +250,7 @@ GAPS = (
         [41, 44],
         "inf037b_setup.py",
         "startup_row",
-        "Round 341 binds API-retained device report/producer/node/pin joins. The actual independent node producer, secured source/clock mapping and deployed capture source closure remain 4e_device_release_inputs; Pod/process exit or Ready never proves GPU-free.",
+        "The device producer binds API-retained device report/producer/node/pin joins. The actual independent node producer, secured source/clock mapping and deployed capture source closure remain 4e_device_release_inputs; Pod/process exit or Ready never proves GPU-free.",
     ),
     (
         "placement_api",
@@ -258,7 +258,7 @@ GAPS = (
         [76, 104, 106],
         "inf037b_placement.py",
         "check_placement",
-        "Round 340 implements authoritative Job/Pod/Node/full-census capture with the single checker; final node/Job/image/clock/RBAC and retainer bindings remain 4e_export_placement_inputs.",
+        "The placement checker implements authoritative Job/Pod/Node/full-census capture with the single checker; final node/Job/image/clock/RBAC and retainer bindings remain 4e_export_placement_inputs.",
     ),
     (
         "controller_phase_capture",

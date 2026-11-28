@@ -9,7 +9,7 @@ docker compose -f deploy/local/compose.yaml ps
 
 It disables persistence because local integration state must not survive a clean test teardown. The gateway fails startup when the default Redis coordinator cannot be reached. Stop and remove it with `docker compose -f deploy/local/compose.yaml down`; do not use the local no-auth configuration on a shared host.
 
-INF-005 provides a CPU-only fake streaming backend without Docker:
+Run the CPU-only fake streaming backend without Docker:
 
 ```powershell
 uv run --project python --locked python -m inference_platform.fake_backend --config deploy/local/fake-backend-a.json --host 127.0.0.1 --port 8001
@@ -31,4 +31,4 @@ Copy-Item deploy/local/cache-salt.secret.example deploy/local/cache-salt.secret
 
 `GET /metrics` exposes deterministic vLLM-shaped `vllm:num_requests_running`, `vllm:num_requests_waiting`, and `vllm:kv_cache_usage_perc` gauges. Running reflects active fake requests; waiting and KV occupancy remain zero because the CPU fixture does not model a scheduler or cache. These gauges validate collector mechanics and freshness only, not real GPU behavior.
 
-The default `stream_framing: vllm` shape emits an initial `role` plus empty `content` delta and may attach `finish_reason` to the final content chunk. `stream_framing: separate_finish` retains the earlier explicit finish-event shape. The strict JSON configuration also supports first-item/inter-chunk delays and `http_error`, `invalid_content_type`, `close_before_first_item`, `malformed_first_item`, `invalid_first_item`, `malformed_after_chunks`, `close_after_chunks`, and `stall_after_chunks` failure modes. Duplicate request IDs return `409` rather than merging observations. Backend shutdown and client cancellation have distinct terminals. These responses are deterministic test fixtures, not performance evidence; the exact pinned vLLM bytes are still rechecked in INF-011.
+The default `stream_framing: vllm` shape emits an initial `role` plus empty `content` delta and may attach `finish_reason` to the final content chunk. `stream_framing: separate_finish` retains the earlier explicit finish-event shape. The strict JSON configuration also supports first-item/inter-chunk delays and `http_error`, `invalid_content_type`, `close_before_first_item`, `malformed_first_item`, `invalid_first_item`, `malformed_after_chunks`, `close_after_chunks`, and `stall_after_chunks` failure modes. Duplicate request IDs return `409` rather than merging observations. Backend shutdown and client cancellation have distinct terminals. These responses are deterministic test fixtures, not performance evidence; the separate GPU calibration exercises the pinned vLLM image.

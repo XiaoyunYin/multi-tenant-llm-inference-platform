@@ -7,7 +7,9 @@ import re
 import tarfile
 from pathlib import Path
 
-PREFIX = "INF-060 NATIVE PROBE PLAN APPROVED"
+import inf061_packet as benchmark
+
+PREFIX = "NATIVE PROBE PLAN APPROVED"
 SCHEMA = "inf060-native-probe-v1"
 HOST_TIMER_S = 4200
 CLEANUP_S = 600
@@ -234,8 +236,13 @@ def approval(review, manifest, digest):
     next_heading = re.search(r"(?m)^## ", latest)
     if next_heading:
         latest = latest[: next_heading.start()]
-    rows = [line for line in latest.splitlines() if line.startswith(PREFIX)]
-    expected = f"{PREFIX} manifest={digest} plan={manifest['sealed_plans']['create_sha256']} source={manifest['source_commit']}"
+    prefix = benchmark.PREFIX if benchmark.is_benchmark(manifest) else PREFIX
+    rows = [line for line in latest.splitlines() if line.startswith(prefix)]
+    expected = (
+        benchmark.approval_line(manifest, digest)
+        if benchmark.is_benchmark(manifest)
+        else f"{PREFIX} manifest={digest} plan={manifest['sealed_plans']['create_sha256']} source={manifest['source_commit']}"
+    )
     check(rows == [expected] and review.count(expected) == 1, "approval_marker")
     check(
         re.search(r"(?m)^- Verdict: (?:\*\*)?NO_BLOCKING_FINDINGS\b", latest),
@@ -243,24 +250,62 @@ def approval(review, manifest, digest):
     )
 
 
-def verify_plan(raw, values, userdata):
+def verify_plan(
+    raw, values, userdata, *, timer=HOST_TIMER_S, zone=ZONE, open_capacity=False
+):
     check(
         raw.get("applyable") and raw.get("complete") and not raw.get("errored"),
         "plan_incomplete",
     )
     changes = {r["address"]: r["change"] for r in raw["resource_changes"]}
     check(
-        set(changes) == RESOURCES
+        set(changes)
+        == RESOURCES
+        | ({"aws_launch_template.native_capacity"} if open_capacity else set())
         and all(r["actions"] == ["create"] for r in changes.values()),
         "plan_resource_scope",
     )
     current = {k: v["value"] for k, v in raw["variables"].items()}
     check(current == values, "plan_variables")
+    if "provider_attempts" in values:
+        expressions = raw["configuration"]["provider_config"]["aws"]["expressions"]
+        check(
+            expressions["max_retries"]["references"] == ["var.provider_attempts"],
+            "benchmark_provider_attempts_binding",
+        )
 
     def after(address):
         return changes[address]["after"]
 
     vm = after("aws_instance.task[0]")
+    if open_capacity:
+        template = after("aws_launch_template.native_capacity")
+        [placement] = template["placement"]
+        [reservation] = template["capacity_reservation_specification"]
+        instance_expr = next(
+            row["expressions"]
+            for row in raw["configuration"]["root_module"]["resources"]
+            if row["address"] == "aws_instance.task"
+        )
+        [template_expr] = instance_expr["launch_template"]
+        check(
+            template["name"] == values["session"] + "-capacity"
+            and template["tags"]["Session"] == values["session"]
+            and placement["availability_zone"] == zone
+            and placement["tenancy"] == "default"
+            and template["ebs_optimized"] in (False, "false")
+            and reservation["capacity_reservation_preference"]
+            == "capacity-reservations-only"
+            and not reservation.get("capacity_reservation_target")
+            and template_expr["id"]["references"]
+            == [
+                "aws_launch_template.native_capacity.id",
+                "aws_launch_template.native_capacity",
+            ]
+            and template_expr["version"]["constant_value"] == "1"
+            and "capacity_reservation_specification" not in instance_expr,
+            "capacity_template_binding",
+        )
     disk = vm["root_block_device"][0]
     check(
         vm["instance_type"] == SHAPE
@@ -282,7 +327,7 @@ def verify_plan(raw, values, userdata):
         and "Persistent=true" in userdata
         and "shutdown -h now" in userdata
         and marker in userdata
-        and vm["user_data"] == userdata.replace(marker, str(HOST_TIMER_S)),
+        and vm["user_data"] == userdata.replace(marker, str(timer)),
         "timer",
     )
     group = next(
@@ -291,7 +336,7 @@ def verify_plan(raw, values, userdata):
         if resource["address"] == "aws_security_group.task"
     )
     check(
-        after("aws_subnet.task[0]")["availability_zone"] == ZONE
+        after("aws_subnet.task[0]")["availability_zone"] == zone
         and not after("aws_security_group.task[0]").get("ingress")
         and "ingress" not in group["expressions"]
         and [row["cidr_block"] for row in after("aws_route_table.task[0]")["route"]]
@@ -305,12 +350,33 @@ def verify_plan(raw, values, userdata):
 def verify_packet(root):
     root = Path(root).resolve()
     manifest = load(root / "manifest.json")
+    native = benchmark.is_benchmark(manifest)
     check(
-        manifest["schema"] == SCHEMA
+        manifest["schema"] in {SCHEMA, benchmark.SCHEMA}
         and re.fullmatch(r"[0-9a-f]{40}", manifest["source_commit"]),
         "manifest",
     )
-    check(manifest["artifacts"].keys() == ARTIFACTS, "artifact_set")
+    if native and "capacity_hunt" in manifest:
+        from inf061_capacity import PRIMARY_ZONE, ROOTS
+
+        alternatives = {
+            f"{root}/{file}"
+            for zone, root in ROOTS.items()
+            if zone != PRIMARY_ZONE
+            for file in (
+                *TERRAFORM_FILES,
+                "create.tfplan",
+                "create.json",
+                "input.tfvars.json",
+            )
+        }
+    else:
+        alternatives = set()
+    check(
+        manifest["artifacts"].keys()
+        == (ARTIFACTS | benchmark.EXTRA | alternatives if native else ARTIFACTS),
+        "artifact_set",
+    )
     for relative, bound in manifest["artifacts"].items():
         check(facts(safe_file(root, relative)) == bound, "artifact_hash:" + relative)
     verify_engine(load(root / "engine.json"))
@@ -363,13 +429,45 @@ def verify_packet(root):
             sources[name] == manifest["artifacts"][name],
             "host_artifact_binding:" + name,
         )
-    expected = budget(
-        blob["bytes"],
-        manifest["source_floor_bps"],
-        manifest["weight_bytes"],
-        manifest["weights_floor_bps"],
-        load(root / "live-inputs.json")["rates"],
-    )
+    live = load(root / "live-inputs.json")
+    rates = live["rates"]
+    zone = ZONE
+    if native:
+        plan = load(root / "benchmark.json")
+        zone = plan["zone"]
+        check(
+            zone in benchmark.GPU_ZONES and plan["session"] == manifest["session"],
+            "benchmark_zone_session",
+        )
+        for name in benchmark.EXTRA:
+            check(
+                sources[name] == manifest["artifacts"][name], "benchmark_host_binding"
+            )
+        check(
+            plan["quality"]["source_sha256"]
+            == manifest["artifacts"]["quality.jsonl"]["sha256"],
+            "quality_binding",
+        )
+        hunt = manifest.get("capacity_hunt")
+        check(bool(hunt) == bool(plan.get("capacity_hunt")), "capacity_binding")
+        if hunt is not None:
+            from inf061_capacity import PRIMARY_ZONE, validate_binding
+
+            check(
+                zone == PRIMARY_ZONE and hunt["options"] == plan["capacity_hunt"],
+                "capacity_primary_binding",
+            )
+            validate_binding(root, manifest)
+        expected = benchmark.budget(plan, rates)
+    else:
+        expected = budget(
+            blob["bytes"],
+            manifest["source_floor_bps"],
+            manifest["weight_bytes"],
+            manifest["weights_floor_bps"],
+            rates,
+        )
+    check(zone == live["zone"] == manifest["zone"], "gpu_zone_binding")
     check(manifest["hard_cap_usd"] >= expected["forecast_usd"], "over_cap")
     check(all(manifest[k] == v for k, v in expected.items()), "budget_binding")
     cfg = load(root / "terraform/input.tfvars.json")
@@ -380,9 +478,10 @@ def verify_packet(root):
             "ami": AMI,
             "instance_type": SHAPE,
             "root_gib": 128,
-            "host_timer_seconds": HOST_TIMER_S,
+            "host_timer_seconds": expected["host_timer_seconds"],
             "session": manifest["session"],
             "source_sha256": manifest["artifacts"]["sources.json"]["sha256"],
+            **({"provider_attempts": benchmark.APPLY_ATTEMPTS} if native else {}),
         },
         "terraform_inputs",
     )
@@ -395,5 +494,8 @@ def verify_packet(root):
         load(root / "terraform/create.json"),
         cfg,
         (root / "terraform/user-data.sh").read_text(encoding="utf-8"),
+        timer=expected["host_timer_seconds"],
+        zone=zone,
+        open_capacity="capacity_hunt" in manifest,
     )
     return manifest

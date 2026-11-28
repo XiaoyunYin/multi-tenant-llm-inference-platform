@@ -1,6 +1,6 @@
 # R0 public evidence
 
-Reviewed evidence. Verified in private independent review (Rounds 72–74) and checked by a fresh-context agent claim audit. INF-047 remains incomplete: the release plan's Stage C items (instrumentation contract, re-warm curve, further event-lag capture) are not yet measured.
+Independent review and a claim audit verified this evidence. A complete re-warm curve and further event-lag capture remain unmeasured.
 
 ## GPU conditions and provenance
 
@@ -18,7 +18,7 @@ C: distinct 1,024-token prefixes, max 1 output, fixed concurrency 4, 16-token na
 
 ## CPU explanation
 
-Separately pinned at `78a1ecdb1e224cbb654dee68cd9c84e99ae4554b`: [trace](cpu-chain/trace.json), [comparison](cpu-chain/comparison.json), [environment](cpu-chain/environment.json) and [dependency lock](cpu-chain/requirements.lock.txt). These files preserve their original bytes. Harness `b9ca85b` was executed under registration `208cd03`. Private independent review (Round 72) verified that the registration preceded harness implementation and dependency setup; the parentless snapshot does not itself establish that historical order. The official `0.29.0+cpu` build's core allocator/scheduler files hash-match the release tag. With a configured 3,891-block pool, the real null reservation leaves 3,890 allocatable blocks. Cold full-input 6,144-token requests admit 10; 6,272-token requests admit 9. Ten growing requests trigger allocation refusal/free/reset/requeue/successful retry; eight grow by 128 computed KV tokens without preemption. Private independent review (Round 72) independently reproduced all six case traces. This is attributed corroboration in the private review record, not public raw reviewer data.
+Separately pinned at `78a1ecdb1e224cbb654dee68cd9c84e99ae4554b`: [trace](cpu-chain/trace.json), [comparison](cpu-chain/comparison.json), [environment](cpu-chain/environment.json) and [dependency lock](cpu-chain/requirements.lock.txt). These files preserve their original bytes. Harness `b9ca85b` was executed under registration `208cd03`. Independent review verified that the registration preceded harness implementation and dependency setup; the parentless snapshot does not itself establish that historical order. The official `0.29.0+cpu` build's core allocator/scheduler files hash-match the release tag. With a configured 3,891-block pool, the real null reservation leaves 3,890 allocatable blocks. Cold full-input 6,144-token requests admit 10; 6,272-token requests admit 9. Ten growing requests trigger allocation refusal/free/reset/requeue/successful retry; eight grow by 128 computed KV tokens without preemption. Independent review independently reproduced all six case traces. This is attributed corroboration in the private review record, not public raw reviewer data.
 
 Controls: model computation mocked, no GPU, full-input reservation, prefix caching/chunked prefill off, sequence cap 16, token budget 131,072, watermark zero, blocks of 16 tokens. This tests a project-specific plateau hypothesis. It supports KV shortage as a plausible mechanism, without proving each live preemption's cause, live timing, gateway admission, fairness, safe R/W/B for other lengths or R1 settings. CPU synthetic states and GPU aggregate measurements are not pooled.
 

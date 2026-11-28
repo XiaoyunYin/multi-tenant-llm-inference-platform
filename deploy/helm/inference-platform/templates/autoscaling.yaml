@@ -1,0 +1,32 @@
+{{- if .Values.autoscaling.enabled }}
+{{- $a := .Values.autoscaling }}
+{{- if or (lt (int $a.burstSeconds) 900) (lt (int $a.stabilizationSeconds) (int $a.burstSeconds)) (gt (int $a.stabilizationSeconds) 3600) }}
+  {{- fail "scale-down stabilization must cover the registered burst and fit the HPA limit" }}
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: vllm
+  pollingInterval: 5
+  minReplicaCount: 1
+  maxReplicaCount: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: {{ $a.stabilizationSeconds }}
+  triggers:
+    - type: prometheus
+      metricType: AverageValue
+      metadata:
+        serverAddress: http://telemetry.{{ .Values.namespace }}.svc:{{ .Values.ports.telemetry }}
+        query: 'sum(vllm:num_requests_waiting{job="vllm"})'
+        threshold: {{ required "bind autoscaling.threshold in the INF-054 registration" $a.threshold | quote }}
+        ignoreNullValues: "false"
+{{- end }}
